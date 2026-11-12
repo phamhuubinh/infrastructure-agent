@@ -181,6 +181,36 @@ def main(*, source: bool = False) -> None:
         assert not marker.exists(), (
             "Release smoke invoked a forbidden build tool or browser opener"
         )
+        if platform == "linux-x86_64":
+            headless_smoke = (
+                Path(__file__).resolve().parents[1] / "linux" / "headless_smoke.py"
+            )
+            subprocess.run(
+                [sys.executable, str(headless_smoke), str(cli)],
+                cwd=root,
+                check=True,
+            )
+        if not source:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(bundle / "payload.py"),
+                    "uninstall",
+                    "--prefix",
+                    str(prefix),
+                    "--launcher",
+                    str(launcher),
+                ],
+                cwd=root,
+                env=env,
+                check=True,
+            )
+            assert (
+                not cli.exists() and not launcher.exists() and not installed_ui.exists()
+            )
+            assert (root / "data/orion.db").is_file(), (
+                "Uninstall removed application data"
+            )
 
 
 if __name__ == "__main__":

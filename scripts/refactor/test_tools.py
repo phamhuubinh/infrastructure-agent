@@ -97,6 +97,21 @@ class AuditGateTests(unittest.TestCase):
         self.invoke("inventory.py", "--write")
         self.assertEqual(self.read_rows()[0]["review_status"], "unreviewed")
 
+    def test_local_build_output_is_excluded_but_tracked_content_is_reviewed(self):
+        local = self.root / "ui/node_modules/generated.txt"
+        local.parent.mkdir(parents=True)
+        local.write_text("local dependency")
+        native_output = self.root / "ui/src-tauri/target/generated.txt"
+        native_output.parent.mkdir(parents=True)
+        native_output.write_text("local native build output")
+        tracked = self.root / "ui/dist/tracked.txt"
+        tracked.parent.mkdir(parents=True)
+        tracked.write_text("committed fixture")
+        self.run_git("add", "ui/dist/tracked.txt")
+        rows, errors = inventory.collect(self.root)
+        self.assertFalse(errors)
+        self.assertEqual({row["path"] for row in rows}, {"source.py", "ui/dist/tracked.txt"})
+
     def test_retired_record_is_preserved_and_requires_removal_reason(self):
         self.invoke("inventory.py", "--write")
         self.approve()

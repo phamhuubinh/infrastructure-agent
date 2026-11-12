@@ -1,6 +1,12 @@
 import { operations, type OperationId, type Operations } from "./sdk/generated";
 import { ClientError } from "./sdk/client";
-import { isNativeHost, logoutServer, serverResponse } from "./server-profiles";
+import {
+  hasActiveServer,
+  isManagedServer,
+  isNativeHost,
+  logoutServer,
+  serverResponse,
+} from "./server-profiles";
 
 export const AUTH_EXPIRED_EVENT = "orion-auth-expired";
 export type AuthSession = {
@@ -11,10 +17,13 @@ export type AuthSession = {
 
 export async function getAuthSession(): Promise<AuthSession> {
   if (isNativeHost()) {
+    if (!hasActiveServer()) return { remote_access: true, authenticated: false, expires_at: null };
+    const managed = isManagedServer();
     try {
       const response = await serverResponse("doctor_api_doctor_get", {});
       await response.body?.cancel().catch(() => {});
-      return { remote_access: true, authenticated: response.ok, expires_at: null };
+      if (managed && !response.ok) throw new ClientError("response", response.status);
+      return { remote_access: !managed, authenticated: response.ok, expires_at: null };
     } catch (error) {
       if (error instanceof ClientError && error.category === "authentication") {
         return { remote_access: true, authenticated: false, expires_at: null };

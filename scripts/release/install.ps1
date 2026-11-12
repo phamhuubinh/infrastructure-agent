@@ -72,8 +72,21 @@ try {
     }
     if (-not (Test-Python $venvPython)) { throw 'Orion environment requires Python 3.12+.' }
     $package = if ($WithEmbeddings) { $wheel + '[semantic]' } else { $wheel }
-    Invoke-Required $venvPython @('-m', 'pip', 'install', $package)
-    $buildMetadata = @{ version = $manifest.version; source_sha = $manifest.commit } | ConvertTo-Json -Compress
+    $coreLock = Join-Path $bundle 'core.txt'
+    $pythonMinor = & $venvPython -c 'import sys; print(sys.version_info.minor)'
+    if ($LASTEXITCODE -ne 0) { throw 'Could not identify the Orion Python environment.' }
+    if (-not $WithEmbeddings -and $manifest.core_lock_sha256 -and $pythonMinor -eq '12') {
+        Invoke-Required $venvPython @('-m', 'pip', 'install', '--require-hashes', '-r', $coreLock)
+        Invoke-Required $venvPython @('-m', 'pip', 'install', '--no-deps', '--force-reinstall', $wheel)
+        Invoke-Required $venvPython @('-m', 'pip', 'check')
+    } else {
+        Invoke-Required $venvPython @('-m', 'pip', 'install', $package)
+    }
+    $buildMetadata = @{
+        version = $manifest.version
+        source_sha = $manifest.commit
+        source_dirty = [bool]$manifest.source_dirty
+    } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $venv '.orion-build.json'), $buildMetadata, [Text.UTF8Encoding]::new($false))
     $copyCode = 'import orion.ui_package,sys; from pathlib import Path; orion.ui_package.replace_ui_bundle(Path(sys.argv[1]),Path(sys.argv[2]))'
     Invoke-Required $venvPython @('-c', $copyCode, (Join-Path $bundle 'ui'), (Join-Path $prefixPath '.orion-ui'))

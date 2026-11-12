@@ -361,6 +361,11 @@ def test_public_cli_help_lists_operator_commands(monkeypatch, capsys) -> None:  
         "Orion\n\nUsage:\n"
         "  orion          Start Orion\n"
         "  orion web      Start Orion\n"
+        "  orion serve    Run the foreground service without opening a browser\n"
+        "  orion chat|run   Submit a prompt to a running Orion service\n"
+        "  orion request   Observe, cancel or authorize a request\n"
+        "  orion profile|project|target|command|doctor   Inspect or manage server resources\n"
+        "  orion api skill|mcp   Inspect remote or local server resources\n"
         "  orion log      Show Orion logs\n"
         "  orion auth hash-password  Generate an encoded Argon2id hash\n"
         "  orion model status embeddings   Show local E5 model status\n"
@@ -375,11 +380,12 @@ def test_public_cli_help_lists_operator_commands(monkeypatch, capsys) -> None:  
         "  orion skill update NAME DIRECTORY   Replace an installed package revision\n"
         "  orion skill enable|disable|remove NAME [--source bundled|user|project]\n"
         "  orion mcp list|doctor|test [SERVER_ID]   Inspect configured MCP servers\n"
+        "  orion session list|mode   Inspect sessions or set their mutation mode\n"
         "  orion --version  Show installed Orion version\n"
     )
     monkeypatch.setattr(sys, "argv", ["orion", "--help"])
-    with pytest.raises(SystemExit, match="Unknown Orion command"):
-        cli.main()
+    cli.main()
+    assert "orion serve" in capsys.readouterr().out
 
 
 def test_web_reuses_healthy_orion_and_rejects_other_port_occupants(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]

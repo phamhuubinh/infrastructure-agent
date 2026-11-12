@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "allowDowngrades": false
+    },
+    "icon": [
+      "../public/favicon.ico"
+    ],
+    "resources": {
+      "../../release-work/managed-backend/": "backend/"
+    }
+  }
+}

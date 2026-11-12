@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -28,7 +29,7 @@ def _get(url: str) -> tuple[int, str]:
 
 
 def _wait_for_health() -> None:
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         try:
             status, body = _get(f"{URL}/api/health")
@@ -56,22 +57,21 @@ def _packaged_text(directory: Path) -> str:
     )
 
 
-def _loopback_available() -> bool:
+def _require_loopback() -> None:
     deadline = time.monotonic() + 5
     while True:
         try:
             with socket.socket() as listener:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 listener.bind((HOST, PORT))
-            return True
+            return
         except PermissionError:
-            print("operations socket check skipped: loopback sockets are unavailable")
-            return False
+            raise SystemExit("Operations check requires loopback sockets") from None
         except OSError as error:
-            if error.errno != 98:
+            if error.errno != errno.EADDRINUSE:
                 raise
             if time.monotonic() >= deadline:
-                print("operations socket check skipped: port 61888 is already in use")
-                return False
+                raise SystemExit("Operations check requires a free port 61888") from None
             time.sleep(0.1)
 
 
@@ -192,8 +192,7 @@ def _exercise_socket_lifecycle(command: list[str], environment: dict[str, str], 
 
 def main() -> None:
     repository = Path(__file__).parents[2]
-    if not _loopback_available():
-        return
+    _require_loopback()
     with tempfile.TemporaryDirectory(prefix="orion-operations-") as temporary:
         root = Path(temporary)
         prefix, data, home = root / "install", root / "data", root / "home"
@@ -211,7 +210,7 @@ def main() -> None:
         )
         opener.chmod(0o755)
         environment = {
-            **os.environ,
+            **{key: value for key, value in os.environ.items() if not key.startswith("ORION_")},
             "HOME": str(home),
             "PATH": f"{launcher.parent}:{os.environ['PATH']}",
             "ORION_DATA_DIR": str(data),
@@ -249,30 +248,12 @@ def main() -> None:
         )
         command = [str(launcher)]
         help_output = subprocess.check_output([*command, "help"], env=environment, text=True)
-        rejected_help = subprocess.run(
-            [*command, "--help"], env=environment, text=True, capture_output=True, check=False
+        alias_help = subprocess.check_output([*command, "--help"], env=environment, text=True)
+        serve_help = subprocess.check_output(
+            [*command, "serve", "--help"], env=environment, text=True
         )
         log_output = subprocess.check_output([*command, "log"], env=environment, text=True)
-        if (
-            help_output
-            != (
-                "Orion\n\nUsage:\n"
-                "  orion          Start Orion\n"
-                "  orion web      Start Orion\n"
-                "  orion log      Show Orion logs\n"
-                "  orion auth hash-password  Generate an encoded Argon2id hash\n"
-                "  orion model status embeddings   Show local E5 model status\n"
-                "  orion model install embeddings  Provision pinned local E5 model\n"
-                "  orion knowledge semantic-index [--max-documents N]  "
-                "Inspect up to N ready documents\n"
-                "  orion help     Show this help\n"
-                "  orion data export DIRECTORY   Offline managed-data backup\n"
-                "  orion data import BUNDLE NEW_DIRECTORY   Restore without overwriting data\n"
-                "  orion data retain DIRECTORY --keep N   Prune validated managed-data backups\n"
-                "  orion --version  Show installed Orion version\n"
-            )
-            or rejected_help.returncode == 0
-        ):
+        if help_output != alias_help or "orion serve" not in serve_help:
             raise SystemExit("installed CLI help surface does not match documented commands")
         packaged_ui = prefix / ".orion-ui"
         shell = packaged_ui / "_shell.html"

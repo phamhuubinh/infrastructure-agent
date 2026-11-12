@@ -1,11 +1,15 @@
 import { useState } from "react";
 import {
   activeServer,
+  activateManagedServer,
   activateServer,
+  hasActiveServer,
+  hasManagedServer,
   saveServerProfile,
   serverProfiles,
   removeServerProfile,
   isNativeHost,
+  isManagedServer,
   enrollServer,
 } from "@/lib/server-profiles";
 
@@ -20,14 +24,27 @@ export function ServerConnections() {
   return (
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
-      <p className="break-all text-sm">
-        {current.name} · {current.origin}
-      </p>
+      {hasActiveServer() && (
+        <p className="break-all text-sm">
+          {current.name} · {current.origin}
+        </p>
+      )}
       <p className="text-sm text-muted-foreground">
         Web mở server trong đúng origin đăng nhập. Ứng dụng native dùng mã kết nối do chủ server
         cấp.
       </p>
       <ul className="space-y-2">
+        {hasManagedServer() && !isManagedServer() && (
+          <li>
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              onClick={activateManagedServer}
+            >
+              Mở Orion trên máy này
+            </button>
+          </li>
+        )}
         {profiles.map((profile) => (
           <li key={profile.id} className="flex flex-wrap gap-2 items-center">
             <span>
@@ -104,7 +121,7 @@ export function ServerConnections() {
           Lưu server
         </button>
       </form>
-      {isNativeHost() && (
+      {isNativeHost() && hasActiveServer() && !isManagedServer() && (
         <form
           className="flex flex-wrap gap-2"
           onSubmit={(event) => {

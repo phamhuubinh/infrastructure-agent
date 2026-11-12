@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cancelIntent, pendingIntent, requestIntent, runIntent } from "../requests";
+import {
+  cancelIntent,
+  pendingIntent,
+  pendingObservation,
+  requestIntent,
+  runIntent,
+} from "../requests";
 import { activateServer } from "../server-profiles";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -48,6 +54,7 @@ describe("durable shared chat transport", () => {
       ),
     ).rejects.toThrow("network");
     expect(pendingIntent("unknown-session")).toBe(intent);
+    expect(pendingObservation("unknown-session")).toBeNull();
     expect(requestIntent("unknown-session", intent.content)).toBe(intent);
     expect(() => requestIntent("unknown-session", "Changed intent")).toThrow("chưa xác minh");
     await runIntent(
@@ -77,6 +84,7 @@ describe("durable shared chat transport", () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow("network");
+    expect(pendingObservation("known-session")).toBe(intent);
     await runIntent(
       intent,
       () => {},

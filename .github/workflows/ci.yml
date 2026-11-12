@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/orion-r16-r18']
   pull_request:
     branches: [main]
 
@@ -13,16 +13,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - name: Install backend
-        run: python -m pip install -e "./backend[dev]"
+        run: python scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
       - name: Check backend
+        run: python scripts/refactor/dev.py check --backend-only --python "$(command -v python)"
+      - name: Smoke installed headless Linux wheel
         run: |
-          cd backend
-          ruff check src tests
-          ruff format --check src tests
-          mypy src
-          pytest
+          python -m build --no-isolation --wheel backend --outdir "$RUNNER_TEMP/orion-headless-dist"
+          python -m venv "$RUNNER_TEMP/orion-headless"
+          "$RUNNER_TEMP/orion-headless/bin/python" -m pip install --require-hashes -r scripts/refactor/locks/core.txt
+          "$RUNNER_TEMP/orion-headless/bin/python" -m pip install --no-deps "$RUNNER_TEMP"/orion-headless-dist/orion-*.whl
+          "$RUNNER_TEMP/orion-headless/bin/python" -m pip check
+          python scripts/linux/headless_smoke.py "$RUNNER_TEMP/orion-headless/bin/orion"
 
   ui:
     runs-on: ubuntu-latest
@@ -30,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.2"
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - name: Install UI dependencies
@@ -51,18 +54,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.2"
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - name: Install backend
-        run: python -m pip install -e "./backend[dev]"
-      - name: Check generated OpenAPI
+        run: python scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
+      - name: Check generated OpenAPI and SDK
         run: |
-          python backend/scripts/openapi.py --write
-          git diff --exit-code -- ui/openapi.json
+          python backend/scripts/openapi.py
+          python backend/scripts/sdk.py
       - name: Check architecture
         run: python backend/scripts/architecture_check.py
       - name: Check operations lifecycle
@@ -74,17 +77,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: python -m pip install -e "./backend[dev]"
+          python-version-file: .python-version
+      - run: python scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
       - run: python -m playwright install --with-deps chromium
       - name: Native Linux browser and X11 fixture
-        run: ORION_NATIVE_TESTS=1 xvfb-run -a python -m pytest backend/tests/test_endpoints.py backend/tests/test_endpoint_native.py
+        run: ORION_NATIVE_TESTS=1 xvfb-run -a -s '-screen 0 1280x1024x24 -noreset' python -m pytest backend/tests/test_endpoints.py backend/tests/test_endpoint_native.py
       - name: Build lightweight worker artifacts
         run: |
-          python -m build --wheel worker --outdir release-work/worker-dist
+          python -m build --no-isolation --wheel worker --outdir release-work/worker-dist
           python scripts/worker/payload.py --wheel release-work/worker-dist/orion_worker-*-py3-none-any.whl --output release-work/worker-artifacts
       - name: Smoke archived Linux worker
         run: |
+          (cd release-work/worker-artifacts && sha256sum -c SHA256SUMS)
           mkdir -p release-work/extracted
           tar -xzf release-work/worker-artifacts/orion-worker-*-linux-x86_64.tar.gz -C release-work/extracted
           python scripts/worker/smoke.py release-work/extracted/orion-worker-*-linux-x86_64
@@ -93,3 +97,57 @@ jobs:
           python scripts/worker/portable.py --output release-work/portable
           tar -xzf release-work/portable/OrionRemote-*-linux-x86_64.tar.gz -C release-work/extracted
           ORION_PORTABLE_BROWSER_TESTS=1 python scripts/worker/portable_smoke.py release-work/extracted/OrionRemote-*-linux-x86_64
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build Android debug APK
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          test -d "$NDK_HOME"
+          (cd src-tauri && rustup target add aarch64-linux-android)
+          npm ci
+          npm exec -- tauri android init --ci --skip-targets-install
+          npm exec -- tauri android build --ci --debug --apk --target aarch64
+      - name: Verify Android archive
+        run: |
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
+          test -n "$apk"
+          unzip -tq "$apk"
+          unzip -Z1 "$apk" | awk '/^lib\/arm64-v8a\/[^/]+\.so$/ { found=1 } END { exit !found }'
+          sha256sum "$apk"
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Build iOS simulator app
+        run: |
+          xcrun --sdk iphonesimulator --show-sdk-version
+          (cd src-tauri && rustup target add aarch64-apple-ios-sim)
+          npm ci
+          npm exec -- tauri ios init --ci --skip-targets-install
+          npm exec -- tauri ios build --ci --debug --target aarch64-sim

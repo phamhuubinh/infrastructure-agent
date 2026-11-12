@@ -5,11 +5,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import locale
+import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -76,6 +81,13 @@ def verify(root: Path, platform: str) -> dict[str, object]:
         wheel,
         *{f"ui/{name}" for name in expected_ui},
     }
+    core_hash = manifest.get("core_lock_sha256")
+    if core_hash is not None:
+        if not isinstance(core_hash, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", core_hash
+        ):
+            raise ValueError("Invalid runtime dependency lock digest")
+        expected_entries.add("core.txt")
     actual_entries = {
         path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()
     }
@@ -88,7 +100,68 @@ def verify(root: Path, platform: str) -> dict[str, object]:
         raise ValueError("Wheel SHA-256 mismatch")
     if inventory(root / "ui") != expected_ui:
         raise ValueError("Packaged UI SHA-256 mismatch")
+    if core_hash is not None and digest(root / "core.txt") != core_hash:
+        raise ValueError("Runtime dependency lock SHA-256 mismatch")
     return manifest
+
+
+def uninstall(prefix: Path, launcher: Path | None) -> None:
+    prefix = prefix.absolute()
+    if prefix != prefix.resolve() or prefix == Path(prefix.anchor):
+        raise ValueError("Uninstall requires an ordinary installation prefix")
+    environment, frontend = prefix / ".venv", prefix / ".orion-ui"
+    marker = environment / ".orion-build.json"
+    for path in (environment, frontend, marker):
+        if path != path.resolve():
+            raise ValueError("Uninstall does not follow links or junctions")
+    if not marker.is_file():
+        raise ValueError("Installation marker is missing")
+    metadata = json.loads(marker.read_text(encoding="utf-8"))
+    if (
+        not isinstance(metadata, dict)
+        or not isinstance(metadata.get("version"), str)
+        or not VERSION_PATTERN.fullmatch(metadata["version"])
+        or not isinstance(metadata.get("source_sha"), str)
+        or not re.fullmatch(r"[0-9a-f]{40}", metadata["source_sha"])
+    ):
+        raise ValueError("Installation marker is invalid")
+    if Path(sys.prefix).resolve().is_relative_to(environment):
+        raise ValueError("Run uninstall using Python outside the Orion installation")
+    for key in ("ORION_DATA_DIR", "ORION_DATABASE_PATH", "ORION_LOG_PATH"):
+        if configured := os.environ.get(key):
+            data = Path(configured).expanduser().resolve()
+            if any(data.is_relative_to(owned) for owned in (environment, frontend)):
+                raise ValueError(
+                    f"Move {key} outside the install-owned directories first"
+                )
+    if launcher is not None:
+        launcher = launcher.absolute()
+        if launcher != launcher.resolve() or launcher.name not in {
+            "orion",
+            "orion.cmd",
+        }:
+            raise ValueError("Uninstall requires an ordinary Orion launcher")
+        encoding = locale.getencoding() if launcher.suffix else "utf-8"
+        lines = launcher.read_text(encoding=encoding).splitlines()
+        executable = environment / (
+            "Scripts/orion.exe" if launcher.suffix else "bin/orion"
+        )
+        if launcher.suffix:
+            expected = f'"{str(executable).replace("%", "%%")}" %*'
+            valid = (
+                lines[:1] == ["@REM Orion managed launcher"] and lines[-1] == expected
+            )
+        else:
+            valid = lines[1:2] == ["# Orion managed launcher"] and shlex.split(
+                lines[-1]
+            ) == ["exec", str(executable), "$@"]
+        if not valid:
+            raise ValueError("Launcher is not managed by this Orion installation")
+    if frontend.exists():
+        shutil.rmtree(frontend)
+    shutil.rmtree(environment)
+    if launcher is not None:
+        launcher.unlink()
 
 
 def _add_tar(archive: tarfile.TarFile, root: Path, name: str, path: Path) -> None:
@@ -117,11 +190,11 @@ def _archive(root: Path, output: Path, platform: str) -> None:
             ) as compressed,
             tarfile.open(fileobj=compressed, mode="w") as archive,
         ):
-            for path in sorted(root.rglob("*")):
+            for path in sorted(root.rglob("*"), key=Path.as_posix):
                 _add_tar(archive, root, root.name, path)
     else:
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for path in sorted(root.rglob("*")):
+            for path in sorted(root.rglob("*"), key=Path.as_posix):
                 if not path.is_file():
                     continue
                 entry = zipfile.ZipInfo(
@@ -133,14 +206,17 @@ def _archive(root: Path, output: Path, platform: str) -> None:
                 archive.writestr(entry, path.read_bytes())
 
 
-def build(repository: Path, wheel: Path, ui: Path, output: Path) -> list[Path]:
+def build(
+    repository: Path, wheel: Path, ui: Path, output: Path, *, allow_dirty: bool = False
+) -> list[Path]:
     repository = repository.resolve()
     status = subprocess.check_output(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=repository,
         text=True,
     )
-    if status.strip():
+    dirty = bool(status.strip())
+    if dirty and not allow_dirty:
         raise ValueError("Release build requires a clean checkout")
     commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repository, text=True
@@ -160,35 +236,46 @@ def build(repository: Path, wheel: Path, ui: Path, output: Path) -> list[Path]:
     result: list[Path] = []
     for platform, installer in PLATFORMS.items():
         name = f"orion-{version}-{platform}"
-        root = output / name
-        if root.exists():
-            shutil.rmtree(root)
-        root.mkdir()
-        shutil.copy2(wheel, root / wheel.name)
-        shutil.copytree(ui, root / "ui")
-        shutil.copy2(repository / "scripts/release/payload.py", root / "payload.py")
-        shutil.copy2(repository / "scripts/release" / installer, root / installer)
-        if platform == "linux-x86_64":
-            (root / installer).chmod(0o755)
-        manifest = {
-            "version": version,
-            "commit": commit,
-            "platform": platform,
-            "artifact": f"{name}{'.tar.gz' if platform == 'linux-x86_64' else '.zip'}",
-            "wheel": wheel.name,
-            "wheel_sha256": digest(root / wheel.name),
-            "ui_files": ui_files,
-        }
-        (root / "release-manifest.json").write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        verify(root, platform)
         suffix = ".tar.gz" if platform == "linux-x86_64" else ".zip"
         artifact = output / f"{name}{suffix}"
-        _archive(root, artifact, platform)
+        with tempfile.TemporaryDirectory(
+            prefix=".orion-release-", dir=output
+        ) as temporary:
+            stage = Path(temporary)
+            root = stage / name
+            root.mkdir()
+            shutil.copy2(wheel, root / wheel.name)
+            shutil.copytree(ui, root / "ui")
+            shutil.copy2(repository / "scripts/release/payload.py", root / "payload.py")
+            shutil.copy2(repository / "scripts/release" / installer, root / installer)
+            shutil.copy2(
+                repository / "scripts/refactor/locks/core.txt", root / "core.txt"
+            )
+            manifest = {
+                "version": version,
+                "commit": commit,
+                "source_dirty": dirty,
+                "platform": platform,
+                "artifact": artifact.name,
+                "wheel": wheel.name,
+                "wheel_sha256": digest(root / wheel.name),
+                "core_lock_sha256": digest(root / "core.txt"),
+                "ui_files": ui_files,
+            }
+            (root / "release-manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            verify(root, platform)
+            staged_archive = stage / artifact.name
+            _archive(root, staged_archive, platform)
+            staged_archive.replace(artifact)
         result.append(artifact)
     (output / "SHA256SUMS").write_text(
-        "".join(f"{digest(path)}  {path.name}\n" for path in result), encoding="utf-8"
+        "".join(f"{digest(path)}  {path.name}\n" for path in result),
+        encoding="utf-8",
+        newline="\n",
     )
     return result
 
@@ -201,16 +288,30 @@ def main() -> None:
     builder.add_argument("--wheel", type=Path, required=True)
     builder.add_argument("--ui", type=Path, required=True)
     builder.add_argument("--output", type=Path, required=True)
+    builder.add_argument(
+        "--allow-dirty", action="store_true", help="Local artifact validation only."
+    )
     verifier = commands.add_parser("verify")
     verifier.add_argument("--root", type=Path, required=True)
     verifier.add_argument("--platform", choices=PLATFORMS, required=True)
+    remover = commands.add_parser("uninstall")
+    remover.add_argument("--prefix", type=Path, required=True)
+    remover.add_argument("--launcher", type=Path)
     args = parser.parse_args()
     try:
         if args.command == "build":
-            for path in build(args.repository, args.wheel, args.ui, args.output):
+            for path in build(
+                args.repository,
+                args.wheel,
+                args.ui,
+                args.output,
+                allow_dirty=args.allow_dirty,
+            ):
                 print(path)
-        else:
+        elif args.command == "verify":
             verify(args.root, args.platform)
+        else:
+            uninstall(args.prefix, args.launcher)
     except (
         ValueError,
         OSError,

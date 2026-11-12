@@ -1,3 +1,4 @@
+import { newUuid } from "./uuid";
 import { ClientError, OrionClient, type SecureTokenStore } from "./sdk/client";
 import { type OperationId, type Operations } from "./sdk/generated";
 
@@ -7,9 +8,12 @@ export type NativeHost = {
   fetch: typeof fetch;
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
+  managedBackend?: { origin: string; fetch: typeof fetch };
 };
 const storageKey = "orion-server-profiles-v1";
+const managedId = "orion-managed-local";
 let nativeHost: NativeHost | null = null;
+let managedServer: ServerProfile | null = null;
 let selected: ServerProfile | null = null;
 let client: OrionClient | null = null;
 let lifetime = new AbortController();
@@ -27,14 +31,45 @@ window.addEventListener("orion-auth-expired", () => {
 /** Called by the trusted platform entry, never inferred from user agents or localStorage. */
 export function installNativeHost(host: NativeHost) {
   if (client || nativeHost) throw new ClientError("configuration");
+  if (host.managedBackend) {
+    const origin = new OrionClient({ origin: host.managedBackend.origin, mode: "browser" }).origin;
+    if (
+      host.platform !== "windows" ||
+      !/^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
+      typeof host.managedBackend.fetch !== "function"
+    ) {
+      throw new ClientError("configuration");
+    }
+    managedServer = { id: managedId, name: "Orion trên máy này", origin };
+  }
   nativeHost = host;
 }
 
 export function isNativeHost() {
   return nativeHost !== null;
 }
+
+export function isMobileHost() {
+  return nativeHost?.platform === "android" || nativeHost?.platform === "ios";
+}
+
+export function hasActiveServer() {
+  return !nativeHost || selected !== null || managedServer !== null;
+}
+
 export function activeServer(): ServerProfile {
-  return selected ?? { id: "browser", name: "Server hiện tại", origin: window.location.origin };
+  return (
+    selected ??
+    managedServer ?? { id: "browser", name: "Server hiện tại", origin: window.location.origin }
+  );
+}
+
+export function hasManagedServer() {
+  return managedServer !== null;
+}
+
+export function isManagedServer() {
+  return managedServer !== null && selected === null;
 }
 
 function canonical(profile: ServerProfile): ServerProfile {
@@ -43,6 +78,7 @@ function canonical(profile: ServerProfile): ServerProfile {
     typeof profile.name !== "string" ||
     typeof profile.origin !== "string" ||
     !profile.id ||
+    profile.id === managedId ||
     profile.id.length > 128 ||
     !profile.name.trim() ||
     profile.name.length > 120
@@ -73,8 +109,11 @@ export function serverProfiles(): ServerProfile[] {
 export function saveServerProfile(name: string, origin: string): ServerProfile {
   const profiles = serverProfiles();
   if (profiles.length >= 16) throw new ClientError("configuration");
-  const profile = canonical({ id: crypto.randomUUID(), name, origin });
-  if (profiles.some((item) => item.origin === profile.origin))
+  const profile = canonical({ id: newUuid(), name, origin });
+  if (
+    profile.origin === managedServer?.origin ||
+    profiles.some((item) => item.origin === profile.origin)
+  )
     throw new ClientError("configuration");
   localStorage.setItem(storageKey, JSON.stringify([...profiles, profile]));
   return profile;
@@ -90,11 +129,21 @@ export function removeServerProfile(id: string) {
 
 export function activateServer(profile: ServerProfile) {
   const next = canonical(profile);
+  if (next.origin === managedServer?.origin) throw new ClientError("configuration");
   if (!nativeHost && next.origin !== window.location.origin) {
     // Browser sessions remain bound to their server origin; no cross-origin cookie/CORS bypass.
     window.location.assign(next.origin);
     return;
   }
+  selectServer(next);
+}
+
+export function activateManagedServer() {
+  if (!managedServer) throw new ClientError("configuration");
+  selectServer(null);
+}
+
+function selectServer(next: ServerProfile | null) {
   lifetime.abort();
   client?.dispose();
   lifetime = new AbortController();
@@ -104,22 +153,32 @@ export function activateServer(profile: ServerProfile) {
 }
 
 export function serverClient(): OrionClient {
-  if (!client) {
-    const origin = activeServer().origin;
-    client = nativeHost
-      ? new OrionClient({ origin, mode: "native", ...nativeHost })
+  if (!hasActiveServer()) throw new ClientError("configuration");
+  if (client) return client;
+  const origin = activeServer().origin;
+  if (nativeHost) {
+    const managed = isManagedServer() ? nativeHost.managedBackend : undefined;
+    client = managed
+      ? new OrionClient({ origin, mode: "managed", fetch: managed.fetch })
       : new OrionClient({
           origin,
-          mode: "browser",
-          fetch: async (url, init) => {
-            const target = new URL(String(url));
-            if (target.origin !== window.location.origin) throw new ClientError("configuration");
-            return globalThis.fetch(target.pathname + target.search, {
-              ...init,
-              method: init?.method === "GET" ? undefined : init?.method,
-            });
-          },
+          mode: "native",
+          fetch: nativeHost.fetch,
+          tokens: nativeHost.tokens,
         });
+  } else {
+    client = new OrionClient({
+      origin,
+      mode: "browser",
+      fetch: async (url, init) => {
+        const target = new URL(String(url));
+        if (target.origin !== window.location.origin) throw new ClientError("configuration");
+        return globalThis.fetch(target.pathname + target.search, {
+          ...init,
+          method: init?.method === "GET" ? undefined : init?.method,
+        });
+      },
+    });
   }
   return client;
 }
@@ -173,12 +232,13 @@ export async function serverResponse<K extends OperationId>(
 }
 
 export async function enrollServer(code: string, name: string) {
-  if (!nativeHost) throw new ClientError("configuration");
+  if (!nativeHost || isManagedServer()) throw new ClientError("configuration");
   await serverClient().enroll(code, name, nativeHost.platform);
   window.dispatchEvent(new Event(SERVER_CHANGED_EVENT));
 }
 
 export async function logoutServer() {
+  if (isManagedServer()) throw new ClientError("configuration");
   lifetime.abort();
   lifetime = new AbortController();
   try {

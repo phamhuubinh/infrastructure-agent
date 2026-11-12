@@ -7,6 +7,87 @@ afterEach(() => {
 });
 
 describe("server profile isolation", () => {
+  it("opens native remote setup without contacting the WebView origin", async () => {
+    const profiles = await import("../server-profiles");
+    const { getAuthSession } = await import("../api");
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const get = vi.fn(async () => null);
+    profiles.installNativeHost({
+      platform: "android",
+      fetch,
+      tokens: { get, set: vi.fn(), clear: vi.fn() },
+    });
+    expect(await getAuthSession()).toEqual({
+      remote_access: true,
+      authenticated: false,
+      expires_at: null,
+    });
+    expect(() => profiles.serverClient()).toThrow("configuration");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it("uses the managed bridge only for the bundled server and keeps remote auth separate", async () => {
+    const profiles = await import("../server-profiles");
+    const { getAuthSession } = await import("../api");
+    const origin = "http://127.0.0.1:49821";
+    const fetchLocal = vi.fn<typeof fetch>().mockImplementation(async () => new Response("{}"));
+    const fetchRemote = vi.fn<typeof fetch>();
+    const get = vi.fn(async () => null);
+    const tokens = { get, set: vi.fn(), clear: vi.fn() };
+    expect(() =>
+      profiles.installNativeHost({
+        platform: "windows",
+        fetch: fetchRemote,
+        tokens,
+        managedBackend: { origin: "https://remote.example", fetch: fetchLocal },
+      }),
+    ).toThrow("configuration");
+    profiles.installNativeHost({
+      platform: "windows",
+      fetch: fetchRemote,
+      tokens,
+      managedBackend: { origin, fetch: fetchLocal },
+    });
+
+    expect(profiles.activeServer().origin).toBe(origin);
+    expect(await getAuthSession()).toEqual({
+      remote_access: false,
+      authenticated: true,
+      expires_at: null,
+    });
+    expect(fetchLocal).toHaveBeenCalledWith(
+      `${origin}/api/doctor`,
+      expect.objectContaining({
+        credentials: "omit",
+        redirect: "error",
+      }),
+    );
+    expect(get).not.toHaveBeenCalled();
+    expect(() => profiles.saveServerProfile("Duplicate", origin)).toThrow("configuration");
+    await expect(profiles.enrollServer("code", "desktop")).rejects.toThrow("configuration");
+    await expect(profiles.logoutServer()).rejects.toThrow("configuration");
+
+    const context = profiles.serverContext();
+    const remote = profiles.saveServerProfile("Remote", "https://remote.example");
+    profiles.activateServer(remote);
+    expect(context.aborted).toBe(true);
+    expect(await getAuthSession()).toEqual({
+      remote_access: true,
+      authenticated: false,
+      expires_at: null,
+    });
+    expect(get).toHaveBeenCalledWith(remote.origin);
+    expect(fetchRemote).not.toHaveBeenCalled();
+    expect(fetchLocal).toHaveBeenCalledTimes(1);
+    expect(profiles.serverProfiles()).toEqual([remote]);
+
+    profiles.activateManagedServer();
+    expect(profiles.activeServer().origin).toBe(origin);
+    await getAuthSession();
+    expect(fetchLocal).toHaveBeenCalledTimes(2);
+  });
+
   it("aborts legacy JSON body consumption when switching even to the same origin", async () => {
     const profiles = await import("../server-profiles");
     const cancel = vi.fn();

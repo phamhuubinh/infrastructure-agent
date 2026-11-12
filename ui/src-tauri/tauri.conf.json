@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Orion",
+  "mainBinaryName": "Orion",
+  "identifier": "io.orion.desktop",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "features": [
+      "desktop"
+    ],
+    "frontendDist": "../dist/client"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-src 'none'; object-src 'none'; base-uri 'self'",
+      "capabilities": [
+        {
+          "identifier": "orion-main",
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "allow-orion-host",
+            "allow-orion-prepare",
+            "allow-orion-start",
+            "allow-orion-read",
+            "allow-orion-close",
+            "allow-orion-vault-get",
+            "allow-orion-vault-set",
+            "allow-orion-vault-clear"
+          ]
+        }
+      ]
+    }
+  }
+}

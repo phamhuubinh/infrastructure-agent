@@ -1,0 +1,14 @@
+[Unit]
+Description=Orion headless service
+After=network.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/share/orion-install/.venv/bin/orion serve
+UMask=0077
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=150
+
+[Install]
+WantedBy=default.target

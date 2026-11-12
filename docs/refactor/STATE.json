@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "phase": "implementation_in_progress",
-  "scope": "R00-R13 complete at documented source/fixture/static-web scope. R13 final115 UI tests/type/lint/packaged web and actual browser Stop pass; full backend1600pass6Windows-hostPOSIXfail17skip23subtests, backend unchanged after final UI repair. Native/live/mobile/signing and R14-R21 implementation remain open.",
+  "scope": "R00-R15 complete at documented scope. R15 Tauri debug installer and portable run on Windows. R18 locked server/worker artifact lifecycle passes on Windows and Ubuntu. Mobile, release signing and live-provider gates remain open.",
   "providers": [
     "deepseek",
     "claude",
     "openai"
   ],
-  "current_task": null,
-  "next_action": "User requested R13 closure and commit/push only. R13 complete; R14/R18 are ready for a future continuation. Do not start R14 as part of this closure. Preserve native/live/mobile/signing gates and exact six Windows-host POSIX failures.",
+  "current_task": "R16",
+  "next_action": "Wire the Android Tauri shell to the shared SDK and Android Keystore vault, then verify device picker, keyboard and lifecycle with an SDK/NDK-enabled runner. Continue R17 and the R18 native matrix independently.",
   "work_items": [
     {
       "id": "R00",
@@ -479,8 +479,14 @@
         "R11",
         "R12"
       ],
-      "status": "todo",
-      "evidence": [],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "headless_cli_service_source_and_fixture",
+          "path": "docs/refactor/evidence/R14_SESSION_2026-11-05.md",
+          "result": "Headless serve and scoped owner CLI, 11 CLI tests, and an exact wheel installed in fresh Ubuntu venv passing local provider chat, SIGINT cancellation and persistence after restart. R26 tracks full release artifact and worker acceptance."
+        }
+      ],
       "blockers": []
     },
     {
@@ -491,8 +497,14 @@
         "R12",
         "R13"
       ],
-      "status": "todo",
-      "evidence": [],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "managed_backend_and_sidecar_recipe",
+          "path": "docs/refactor/evidence/R15_SESSION_2026-11-10.md",
+          "result": "Tauri source, Windows process and credential IPC, NSIS and portable recipes complete. 119 UI tests and six Windows Rust tests pass. Exact native Windows debug installer and portable both pass WebView2, chat/Stop, single instance, remote enrollment/logout and clean shutdown. NSIS reinstall/uninstall preserves database. Release artifact and signing gates are separate."
+        }
+      ],
       "blockers": []
     },
     {
@@ -502,8 +514,14 @@
         "R12",
         "R13"
       ],
-      "status": "todo",
-      "evidence": [],
+      "status": "in_progress",
+      "evidence": [
+        {
+          "kind": "shared_mobile_host_and_chat_lifecycle",
+          "path": "docs/refactor/evidence/R16_SESSION_2026-11-11.md",
+          "result": "Shared remote-only host, Android JSON IPC fixture, mobile observation resume, 124 UI tests, and Android Keystore vault source checked with Java 17 and an Android API jar. Android Tauri host, remote transport and vault IPC are wired in source. APK, emulator and device verification remain open because SDK/NDK are absent."
+        }
+      ],
       "blockers": []
     },
     {
@@ -513,8 +531,14 @@
         "R12",
         "R13"
       ],
-      "status": "todo",
-      "evidence": [],
+      "status": "in_progress",
+      "evidence": [
+        {
+          "kind": "ios_host_keychain_source_and_fixture",
+          "path": "docs/refactor/evidence/R17_SESSION_2026-11-12.md",
+          "result": "iOS Tauri host, native TLS and Keychain adapters are wired in source. Keychain API type check for the iOS simulator target and shared JSON IPC fixtures pass. Full app and R28 runtime verification require macOS/Xcode."
+        }
+      ],
       "blockers": []
     },
     {
@@ -523,8 +547,19 @@
       "depends_on": [
         "R02"
       ],
-      "status": "todo",
-      "evidence": [],
+      "status": "in_progress",
+      "evidence": [
+        {
+          "kind": "headless_wheel_and_contract_gates",
+          "path": "docs/refactor/evidence/R14_SESSION_2026-11-05.md",
+          "result": "Linux CI and archived release smoke definitions use the installed CLI and local provider; CI/release verify OpenAPI and SDK drift. Removed obsolete Bun configuration and lock after reviewing callers. Remaining R18 automation, locks, artifact and release lifecycle work is open."
+        },
+        {
+          "kind": "locked_automation_windows_archives",
+          "path": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
+          "result": "Locked automation, 227 Windows regressions, server/worker archive install and runtime on Windows and Ubuntu, frozen worker pairing/commands/cleanup on both, and 26 Ubuntu source operations/payload tests. Android APK and iOS simulator build jobs are defined and checked locally as workflow source; hosted execution and mobile runtime remain open."
+        }
+      ],
       "blockers": []
     },
     {
@@ -623,7 +658,13 @@
         "R18"
       ],
       "status": "todo",
-      "evidence": [],
+      "evidence": [
+        {
+          "kind": "windows_native_unsigned_desktop_candidates",
+          "path": "docs/refactor/evidence/R15_SESSION_2026-11-10.md",
+          "result": "Exact unsigned debug NSIS and portable passed native Windows WebView2 smoke; same-version NSIS repair and uninstall preserved data. Final release-version update, worker scope and R18 dependency remain open."
+        }
+      ],
       "blockers": []
     },
     {
@@ -639,6 +680,16 @@
           "kind": "runner_available_source_fixtures",
           "path": "docs/refactor/evidence/R09_QEMU_LINUX_2026-10-31.json",
           "result": "Owned actual Linux guest now available; source SSH/process/POSIX credential fixtures executed. Exact CLI/service/worker artifacts await R14/R18; gate remains incomplete."
+        },
+        {
+          "kind": "native_linux_installed_wheel_smoke",
+          "path": "docs/refactor/evidence/R14_SESSION_2026-11-05.md",
+          "result": "Exact backend wheel installed in a fresh Ubuntu venv; real POSIX SIGINT, request cancellation, restart persistence and systemd user startup/clean stop passed. Archived release and worker lifecycle remain open."
+        },
+        {
+          "kind": "native_linux_exact_archive_smokes",
+          "path": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
+          "result": "Exact server and worker tarballs and Linux frozen worker passed Ubuntu x86_64 lifecycle checks. Optional browser/desktop scope and the R18 prerequisite remain open."
         }
       ],
       "blockers": []
@@ -679,17 +730,19 @@
     }
   ],
   "checkpoint": {
-    "local_date": "2026-11-02",
+    "local_date": "2026-11-12",
     "recovery_path": "F:/Orion-recovery/20261029-before-refactor",
-    "test_python": "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
-    "report": "docs/refactor/evidence/R13_CLOSURE_2026-11-02.json",
+    "test_python": "F:/Orion-toolchains/r18-python-locked/Scripts/python.exe",
+    "report": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
     "unresolved": [
-      "R14-R21 implementation and native/live/mobile/signing gates remain open; R13 closure does not implement later tasks.",
-      "Six POSIX installer/discovery failures and17skips on Windows remain visible. Historical Linux10/SSH3 fixtures are not a full Linux/native artifact pass."
+      "R16 Android host and R17 iOS host are wired in source; native verification requires Android SDK/NDK and macOS/Xcode respectively.",
+      "R16-R21 implementation, live provider, release artifacts, mobile and signing gates remain open.",
+      "R18 Linux server and worker lifecycle, and frozen Windows/Linux worker browser fixtures pass. Remaining native app matrix has separate scope.",
+      "Windows Tauri debug installer and portable verified. R25 final release candidate and R29 signing remain separate."
     ],
-    "reproduction": "R13 final115 UI tests, type/lint/package and actual browser Stop pass. Full backend1600pass6Windows-hostPOSIXfail17skip23subtests; backend source matches report. R13 source/web scope complete.",
-    "reviewed_files_at_checkpoint": 611,
-    "inventory_files_at_checkpoint": 594,
-    "next_task": "R14"
+    "reproduction": "R18 locked Windows automation and native archive tests plus R15 private managed subprocess tests; see the R18 and R15 session evidence for exact artifact scope.",
+    "reviewed_files_at_checkpoint": 655,
+    "inventory_files_at_checkpoint": 636,
+    "next_task": "R16"
   }
 }

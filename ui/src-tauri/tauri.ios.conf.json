@@ -1,0 +1,30 @@
+{
+  "build": {
+    "beforeDevCommand": {
+      "script": "npm run build",
+      "wait": true
+    }
+  },
+  "app": {
+    "security": {
+      "capabilities": [
+        {
+          "identifier": "orion-main",
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "allow-orion-host",
+            "allow-orion-prepare",
+            "allow-orion-start-mobile",
+            "allow-orion-read-mobile",
+            "allow-orion-close",
+            "allow-orion-vault-get",
+            "allow-orion-vault-set",
+            "allow-orion-vault-clear"
+          ]
+        }
+      ]
+    }
+  }
+}
