@@ -28,7 +28,7 @@ def main(*, source: bool = False) -> None:
     with tempfile.TemporaryDirectory(
         prefix="orion release smoke ", ignore_cleanup_errors=True
     ) as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve(strict=True)
         mock = root / "model-mock"
         mock.mkdir()
         (mock / "sitecustomize.py").write_text(

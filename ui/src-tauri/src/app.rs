@@ -388,7 +388,7 @@ pub fn run() {
         ]);
     #[cfg(target_os = "android")]
     let builder = builder.plugin(
-        tauri::plugin::Builder::new("orion-vault")
+        tauri::plugin::Builder::<_, ()>::new("orion-vault")
             .setup(|app, api| {
                 app.manage(api.register_android_plugin("io.orion.desktop", "OrionVaultPlugin")?);
                 Ok(())
