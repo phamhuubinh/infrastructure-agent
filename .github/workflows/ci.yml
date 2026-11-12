@@ -136,6 +136,43 @@ jobs:
           path: ui/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
+      - name: Build x86_64 debug APK for the emulator
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
+          (cd src-tauri && rustup target add x86_64-linux-android)
+          npm exec -- tauri android build --ci --debug --apk --target x86_64 --features desktop
+      - name: Install, launch and resume Orion on Android
+        run: |
+          image="system-images;android-35;google_apis;x86_64"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "emulator" "platform-tools" "$image"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-orion-ci-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n orion-ci -k "$image"
+          "$ANDROID_HOME/emulator/emulator" -avd orion-ci -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/orion-emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          adb="$ANDROID_HOME/platform-tools/adb"
+          timeout 240 "$adb" wait-for-device
+          for attempt in {1..90}; do
+            if [ "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
+            sleep 2
+          done
+          test "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1
+          apk=""
+          while IFS= read -r candidate; do
+            if unzip -Z1 "$candidate" | awk '/^lib\/x86_64\/[^/]+\.so$/ { found=1 } END { exit !found }'; then
+              apk="$candidate"
+              break
+            fi
+          done < <(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk')
+          test -n "$apk"
+          "$adb" install "$apk"
+          "$adb" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
+          "$adb" shell input keyevent KEYCODE_HOME
+          "$adb" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
+          "$adb" shell pidof io.orion.desktop
+
   ios:
     runs-on: macos-15
     timeout-minutes: 40
@@ -156,3 +193,22 @@ jobs:
           npm ci
           npm exec -- tauri ios init --ci --skip-targets-install
           npm exec -- tauri ios build --ci --debug --target aarch64-sim --features desktop
+
+      - name: Install and launch Orion in iOS Simulator
+        run: |
+          app="src-tauri/gen/apple/build/arm64-sim/Orion.app"
+          test -d "$app"
+          device="$(xcrun simctl list devices available -j | python3 -c 'import json, sys; devices = json.load(sys.stdin)["devices"]; print(next(device["udid"] for runtime in sorted(devices, reverse=True) if ".iOS-" in runtime for device in devices[runtime] if device["name"].startswith("iPhone") and device["isAvailable"]))')"
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")"
+          trap 'xcrun simctl shutdown "$device" || true' EXIT
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl install "$device" "$app"
+          xcrun simctl get_app_container "$device" "$bundle_id"
+          xcrun simctl launch "$device" "$bundle_id"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/orion-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orion-ios-arm64-simulator
+          path: ${{ runner.temp }}/orion-ios-simulator.zip
+          if-no-files-found: error
