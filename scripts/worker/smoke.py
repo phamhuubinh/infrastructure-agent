@@ -41,7 +41,7 @@ def smoke(root: Path) -> None:
     with tempfile.TemporaryDirectory(
         prefix="orion worker smoke with spaces "
     ) as temporary:
-        work = Path(temporary)
+        work = Path(temporary).resolve(strict=True)
         destination = work / "worker install"
         subprocess.run(
             [

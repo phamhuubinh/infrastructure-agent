@@ -53,7 +53,7 @@ def smoke(root: Path) -> None:
             [str(executable), "browser", "install"], env=isolated, check=True
         )
     with tempfile.TemporaryDirectory(prefix="portable smoke with spaces ") as temporary:
-        work = Path(temporary)
+        work = Path(temporary).resolve(strict=True)
         files = work / "allowed files"
         files.mkdir()
         policy = work / "policy.json"

@@ -160,7 +160,7 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
             PATH="",
             ORION_MODEL_ID="headless-fixture",
             ORION_MODEL_BASE_URL=f"http://127.0.0.1:{provider.server_port}/v1",
-            WEBVIEW2_USER_DATA_FOLDER=directory,
+            WEBVIEW2_USER_DATA_FOLDER=str(Path(directory).resolve(strict=True)),
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=f"--remote-debugging-port={port}",
         )
         endpoint = f"http://127.0.0.1:{port}"
@@ -263,7 +263,10 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
                         timeout=15000
                     )
                     check_remote(
-                        page, *remote_fixture(stack, Path(remote_data) / "orion.db")
+                        page,
+                        *remote_fixture(
+                            stack, Path(remote_data).resolve(strict=True) / "orion.db"
+                        ),
                     )
                 close_window(proc.pid)
                 assert proc.wait(timeout=20) == 0
