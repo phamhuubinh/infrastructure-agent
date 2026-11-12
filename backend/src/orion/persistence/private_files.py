@@ -96,6 +96,8 @@ def _windows_acl_text(path: Path) -> str:
 
 
 def _windows_dacl_sddl(descriptor: ctypes.c_void_p) -> str:
+    if sys.platform != "win32":
+        raise OSError("Windows ACLs are unavailable")
     advapi = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     string = wintypes.LPWSTR()
