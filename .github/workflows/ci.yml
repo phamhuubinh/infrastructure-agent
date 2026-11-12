@@ -148,12 +148,22 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-orion-ci-kvm.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/orion-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          df -h "$ANDROID_AVD_HOME"
           printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n orion-ci -k "$image"
-          "$ANDROID_HOME/emulator/emulator" -avd orion-ci -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect > "$RUNNER_TEMP/orion-emulator.log" 2>&1 &
+          "$ANDROID_HOME/emulator/emulator" -avd orion-ci -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -feature -Vulkan -cores 2 -memory 2048 > "$RUNNER_TEMP/orion-emulator.log" 2>&1 &
           emulator_pid=$!
-          trap 'kill "$emulator_pid" 2>/dev/null || true' EXIT
+          trap 'status=$?; kill "$emulator_pid" 2>/dev/null || true; if [ "$status" -ne 0 ]; then cat "$RUNNER_TEMP/orion-emulator.log"; fi; exit "$status"' EXIT
           adb="$ANDROID_HOME/platform-tools/adb"
-          timeout 240 "$adb" wait-for-device
+          for attempt in {1..120}; do
+            kill -0 "$emulator_pid"
+            if "$adb" get-state 2>/dev/null | grep -Fxq device; then break; fi
+            sleep 2
+          done
+          "$adb" get-state | grep -Fxq device
           for attempt in {1..90}; do
             if [ "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
             sleep 2

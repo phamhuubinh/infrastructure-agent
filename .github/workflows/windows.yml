@@ -151,48 +151,6 @@ jobs:
             Pop-Location
           }
 
-      - name: Build and exercise installed Windows desktop app
-        shell: powershell
-        run: |
-          Push-Location ui
-          try {
-            npm ci
-            if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency install failed' }
-            npm run desktop:build -- --debug --bundles nsis --no-sign
-            if ($LASTEXITCODE -ne 0) { throw 'Windows desktop bundle failed' }
-          } finally {
-            Pop-Location
-          }
-          $bundles = @(Get-ChildItem 'ui/src-tauri/target/debug/bundle/nsis' -Filter '*-setup.exe')
-          if ($bundles.Count -ne 1) { throw 'Expected one desktop installer' }
-          $installer = $bundles[0].FullName
-          Get-FileHash -LiteralPath $installer -Algorithm SHA256
-          $desktop = Join-Path $env:LOCALAPPDATA 'Orion'
-          if (Test-Path -LiteralPath $desktop) { throw 'Desktop smoke requires a fresh runner' }
-          $setup = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
-          if ($setup.ExitCode -ne 0) { throw 'Desktop install failed' }
-          try {
-            $env:PYTHONPATH = (Resolve-Path 'backend/src').Path
-            python scripts/desktop/smoke.py "$desktop/Orion.exe" "$env:RUNNER_TEMP/orion-desktop.log"
-            if ($LASTEXITCODE -ne 0) { throw 'Installed WebView2 smoke failed' }
-            $db = Join-Path $env:LOCALAPPDATA 'io.orion.desktop/managed/orion.db'
-            $databaseHash = (Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash
-          } finally {
-            $uninstall = Start-Process -FilePath "$desktop/uninstall.exe" -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
-            if ($uninstall.ExitCode -ne 0) { throw 'Desktop uninstall failed' }
-          }
-          if (Test-Path -LiteralPath "$desktop/Orion.exe") { throw 'Desktop app remained after uninstall' }
-          if ((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -ne $databaseHash) {
-            throw 'Uninstall changed the fixture database'
-          }
-      - name: Preserve desktop smoke diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-desktop-diagnostics
-          path: ${{ runner.temp }}/orion-desktop.log
-          if-no-files-found: ignore
-
       - name: Native endpoint browser and desktop fixture
         shell: powershell
         run: |
@@ -232,3 +190,51 @@ jobs:
           $env:ORION_PORTABLE_BROWSER_TESTS = '1'
           python scripts/worker/portable_smoke.py "$bundle"
           if ($LASTEXITCODE -ne 0) { throw 'Portable Windows smoke failed' }
+
+      - name: Build and exercise installed Windows desktop app
+        shell: powershell
+        run: |
+          Push-Location ui
+          try {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency install failed' }
+            npm run desktop:build -- --debug --bundles nsis --no-sign
+            if ($LASTEXITCODE -ne 0) { throw 'Windows desktop bundle failed' }
+          } finally {
+            Pop-Location
+          }
+          $bundles = @(Get-ChildItem 'ui/src-tauri/target/debug/bundle/nsis' -Filter '*-setup.exe')
+          if ($bundles.Count -ne 1) { throw 'Expected one desktop installer' }
+          $installer = $bundles[0].FullName
+          Get-FileHash -LiteralPath $installer -Algorithm SHA256
+          $desktop = Join-Path $env:LOCALAPPDATA 'Orion'
+          if (Test-Path -LiteralPath $desktop) { throw 'Desktop smoke requires a fresh runner' }
+          $setup = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
+          if ($setup.ExitCode -ne 0) { throw 'Desktop install failed' }
+          try {
+            $env:PYTHONPATH = (Resolve-Path 'backend/src').Path
+            python scripts/desktop/smoke.py "$desktop/Orion.exe" "$env:RUNNER_TEMP/orion-desktop.log"
+            if ($LASTEXITCODE -ne 0) {
+              Get-Process -Name msedgewebview2,Orion,OrionBackend -ErrorAction SilentlyContinue |
+                Select-Object ProcessName, Id, SessionId, Path | Format-Table -AutoSize
+              Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10); Level=2} -ErrorAction SilentlyContinue |
+                Select-Object -First 10 TimeCreated, ProviderName, Id, Message | Format-List
+              throw 'Installed WebView2 smoke failed'
+            }
+            $db = Join-Path $env:LOCALAPPDATA 'io.orion.desktop/managed/orion.db'
+            $databaseHash = (Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash
+          } finally {
+            $uninstall = Start-Process -FilePath "$desktop/uninstall.exe" -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
+            if ($uninstall.ExitCode -ne 0) { throw 'Desktop uninstall failed' }
+          }
+          if (Test-Path -LiteralPath "$desktop/Orion.exe") { throw 'Desktop app remained after uninstall' }
+          if ((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -ne $databaseHash) {
+            throw 'Uninstall changed the fixture database'
+          }
+      - name: Preserve desktop smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-diagnostics
+          path: ${{ runner.temp }}/orion-desktop.log
+          if-no-files-found: ignore
