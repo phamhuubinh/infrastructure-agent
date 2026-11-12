@@ -18,7 +18,7 @@ from ctypes import wintypes
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import ProxyHandler, build_opener, urlopen
 
 import uvicorn
 from orion.access import LocalAccessAdapter
@@ -164,6 +164,7 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=f"--remote-debugging-port={port}",
         )
         endpoint = f"http://127.0.0.1:{port}"
+        loopback = build_opener(ProxyHandler({}))
         with log_path.open("wb") as log:
             proc = subprocess.Popen(
                 [str(executable)],
@@ -173,18 +174,36 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
                 stderr=log,
             )
             try:
-                for _ in range(160):
+                deadline = time.monotonic() + 60
+                while True:
                     assert proc.poll() is None, (
                         f"Tauri exited before WebView readiness: {proc.returncode}"
                     )
                     try:
-                        with urlopen(endpoint + "/json/version", timeout=1) as response:
+                        with loopback.open(
+                            endpoint + "/json/version", timeout=1
+                        ) as response:
                             assert response.status == 200
                         break
-                    except OSError:
+                    except OSError as error:
+                        if time.monotonic() >= deadline:
+                            print(
+                                f"WebView2 startup timeout for Orion PID {proc.pid}: {error}"
+                            )
+                            for image in (
+                                "Orion.exe",
+                                "OrionBackend.exe",
+                                "msedgewebview2.exe",
+                            ):
+                                subprocess.run(
+                                    ["tasklist.exe", "/FI", f"IMAGENAME eq {image}"],
+                                    check=False,
+                                    timeout=10,
+                                )
+                            raise RuntimeError(
+                                "WebView2 DevTools endpoint never appeared"
+                            ) from error
                         time.sleep(0.25)
-                else:
-                    raise RuntimeError("WebView2 DevTools endpoint never appeared")
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.connect_over_cdp(
                         endpoint, timeout=12000
