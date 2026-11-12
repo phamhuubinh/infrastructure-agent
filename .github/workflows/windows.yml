@@ -213,8 +213,36 @@ jobs:
           if ($setup.ExitCode -ne 0) { throw 'Desktop install failed' }
           try {
             $env:PYTHONPATH = (Resolve-Path 'backend/src').Path
-            python scripts/desktop/smoke.py "$desktop/Orion.exe" "$env:RUNNER_TEMP/orion-desktop.log"
-            if ($LASTEXITCODE -ne 0) {
+            # Elevated WebView2 hosts ignore WEBVIEW2_* environment overrides.
+            # Apply per-executable policies only on this disposable hosted runner.
+            if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+              throw 'This WebView2 policy fixture requires a GitHub-hosted runner'
+            }
+            $env:ORION_SMOKE_WEBVIEW2_DATA_DIR = (New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP ([guid]::NewGuid()))).FullName
+            $policyRoot = 'HKLM:\Software\Policies\Microsoft\Edge\WebView2'
+            $policies = [ordered]@{
+              AdditionalBrowserArguments = '--remote-debugging-port=0'
+              UserDataFolder = $env:ORION_SMOKE_WEBVIEW2_DATA_DIR
+            }
+            $added = @()
+            try {
+              foreach ($policy in $policies.GetEnumerator()) {
+                $key = Join-Path $policyRoot $policy.Key
+                if (Get-ItemProperty -LiteralPath $key -Name 'Orion.exe' -ErrorAction SilentlyContinue) {
+                  throw "Refusing to replace existing Orion.exe policy in $key"
+                }
+                New-Item -Path $key -Force | Out-Null
+                New-ItemProperty -LiteralPath $key -Name 'Orion.exe' -Value $policy.Value -PropertyType String -ErrorAction Stop | Out-Null
+                $added += $key
+              }
+              python scripts/desktop/smoke.py "$desktop/Orion.exe" "$env:RUNNER_TEMP/orion-desktop.log"
+              $smokeExit = $LASTEXITCODE
+            } finally {
+              foreach ($key in $added) {
+                Remove-ItemProperty -LiteralPath $key -Name 'Orion.exe' -ErrorAction Stop
+              }
+            }
+            if ($smokeExit -ne 0) {
               Get-Process -Name msedgewebview2,Orion,OrionBackend -ErrorAction SilentlyContinue |
                 Select-Object ProcessName, Id, SessionId, Path | Format-Table -AutoSize
               Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-10); Level=2} -ErrorAction SilentlyContinue |

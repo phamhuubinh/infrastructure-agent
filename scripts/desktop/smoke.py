@@ -139,7 +139,7 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
         provider = stack.enter_context(
             ThreadingHTTPServer(("127.0.0.1", 0), provider_type)
         )
-        directory = stack.enter_context(
+        directory = os.getenv("ORION_SMOKE_WEBVIEW2_DATA_DIR") or stack.enter_context(
             tempfile.TemporaryDirectory(prefix="orion-webview-smoke-")
         )
         remote_data = stack.enter_context(
@@ -150,7 +150,8 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
         stack.callback(thread.join)
         stack.callback(provider.shutdown)
         stack.callback(provider_type.release.set)
-        port = free_port()
+        webview_data = Path(directory).resolve(strict=True)
+        port_file = webview_data / "EBWebView" / "DevToolsActivePort"
         environment = {
             name: value
             for name, value in os.environ.items()
@@ -160,10 +161,9 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
             PATH="",
             ORION_MODEL_ID="headless-fixture",
             ORION_MODEL_BASE_URL=f"http://127.0.0.1:{provider.server_port}/v1",
-            WEBVIEW2_USER_DATA_FOLDER=str(Path(directory).resolve(strict=True)),
-            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=f"--remote-debugging-port={port}",
+            WEBVIEW2_USER_DATA_FOLDER=str(webview_data),
+            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=0",
         )
-        endpoint = f"http://127.0.0.1:{port}"
         loopback = build_opener(ProxyHandler({}))
         with log_path.open("wb") as log:
             proc = subprocess.Popen(
@@ -175,35 +175,50 @@ def smoke(executable: Path, data_dir: Path, log_path: Path) -> None:
             )
             try:
                 deadline = time.monotonic() + 60
-                while True:
+                endpoint = None
+                startup_error = None
+                while endpoint is None and time.monotonic() < deadline:
                     assert proc.poll() is None, (
                         f"Tauri exited before WebView readiness: {proc.returncode}"
                     )
                     try:
-                        with loopback.open(
-                            endpoint + "/json/version", timeout=1
-                        ) as response:
-                            assert response.status == 200
-                        break
-                    except OSError as error:
-                        if time.monotonic() >= deadline:
-                            print(
-                                f"WebView2 startup timeout for Orion PID {proc.pid}: {error}"
-                            )
-                            for image in (
-                                "Orion.exe",
-                                "OrionBackend.exe",
-                                "msedgewebview2.exe",
-                            ):
-                                subprocess.run(
-                                    ["tasklist.exe", "/FI", f"IMAGENAME eq {image}"],
-                                    check=False,
-                                    timeout=10,
-                                )
-                            raise RuntimeError(
-                                "WebView2 DevTools endpoint never appeared"
-                            ) from error
+                        port = int(
+                            port_file.read_text(encoding="utf-8").splitlines()[0]
+                        )
+                        if not 0 < port <= 65535:
+                            raise ValueError("Invalid WebView2 debugger port")
+                        for host in ("127.0.0.1", "[::1]"):
+                            candidate = f"http://{host}:{port}"
+                            try:
+                                with loopback.open(
+                                    candidate + "/json/version", timeout=1
+                                ) as response:
+                                    assert response.status == 200
+                                endpoint = candidate
+                                break
+                            except OSError as error:
+                                startup_error = error
+                    except (OSError, ValueError, IndexError) as error:
+                        startup_error = error
+                    if endpoint is None:
                         time.sleep(0.25)
+                if endpoint is None:
+                    print(
+                        f"WebView2 startup timeout for Orion PID {proc.pid}: {startup_error}"
+                    )
+                    for image in (
+                        "Orion.exe",
+                        "OrionBackend.exe",
+                        "msedgewebview2.exe",
+                    ):
+                        subprocess.run(
+                            ["tasklist.exe", "/FI", f"IMAGENAME eq {image}"],
+                            check=False,
+                            timeout=10,
+                        )
+                    raise RuntimeError(
+                        "WebView2 DevTools endpoint never appeared"
+                    ) from startup_error
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.connect_over_cdp(
                         endpoint, timeout=12000
