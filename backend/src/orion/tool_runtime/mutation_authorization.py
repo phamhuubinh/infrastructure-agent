@@ -69,8 +69,6 @@ class MutationAuthorizationPolicy:
             family = tool_name.partition(".")[0]
             if family not in {
                 "linux",
-                "grafana",
-                "zabbix",
                 "endpoint",
                 "system",
             } or not target_is_configured(family, target_ref):

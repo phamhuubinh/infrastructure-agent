@@ -37,8 +37,8 @@ ordered conversations; its completion statuses are not semantic answer-quality v
 | historical-default.txt | 28 | historical-default-028 | merged_duplicate | linux-disk-representative,linux-cpu-representative,linux-memory-representative | resource paraphrase family |
 | historical-default.txt | 29 | historical-default-029 | merged_duplicate | linux-disk-representative,linux-cpu-representative,linux-memory-representative | resource paraphrase family |
 | historical-default.txt | 30 | historical-default-030 | merged_duplicate | linux-disk-representative,linux-cpu-representative,linux-memory-representative | resource paraphrase family |
-| historical-default.txt | 31 | historical-default-031 | rewritten | zabbix-trigger-read | current trigger representative |
-| historical-default.txt | 32 | historical-default-032 | rewritten | zabbix-trigger-read | current trigger representative |
+| historical-default.txt | 31 | historical-default-031 | removed_obsolete | — | current trigger representative; R19 retired zabbix-trigger-read |
+| historical-default.txt | 32 | historical-default-032 | removed_obsolete | — | current trigger representative; R19 retired zabbix-trigger-read |
 | historical-default.txt | 33 | historical-default-033 | merged_duplicate | linux-health-synthesis | broad health paraphrase family |
 | historical-default.txt | 34 | historical-default-034 | merged_duplicate | linux-health-synthesis | broad health paraphrase family |
 | historical-default.txt | 35 | historical-default-035 | merged_duplicate | linux-health-synthesis | broad health paraphrase family |
@@ -75,16 +75,16 @@ ordered conversations; its completion statuses are not semantic answer-quality v
 | historical-default.txt | 66 | historical-default-066 | rewritten | linux-unknown-target,linux-cpu-representative,linux-memory-representative,linux-disk-representative | fixture or explicit unknown-target rewrite |
 | historical-default.txt | 67 | historical-default-067 | rewritten | linux-unknown-target,linux-cpu-representative,linux-memory-representative,linux-disk-representative | fixture or explicit unknown-target rewrite |
 | historical-default.txt | 68 | historical-default-068 | rewritten | linux-unknown-target,linux-cpu-representative,linux-memory-representative,linux-disk-representative | fixture or explicit unknown-target rewrite |
-| historical-default.txt | 69 | historical-default-069 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 70 | historical-default-070 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 71 | historical-default-071 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 72 | historical-default-072 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 73 | historical-default-073 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 74 | historical-default-074 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 75 | historical-default-075 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 76 | historical-default-076 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 77 | historical-default-077 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
-| historical-default.txt | 78 | historical-default-078 | rewritten | grafana-explicit-source,zabbix-explicit-source,linux-explicit-source | explicit source preference |
+| historical-default.txt | 69 | historical-default-069 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 70 | historical-default-070 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 71 | historical-default-071 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 72 | historical-default-072 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 73 | historical-default-073 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 74 | historical-default-074 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 75 | historical-default-075 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 76 | historical-default-076 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 77 | historical-default-077 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| historical-default.txt | 78 | historical-default-078 | rewritten | linux-explicit-source | explicit source preference; R19 retired grafana-explicit-source, zabbix-explicit-source |
 | historical-default.txt | 79 | historical-default-079 | merged_duplicate | linux-cpu-representative,linux-memory-representative,linux-disk-representative,linux-network-representative,time-range-graceful-insufficiency | inspection and history representative |
 | historical-default.txt | 80 | historical-default-080 | merged_duplicate | linux-cpu-representative,linux-memory-representative,linux-disk-representative,linux-network-representative,time-range-graceful-insufficiency | inspection and history representative |
 | historical-default.txt | 81 | historical-default-081 | merged_duplicate | linux-cpu-representative,linux-memory-representative,linux-disk-representative,linux-network-representative,time-range-graceful-insufficiency | inspection and history representative |
@@ -106,27 +106,27 @@ ordered conversations; its completion statuses are not semantic answer-quality v
 | historical-default.txt | 97 | historical-default-097 | removed_obsolete | — | unsupported GPU or hostname capability |
 | historical-default.txt | 98 | historical-default-098 | removed_obsolete | — | unsupported GPU or hostname capability |
 | historical-default.txt | 99 | historical-default-099 | removed_obsolete | — | unsupported GPU or hostname capability |
-| historical-default.txt | 100 | historical-default-100 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 101 | historical-default-101 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 102 | historical-default-102 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 103 | historical-default-103 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 104 | historical-default-104 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 105 | historical-default-105 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 106 | historical-default-106 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 107 | historical-default-107 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 108 | historical-default-108 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 109 | historical-default-109 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 110 | historical-default-110 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 111 | historical-default-111 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 112 | historical-default-112 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 113 | historical-default-113 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 114 | historical-default-114 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 115 | historical-default-115 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 116 | historical-default-116 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 117 | historical-default-117 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 118 | historical-default-118 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 119 | historical-default-119 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
-| historical-default.txt | 120 | historical-default-120 | merged_duplicate | linux-service-status,linux-package-status,zabbix-trigger-read | duplicate supported concept |
+| historical-default.txt | 100 | historical-default-100 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 101 | historical-default-101 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 102 | historical-default-102 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 103 | historical-default-103 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 104 | historical-default-104 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 105 | historical-default-105 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 106 | historical-default-106 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 107 | historical-default-107 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 108 | historical-default-108 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 109 | historical-default-109 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 110 | historical-default-110 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 111 | historical-default-111 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 112 | historical-default-112 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 113 | historical-default-113 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 114 | historical-default-114 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 115 | historical-default-115 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 116 | historical-default-116 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 117 | historical-default-117 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 118 | historical-default-118 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 119 | historical-default-119 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
+| historical-default.txt | 120 | historical-default-120 | merged_duplicate | linux-service-status,linux-package-status | duplicate supported concept; R19 retired zabbix-trigger-read |
 | historical-default.txt | 121 | historical-default-121 | removed_obsolete | — | unsupported logs, container, firewall, or security inspection |
 | historical-default.txt | 122 | historical-default-122 | removed_obsolete | — | unsupported logs, container, firewall, or security inspection |
 | historical-default.txt | 123 | historical-default-123 | removed_obsolete | — | unsupported logs, container, firewall, or security inspection |
@@ -139,34 +139,34 @@ ordered conversations; its completion statuses are not semantic answer-quality v
 | historical-default.txt | 130 | historical-default-130 | removed_obsolete | — | unsupported logs, container, firewall, or security inspection |
 | historical-default.txt | 131 | historical-default-131 | removed_obsolete | — | unsupported logs, container, firewall, or security inspection |
 | historical-default.txt | 132 | historical-default-132 | removed_obsolete | — | unsupported logs, container, firewall, or security inspection |
-| historical-default.txt | 133 | historical-default-133 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 134 | historical-default-134 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 135 | historical-default-135 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 136 | historical-default-136 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 137 | historical-default-137 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 138 | historical-default-138 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 139 | historical-default-139 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 140 | historical-default-140 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 141 | historical-default-141 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 142 | historical-default-142 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 143 | historical-default-143 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 144 | historical-default-144 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 145 | historical-default-145 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 146 | historical-default-146 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 147 | historical-default-147 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 148 | historical-default-148 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 149 | historical-default-149 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 150 | historical-default-150 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 151 | historical-default-151 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 152 | historical-default-152 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 153 | historical-default-153 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 154 | historical-default-154 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 155 | historical-default-155 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 156 | historical-default-156 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 157 | historical-default-157 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 158 | historical-default-158 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 159 | historical-default-159 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
-| historical-default.txt | 160 | historical-default-160 | merged_duplicate | linux-health-synthesis,grafana-history-boundary,time-range-graceful-insufficiency | broad health and history duplicate |
+| historical-default.txt | 133 | historical-default-133 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 134 | historical-default-134 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 135 | historical-default-135 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 136 | historical-default-136 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 137 | historical-default-137 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 138 | historical-default-138 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 139 | historical-default-139 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 140 | historical-default-140 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 141 | historical-default-141 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 142 | historical-default-142 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 143 | historical-default-143 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 144 | historical-default-144 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 145 | historical-default-145 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 146 | historical-default-146 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 147 | historical-default-147 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 148 | historical-default-148 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 149 | historical-default-149 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 150 | historical-default-150 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 151 | historical-default-151 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 152 | historical-default-152 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 153 | historical-default-153 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 154 | historical-default-154 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 155 | historical-default-155 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 156 | historical-default-156 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 157 | historical-default-157 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 158 | historical-default-158 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 159 | historical-default-159 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
+| historical-default.txt | 160 | historical-default-160 | merged_duplicate | linux-health-synthesis,time-range-graceful-insufficiency | broad health and history duplicate; R19 retired grafana-history-boundary |
 | historical-default.txt | 161 | historical-default-161 | retained | orion-identity-no-provider-leak,linux-conceptual-swap,linux-conceptual-load,devops-conceptual,direct-answer-no-infra | direct concept coverage |
 | historical-default.txt | 162 | historical-default-162 | retained | orion-identity-no-provider-leak,linux-conceptual-swap,linux-conceptual-load,devops-conceptual,direct-answer-no-infra | direct concept coverage |
 | historical-default.txt | 163 | historical-default-163 | retained | orion-identity-no-provider-leak,linux-conceptual-swap,linux-conceptual-load,devops-conceptual,direct-answer-no-infra | direct concept coverage |
@@ -210,21 +210,21 @@ ordered conversations; its completion statuses are not semantic answer-quality v
 | cauhoi_kiemtra_v2.txt | 8 | cauhoi_kiemtra_v2-008 | rewritten | orion-identity-no-provider-leak,linux-disk-representative,direct-answer-no-infra | behavioral regression |
 | cauhoi_kiemtra_v2.txt | 9 | cauhoi_kiemtra_v2-009 | rewritten | orion-identity-no-provider-leak,linux-disk-representative,direct-answer-no-infra | behavioral regression |
 | cauhoi_kiemtra_v2.txt | 10 | cauhoi_kiemtra_v2-010 | rewritten | orion-identity-no-provider-leak,linux-disk-representative,direct-answer-no-infra | behavioral regression |
-| cauhoi_kiemtra_v2.txt | 11 | cauhoi_kiemtra_v2-011 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 12 | cauhoi_kiemtra_v2-012 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 13 | cauhoi_kiemtra_v2-013 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 14 | cauhoi_kiemtra_v2-014 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 15 | cauhoi_kiemtra_v2-015 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 16 | cauhoi_kiemtra_v2-016 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 17 | cauhoi_kiemtra_v2-017 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 18 | cauhoi_kiemtra_v2-018 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 19 | cauhoi_kiemtra_v2-019 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 20 | cauhoi_kiemtra_v2-020 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 21 | cauhoi_kiemtra_v2-021 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 22 | cauhoi_kiemtra_v2-022 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 23 | cauhoi_kiemtra_v2-023 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 24 | cauhoi_kiemtra_v2-024 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
-| cauhoi_kiemtra_v2.txt | 25 | cauhoi_kiemtra_v2-025 | rewritten | linux-cpu-representative,grafana-explicit-source,zabbix-explicit-source,linux-explicit-source,linux-unknown-target | current source and target semantics |
+| cauhoi_kiemtra_v2.txt | 11 | cauhoi_kiemtra_v2-011 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 12 | cauhoi_kiemtra_v2-012 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 13 | cauhoi_kiemtra_v2-013 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 14 | cauhoi_kiemtra_v2-014 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 15 | cauhoi_kiemtra_v2-015 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 16 | cauhoi_kiemtra_v2-016 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 17 | cauhoi_kiemtra_v2-017 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 18 | cauhoi_kiemtra_v2-018 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 19 | cauhoi_kiemtra_v2-019 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 20 | cauhoi_kiemtra_v2-020 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 21 | cauhoi_kiemtra_v2-021 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 22 | cauhoi_kiemtra_v2-022 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 23 | cauhoi_kiemtra_v2-023 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 24 | cauhoi_kiemtra_v2-024 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
+| cauhoi_kiemtra_v2.txt | 25 | cauhoi_kiemtra_v2-025 | rewritten | linux-cpu-representative,linux-explicit-source,linux-unknown-target | current source and target semantics; R19 retired grafana-explicit-source, zabbix-explicit-source |
 | cauhoi_kiemtra_v2.txt | 26 | cauhoi_kiemtra_v2-026 | merged_duplicate | writing-backup-script,writing-nginx-config,linux-conceptual-load | duplicate direct concept |
 | cauhoi_kiemtra_v2.txt | 27 | cauhoi_kiemtra_v2-027 | merged_duplicate | writing-backup-script,writing-nginx-config,linux-conceptual-load | duplicate direct concept |
 | cauhoi_kiemtra_v2.txt | 28 | cauhoi_kiemtra_v2-028 | merged_duplicate | writing-backup-script,writing-nginx-config,linux-conceptual-load | duplicate direct concept |

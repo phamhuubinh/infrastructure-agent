@@ -166,6 +166,7 @@ def test_dirty_checkout_rejected(tmp_path: Path, monkeypatch) -> None:  # type: 
         payload.build(REPOSITORY, tmp_path / "missing.whl", tmp_path / "ui", tmp_path / "output")
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux release installer")
 @pytest.mark.parametrize("with_embeddings", [False, True])
 def test_linux_release_installer_optional_model_and_launcher(
     tmp_path: Path, with_embeddings: bool

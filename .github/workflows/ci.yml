@@ -111,6 +111,9 @@ jobs:
           node-version-file: .node-version
           cache: npm
           cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -182,6 +185,10 @@ jobs:
           "$adb" shell input keyevent KEYCODE_HOME
           "$adb" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
           "$adb" shell pidof io.orion.desktop
+          "$adb" uninstall io.orion.desktop
+          python ../scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
+          serial="$("$adb" get-serialno)"
+          python ../scripts/android/smoke.py "$apk" --adb "$adb" --serial "$serial"
 
   ios:
     runs-on: macos-15

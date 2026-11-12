@@ -2042,10 +2042,7 @@ def _configured_capabilities() -> dict[str, tuple[str, ...]]:
     from orion.integrations.infrastructure import TargetCatalog
 
     catalog = TargetCatalog.from_environment()
-    return {
-        family: tuple(target.target_ref for target in catalog.targets(family))
-        for family in ("linux", "grafana", "zabbix")
-    }
+    return {"linux": tuple(target.target_ref for target in catalog.targets("linux"))}
 
 
 def _optional_skip_reason(
@@ -2979,7 +2976,7 @@ def run(
         "qa_api_base_url": "unknown",
         "model_id": provenance_inputs["settings"]["model_id"],  # type: ignore[index]
         "model_endpoint": provenance_inputs["settings"]["model_endpoint"],  # type: ignore[index]
-        "optional_capabilities": ["linux", "grafana", "zabbix"],
+        "optional_capabilities": ["linux"],
         "behavioral_suite_count": len(
             {case.suite_id for case in cases if _case_phase(case) == "behavioral"}
         ),

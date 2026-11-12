@@ -65,7 +65,7 @@ contract; their completion does not demonstrate that the runtime timeout for the
 has been fixed. Stability cases remain read-only: the same execution guard blocks every mutating
 tool before its handler, and forbidden-tool checks also report attempted mutation.
 
-Reports are written under `scripts/qa/reports/`. Linux, Grafana, and Zabbix cases are explicitly
+Reports are written under `scripts/qa/reports/`. Linux cases are explicitly
 reported as `SKIP` unless a safe QA capability is configured; they never target production files.
 Each behavioral result retains redacted prompt and terminal-answer text plus hashes of the exact
 persisted text. Its bounded review trace contains tool names, redacted arguments and statuses,

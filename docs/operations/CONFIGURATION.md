@@ -83,17 +83,15 @@ Calculator, knowledge, and Internet tools are registered through the common runt
 integrations configure credentials outside model arguments and prompts. Integration
 configuration never creates a per-chat tool picker.
 
-## Legacy infrastructure integrations
+## Configured Linux tools
 
-This section records existing source configuration, not the current target catalog.
-ADR 0017 retires dedicated monitoring adapters. Existing settings remain until a
-source migration; the new [command runner](../architecture/SYSTEM_COMMANDS.md) has
-no implemented configuration switch yet. Do not infer it works from these settings.
+For the `system.command` SSH transport, configure
+[`ORION_SSH_COMMAND_CONFIG`](../refactor/SSH_COMMAND_LIFECYCLE.md).
 
-Linux, Grafana, and Zabbix are optional server-side integrations. Set
-`ORION_INFRASTRUCTURE_CONFIG` to a local JSON configuration file. Its `targets` map
-is grouped by integration family; each configured target has a safe `target_ref`, an
-optional safe display name, a `credential_ref`, and family-specific connection fields.
+For the semantic Linux tools, set `ORION_INFRASTRUCTURE_CONFIG` to a local JSON
+configuration file with a `targets.linux` list. Each target has a safe
+`target_ref`, an optional safe display name, a `credential_ref`, and SSH
+connection fields.
 Credential values live in the same server-side source under `credentials` (or can be
 provided by the composition root in an embedding application); neither values nor
 connection fields are model arguments, context, API responses, sources, activity, or
@@ -101,17 +99,14 @@ Settings state.
 
 ```json
 {
-  "credentials": {"linux-key": "server-side-value", "monitoring-api": "server-side-value"},
+  "credentials": {"linux-key": "server-side-value"},
   "targets": {
-    "linux": [{"target_ref": "production-node", "credential_ref": "linux-key", "host": "configured-host", "ssh_user": "configured-user"}],
-    "grafana": [{"target_ref": "observability", "credential_ref": "monitoring-api", "base_url": "configured-url", "datasources": {"metrics": "prometheus"}}],
-    "zabbix": [{"target_ref": "monitoring", "credential_ref": "monitoring-api", "base_url": "configured-url"}]
+    "linux": [{"target_ref": "production-node", "credential_ref": "linux-key", "host": "configured-host", "ssh_user": "configured-user"}]
   }
 }
 ```
 
-Configured families register their full fixed semantic operation family in the same
-registry used by Chat and Project. Unconfigured families are absent from that registry.
+Configured Linux targets enable the semantic Linux tools in the shared Chat and Project registry.
 Tool execution activity and controlled tool errors are the product-visible evidence of
 availability; Settings does not probe or toggle integrations.
 
@@ -152,17 +147,10 @@ dependencies of test, lint, acceptance, CI, installation, packaging, or Orion st
 the current HTTP API in an isolated temporary data directory; they do not use Docker or legacy
 endpoints. `qa-behavioral` is the primary 386-prompt, five-session behavioral corpus. They require
 a local active model profile or the `ORION_QA_MODEL_*` overrides. Reports are written under
-`scripts/qa/reports/`; unavailable optional Linux, Grafana, and Zabbix suites are reported as
+`scripts/qa/reports/`; unavailable optional Linux cases are reported as
 `SKIP`.
 
 ### Existing local deployment sources
-
-As an alternative to `ORION_INFRASTRUCTURE_CONFIG`, Orion can adapt the server-side
-`/etc/orion/tool-credentials.json` deployment file. Set
-`ORION_TOOL_CREDENTIALS_PATH` to use a different server-side path. Its Grafana and
-Zabbix entries supply only server-side connection/token material; Zabbix frontend
-roots are normalized internally to their JSON-RPC endpoint and neither form is
-public.
 
 Linux targets may be ordinary OpenSSH aliases. Orion uses `ORION_SSH_TARGET_REFS`
 (default `monitor`) as safe target references and lets the normal SSH client resolve

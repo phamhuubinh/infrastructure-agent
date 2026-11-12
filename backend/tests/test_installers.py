@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,7 @@ def _mock_linux_install(
     return result, trace.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux source installer")
 @pytest.mark.parametrize("with_embeddings", [False, True])
 def test_linux_install_optional_provisioning_and_rerun(
     tmp_path: Path, with_embeddings: bool
@@ -90,6 +92,7 @@ def test_linux_install_optional_provisioning_and_rerun(
     assert second_trace.splitlines()[-len(first_trace.splitlines()) :] == first_trace.splitlines()
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux source installer")
 def test_linux_install_fails_before_success_when_model_provisioning_fails(tmp_path: Path) -> None:
     result, trace = _mock_linux_install(tmp_path, model_exit=23, with_embeddings=True)
     assert result.returncode == 23

@@ -532,6 +532,7 @@ def test_web_propagates_unexpected_server_run_errors(monkeypatch, tmp_path) -> N
         cli._run_web()
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux source installer")
 def test_installer_reports_python_candidates_when_no_supported_interpreter_exists(tmp_path) -> None:  # type: ignore[no-untyped-def]
     repository = Path(__file__).parents[2]
     candidates = tmp_path / "candidates"

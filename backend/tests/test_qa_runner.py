@@ -726,10 +726,9 @@ def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ig
     corpus = cases(qa_runner)
     smoke = qa_runner.select_tier(corpus, "smoke")
     full = qa_runner.select_tier(corpus, "full")
-    assert len(corpus) == 91 and 84 <= len(corpus) <= 92
     assert 0 < len(smoke) < len(full) == len(corpus)
     assert {case.id for case in smoke} < {case.id for case in full}
-    assert len({case.id for case in corpus}) == 91
+    assert len({case.id for case in corpus}) == len(corpus)
     assert all(case.category and case.scenario and case.tiers for case in corpus)
     assert not (qa_runner.ROOT / "scripts/qa/cases/full.json").exists()
     assert not (qa_runner.ROOT / "scripts/qa/cases/smoke.json").exists()
@@ -1540,8 +1539,6 @@ def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) 
         "linux-document-edit",
         "linux-docx-edit",
         "linux-xlsx-edit",
-        "grafana-read",
-        "zabbix-read",
     }
     multiturn = {
         "continuity",
@@ -1557,10 +1554,7 @@ def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) 
     assert corpus["multi-target-comparison"].expected_tools == ()
     assert corpus["local-address-probe"].expected_tool_errors == (("internet.fetch", "unsafe_url"),)
     assert corpus["unsupported-container-boundary"].manual_quality
-    assert (
-        corpus["grafana-read"].capability == "grafana"
-        and corpus["zabbix-read"].capability == "zabbix"
-    )
+    assert {case.capability for case in corpus.values()} <= {None, "linux"}
     operator_follow_up = corpus["operator-action-follow-up"]
     assert "linux.service.status" in operator_follow_up.turns[0]
     assert "Do not restart" in operator_follow_up.turns[0]
@@ -1586,16 +1580,17 @@ def test_broad_synthesis_cases_bound_read_only_evidence_collection(qa_runner) ->
     assert "stop calling tools" in enterprise.prompt
     assert set(enterprise.forbidden_tools) == infrastructure_tools - {"linux.system.inspect"}
 
-    weekly_tools = {"linux.system.inspect", "grafana.alert.list", "zabbix.event.list"}
-    assert set(weekly.expected_any_tools) == weekly_tools
+    weekly_tools = {"linux.system.inspect"}
+    assert weekly.capability == "linux"
+    assert set(weekly.expected_tools) == weekly_tools
     assert "{qa_target_ref}" in weekly.prompt
-    assert "at most one successful observation per family" in weekly.prompt
+    assert "one linux.system.inspect snapshot" in weekly.prompt
     assert "without retrying it" in weekly.prompt
     assert set(weekly.forbidden_tools) == infrastructure_tools - weekly_tools
     assert not enterprise.mutation and not weekly.mutation
 
 
-def test_original_broad_prompts_remain_in_read_only_stability_suite(qa_runner) -> None:  # type: ignore[no-untyped-def]
+def test_broad_prompts_remain_in_read_only_stability_suite(qa_runner) -> None:  # type: ignore[no-untyped-def]
     from orion.tool_runtime.infrastructure import infrastructure_definitions
 
     stability = {case.id: case for case in stability_cases(qa_runner)}
@@ -1605,8 +1600,8 @@ def test_original_broad_prompts_remain_in_read_only_stability_suite(qa_runner) -
         "and label assumptions."
     )
     assert stability["weekly-synthesis"].prompt == (
-        "Prepare a weekly infrastructure synthesis only from available Linux, Grafana, or "
-        "Zabbix evidence; identify gaps."
+        "Prepare a weekly infrastructure synthesis only from available Linux evidence; "
+        "identify gaps."
     )
     mutating_tools = {
         definition.name
@@ -2278,7 +2273,7 @@ def test_quality_and_synthesis_transcript_is_checkpointed_on_success_and_timeout
     timeline = [
         {
             "kind": "tool_result",
-            "tool_name": "zabbix.event.list",
+            "tool_name": "linux.system.inspect",
             "call_id": "events",
             "payload": {
                 "result": {
@@ -2364,7 +2359,7 @@ def test_stability_diagnostic_keeps_full_redacted_evidence_and_marks_bounds(
                 },
                 {
                     "kind": "tool_result",
-                    "tool_name": "zabbix.event.list",
+                    "tool_name": "linux.system.inspect",
                     "call_id": "call-1",
                     "payload": {
                         "result": {
@@ -2941,8 +2936,6 @@ def test_canonical_boundaries_do_not_invent_inputs_or_execute_dangerous_requests
         "linux.file.edit",
         "linux.service.restart",
         "linux.package.install",
-        "grafana.annotation.create",
-        "zabbix.event.acknowledge",
     }
     dangerous = {
         "dangerous-firewall-boundary",
@@ -2954,30 +2947,10 @@ def test_canonical_boundaries_do_not_invent_inputs_or_execute_dangerous_requests
         case = corpus[case_id]
         assert "Do not" in case.prompt and "change infrastructure" in case.prompt
         assert set(case.forbidden_tools) & mutation_tools
-    for case_id in {
-        "grafana-dashboard-read",
-        "grafana-network-representative",
-        "grafana-history-boundary",
-    }:
-        case = corpus[case_id]
-        assert not (
-            {"grafana.dashboard.get", "grafana.datasource.query"} & set(case.expected_tools)
-        )
-        assert not (
-            {"grafana.dashboard.get", "grafana.datasource.query"} & set(case.expected_any_tools)
-        )
-    assert "zabbix.history.get" not in corpus["zabbix-history-boundary"].expected_tools
     assert corpus["linux-unknown-target"].expected_tool_errors == ()
     assert corpus["multi-target-comparison"].expected_tools == ()
     assert corpus["local-address-probe"].expected_tool_errors == (("internet.fetch", "unsafe_url"),)
     assert not corpus["linux-hostile-target"].expected_tool_errors
-    assert corpus["grafana-explicit-source"].requires_citation
-    assert "linux.system.inspect" in corpus["grafana-explicit-source"].forbidden_tools
-    assert corpus["zabbix-explicit-source"].requires_citation
-    assert set(corpus["zabbix-explicit-source"].forbidden_tools) & {
-        "grafana.alert.list",
-        "grafana.datasource.query",
-    }
 
 
 def test_execution_provenance_is_stable_redacted_and_comparable(

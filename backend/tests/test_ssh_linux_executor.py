@@ -9,7 +9,7 @@ from orion.integrations.infrastructure import InfrastructureError, SshLinuxExecu
 
 @pytest.fixture
 def target() -> Target:
-    return Target("linux", "node", "Node", {"ssh_alias": "node"}, "ssh", {})
+    return Target("linux", "node", "Node", {"ssh_alias": "node"}, "ssh")
 
 
 def _invoke(executor: SshLinuxExecutor, target: Target, mode: str) -> object:
