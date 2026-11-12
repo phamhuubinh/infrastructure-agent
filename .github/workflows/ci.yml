@@ -122,7 +122,7 @@ jobs:
           (cd src-tauri && rustup target add aarch64-linux-android)
           npm ci
           npm exec -- tauri android init --ci --skip-targets-install
-          npm exec -- tauri android build --ci --debug --apk --target aarch64
+          npm exec -- tauri android build --ci --debug --apk --target aarch64 --features desktop
       - name: Verify Android archive
         run: |
           apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
@@ -150,4 +150,4 @@ jobs:
           (cd src-tauri && rustup target add aarch64-apple-ios-sim)
           npm ci
           npm exec -- tauri ios init --ci --skip-targets-install
-          npm exec -- tauri ios build --ci --debug --target aarch64-sim
+          npm exec -- tauri ios build --ci --debug --target aarch64-sim --features desktop
