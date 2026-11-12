@@ -10,6 +10,9 @@
     ],
     "frontendDist": "../dist/client"
   },
+  "bundle": {
+    "icon": ["../public/orion-icon.png"]
+  },
   "app": {
     "windows": [],
     "security": {

@@ -130,6 +130,11 @@ jobs:
           unzip -tq "$apk"
           unzip -Z1 "$apk" | awk '/^lib\/arm64-v8a\/[^/]+\.so$/ { found=1 } END { exit !found }'
           sha256sum "$apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orion-android-debug-arm64
+          path: ui/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
 
   ios:
     runs-on: macos-15
