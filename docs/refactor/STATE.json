@@ -7,8 +7,8 @@
     "claude",
     "openai"
   ],
-  "current_task": "R28",
-  "next_action": "Exercise iOS functional flows on a macOS/Xcode simulator. Windows desktop upgrade awaits a prior released installer.",
+  "current_task": "R21",
+  "next_action": "Resume R22-R24 with owner-configured live profiles, R25 with a prior released desktop installer, and R28 on macOS/Xcode. Validate signed candidates under R29 after its prerequisites, then close R21.",
   "work_items": [
     {
       "id": "R00",
@@ -670,7 +670,7 @@
       "status": "todo",
       "evidence": [],
       "blockers": [
-        "Pending live providers R22-R24, native release/device gates R25-R28 and signing R29."
+        "Pending live provider gates R22-R24, released desktop upgrade R25, iOS functional smoke R28 and signing R29."
       ]
     },
     {
@@ -739,7 +739,7 @@
         }
       ],
       "blockers": [
-        "No prior released desktop installer exists for real cross-version desktop upgrade validation. Windows server upgrade and hosted debug desktop checks passed."
+        "The public v0.1.2 release contains Linux and Windows server archives and checksums. A prior released desktop installer is required for the cross-version desktop upgrade gate."
       ]
     },
     {
@@ -838,7 +838,7 @@
         "R17",
         "R18"
       ],
-      "status": "in_progress",
+      "status": "needs_external",
       "evidence": [
         {
           "kind": "hosted_native_partial",
@@ -857,7 +857,7 @@
         }
       ],
       "blockers": [
-        "Native enrollment, streaming, file picker, keyboard, lifecycle and reconnect flows still require tests."
+        "Native enrollment, streaming, file picker, keyboard, lifecycle and reconnect require a macOS/Xcode iOS Simulator. The authorized local Windows host has no xcrun or xcodebuild."
       ]
     },
     {
@@ -879,16 +879,17 @@
     "local_date": "2026-11-13",
     "recovery_path": "F:/Orion-recovery/20261029-before-refactor",
     "test_python": "F:/Orion-toolchains/r18-python-locked/Scripts/python.exe",
-    "report": "docs/refactor/evidence/R19_SESSION_2026-11-13.md",
+    "report": "docs/refactor/EXECUTION_LOG.md",
     "unresolved": [
-      "Hosted Windows desktop and mobile startup passed. Full native mobile functional gates, release signing and live providers remain open.",
-      "R21 waits on live provider, native release/device and signing gates.",
-      "R18 Linux server and worker lifecycle, and frozen Windows/Linux worker browser fixtures pass. Remaining native app matrix has separate scope.",
-      "Windows Tauri debug installer and portable verified. R25 final release candidate and R29 signing remain separate."
+      "R22-R24 require owner-configured live provider profiles and credentials.",
+      "R25 requires a prior released Windows desktop installer.",
+      "R28 requires functional testing on a macOS/Xcode iOS Simulator.",
+      "R29 requires signing credentials and signed candidate validation.",
+      "R21 requires the remaining gates. R26 and R27 are done at their documented scope."
     ],
     "reproduction": "R27 Windows: use the SDK under F:/Orion-toolchains/r16-android/sdk and boot Orion_R27_API_35 on port 5556 with -accel on -gpu swiftshader -feature -Vulkan -no-snapshot. Check adb -s emulator-5556 shell getprop sys.boot_completed. Build with tauri android build --ci --debug --apk --target x86_64 --features desktop. Host linker override: CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER points to Rust 1.99.1 bin/rust-lld.exe under its x86_64-pc-windows-gnu rustlib. Logs: F:/Orion-toolchains/r16-android/r27-whpx-lld-build.log and r27-whpx.stdout.log. Run scripts/android/smoke.py <x86_64 APK> --adb <SDK adb.exe> --serial emulator-5556 --extended.",
-    "reviewed_files_at_checkpoint": 655,
+    "reviewed_files_at_checkpoint": 656,
     "inventory_files_at_checkpoint": 636,
-    "next_task": "R28"
+    "next_task": "R21"
   }
 }
