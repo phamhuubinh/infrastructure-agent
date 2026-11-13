@@ -808,10 +808,15 @@
           "kind": "hosted_android_network_recovery",
           "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43376313405",
           "result": "Android job passed on 65f92df: ADB route interruption and restoration, app resume and Stop. Database verified one completed and one cancelled request."
+        },
+        {
+          "kind": "local_fixture_only",
+          "path": "scripts/android/smoke.py",
+          "result": "Extended smoke now interrupts an active SSE response after the first assistant delta and checks same request and exact cursor before releasing the provider. Windows HTTP SSE fixture passed exact and incorrect cursor checks. Native execution is pending."
         }
       ],
       "blockers": [
-        "Verify active streaming cursor continuity across a network interruption; route recovery and Stop passed separately."
+        "Run extended smoke on the x86_64 debug APK with an online disposable Android emulator to verify active-stream cursor continuity. Both Windows AVD transports (5554 and 5556) remained offline with software acceleration. HypervisorPlatform is disabled; DISM returned 740 without elevation. The Windows x86_64 APK build hit Tauri build-script STATUS_ACCESS_VIOLATION even with a fresh target and dlltool configured."
       ]
     },
     {
@@ -869,7 +874,7 @@
       "R18 Linux server and worker lifecycle, and frozen Windows/Linux worker browser fixtures pass. Remaining native app matrix has separate scope.",
       "Windows Tauri debug installer and portable verified. R25 final release candidate and R29 signing remain separate."
     ],
-    "reproduction": "Run scripts/refactor/dev.py check --backend-only with the pinned Windows Python and the UI lint, TypeScript, Vitest and packaged UI checks with the pinned Node. Hosted CI must be verified by commit SHA.",
+    "reproduction": "R27 Windows: use SDK under F:/Orion-toolchains/r16-android/sdk. Verify emulator -accel-check, adb devices -l, and sys.boot_completed=1 on Orion_R27_API_35 (emulator-5556). Run scripts/android/smoke.py with the x86_64 debug APK, --adb pointing to that SDK, --serial emulator-5556 and --extended. Enable Windows Hypervisor Platform from an elevated Windows session and reboot if required before relaunching the disposable AVD. See r27-isolated.stderr.log and r27-win-dlltool.log in F:/Orion-toolchains/r16-android for the software boot and Tauri build diagnostics.",
     "reviewed_files_at_checkpoint": 655,
     "inventory_files_at_checkpoint": 636,
     "next_task": "R27"

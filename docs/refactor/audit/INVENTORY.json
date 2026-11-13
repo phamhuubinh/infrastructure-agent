@@ -7390,8 +7390,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 43914,
-      "sha256": "6263042775d61ecf4758cb6d201d25af934eabebc510b2e047dd987bfa8c9d23",
+      "bytes": 44957,
+      "sha256": "83ca872aec9b24c1e797cad2820497903969008f38c1eccebd386c92a9e0630e",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7400,7 +7400,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 877,
+      "lines": 882,
       "python_syntax": null
     },
     {
@@ -7646,8 +7646,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 12966,
-      "sha256": "e699c0cf3e4421be83b3c9491640471a140618d69f98f66e98cd0a57f69dea9e",
+      "bytes": 17152,
+      "sha256": "8a6cd9012e2002b117f3c54ef60e1475e1f325cc878f2044bf199f7d5eb3b6da",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7656,7 +7656,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 336,
+      "lines": 440,
       "python_syntax": "parsed"
     },
     {
@@ -7710,24 +7710,8 @@
     {
       "path": "scripts/desktop/smoke.py",
       "kind": "text",
-      "bytes": 14664,
-      "sha256": "5b1a804162f6c7962cbebc4852f15173f8b031ee49aacc0741ef56637027be10",
-      "group": "tooling-qa",
-      "git_state": "tracked",
-      "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Discover the actual WebView2 debug endpoint through the isolated profile.",
-      "replacement_or_callers": "Installed Windows desktop smoke.",
-      "verification": "Ruff passed and exact hosted run is tracked.",
-      "lines": 341,
-      "python_syntax": "parsed"
-    },
-    {
-      "path": "scripts/linux/headless_smoke.py",
-      "kind": "text",
-      "bytes": 7900,
-      "sha256": "f5f648dc0c0c90c259888b6a5e2566f27cec33ff70b136371af76a8a89a90d4b",
+      "bytes": 14934,
+      "sha256": "8bdf39aa0bbd4e1c5ae27950229c72a8b458996a401da4fd8a7de9268c41906f",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7736,7 +7720,23 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 193,
+      "lines": 351,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/linux/headless_smoke.py",
+      "kind": "text",
+      "bytes": 7928,
+      "sha256": "ebc4dd5b5c2c0ff3fd56b75b366ce1eaea54ea3268797139f8711059d54c23ff",
+      "group": "tooling-qa",
+      "git_state": "tracked",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 194,
       "python_syntax": "parsed"
     },
     {
@@ -8542,17 +8542,17 @@
     {
       "path": "ui/.prettierrc",
       "kind": "text",
-      "bytes": 107,
-      "sha256": "b861bc94fe0d1f16bc5d1846cf934a67758d7671d1aae9d5ec1a24560fc1613d",
+      "bytes": 130,
+      "sha256": "19f281a58be4468167fec49821d88825a710f7259cb604fd7d42e62712ded6d6",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Consistent two-space TypeScript formatting configuration used by ESLint/Prettier.",
-      "replacement_or_callers": "Full file and applicable callers reviewed; implementation remains subject to R02-R19 dependencies.",
-      "verification": "R01 semantic read/visual inspection, recorded in R01_RESUME_2026-10-29.md; backend fixes verified by R01_BACKEND_FINAL_2026-10-29.json, not native/live acceptance.",
-      "lines": 7,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 8,
       "python_syntax": null
     },
     {
@@ -9246,8 +9246,8 @@
     {
       "path": "ui/src/lib/__tests__/requests.test.ts",
       "kind": "text",
-      "bytes": 7962,
-      "sha256": "c4c4168ab113c6c554bd530d38fbaebc25d2391cce58841035ff2ab073601270",
+      "bytes": 9251,
+      "sha256": "82515a4916a2f1cb1a6bff1ec7790abefe86003b035703795e1fd18befb5698f",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9256,7 +9256,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 198,
+      "lines": 229,
       "python_syntax": null
     },
     {
@@ -9374,8 +9374,8 @@
     {
       "path": "ui/src/lib/requests.ts",
       "kind": "text",
-      "bytes": 6520,
-      "sha256": "0366c26d8bdabfe1bc551bfcdf209310505f36454fa315672fcee853cb189bef",
+      "bytes": 6742,
+      "sha256": "f04de9ed4c4f7ec6550c85d3161ae94fb35d6f8527108b089871185bafe36ff2",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9384,7 +9384,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 179,
+      "lines": 186,
       "python_syntax": null
     },
     {
