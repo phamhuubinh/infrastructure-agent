@@ -77,7 +77,7 @@ class Ui:
         self.emulator = emulator
         self.dump_path = f"/sdcard/orion-smoke-{uuid.uuid4().hex}.xml"
 
-    def nodes(self) -> list[ET.Element]:
+    def nodes(self, package: str, *, clickable: bool = False) -> list[ET.Element]:
         try:
             self.emulator.run("shell", "rm", "-f", self.dump_path)
             self.emulator.run(
@@ -87,15 +87,29 @@ class Ui:
             root = ET.fromstring(raw)
         except (RuntimeError, subprocess.TimeoutExpired, ET.ParseError):
             return []
-        return [node for node in root.iter("node") if node.get("package") == PACKAGE]
+        return [
+            node
+            for node in root.iter("node")
+            if node.get("package") == package
+            and (not clickable or node.get("clickable") == "true")
+        ]
 
     @staticmethod
     def label(node: ET.Element, name: str) -> bool:
         return any(node.get(attr) == name for attr in ("text", "content-desc", "hint"))
 
-    def find(self, name: str) -> ET.Element:
+    def find(
+        self, name: str, *, package: str = PACKAGE, clickable: bool = False
+    ) -> ET.Element:
         def probe() -> ET.Element | None:
-            return next((node for node in self.nodes() if self.label(node, name)), None)
+            return next(
+                (
+                    node
+                    for node in self.nodes(package, clickable=clickable)
+                    if self.label(node, name)
+                ),
+                None,
+            )
 
         return until(f"accessibility node {name!r}", probe)
 
@@ -113,11 +127,13 @@ class Ui:
     def click(self, name: str) -> None:
         self.tap(self.find(name))
 
-    def fill(self, name: str, value: str, *, index: int) -> None:
+    def fill(
+        self, name: str, value: str, *, index: int, check_keyboard: bool = False
+    ) -> None:
         def probe() -> ET.Element | None:
             edits = [
                 node
-                for node in self.nodes()
+                for node in self.nodes(PACKAGE)
                 if node.get("class") == "android.widget.EditText"
             ]
             named = next((node for node in edits if self.label(node, name)), None)
@@ -128,10 +144,37 @@ class Ui:
         self.tap(until(f"editable accessibility node {name!r}", probe))
         if not re.fullmatch(r"[a-zA-Z0-9 .:/_-]+", value):
             raise ValueError("ADB fixture input requires plain ASCII")
+        if check_keyboard:
+            until(
+                "Android IME shown", lambda: True if self.keyboard_visible() else None
+            )
         self.emulator.run("shell", "input", "text", value.replace(" ", "%s"))
-        ime = self.emulator.run("shell", "dumpsys", "input_method")
-        if "mInputShown=true" in ime:
+        if self.keyboard_visible():
             self.emulator.run("shell", "input", "keyevent", "KEYCODE_BACK")
+
+    def keyboard_visible(self) -> bool:
+        return "mInputShown=true" in self.emulator.run(
+            "shell", "dumpsys", "input_method"
+        )
+
+
+def check_file_picker(ui: Ui, stack: ExitStack, directory: Path) -> None:
+    name = f"orion-attachment-{uuid.uuid4().hex[:8]}.txt"
+    local = directory / name
+    local.write_text("Orion Android document fixture.", encoding="utf-8")
+    remote = f"/sdcard/Download/{name}"
+    ui.emulator.run("push", str(local), remote)
+    stack.callback(ui.emulator.run, "shell", "rm", "-f", remote)
+    ui.tap(ui.find("Attach document", clickable=True))
+    documents = "com.google.android.documentsui"
+    ui.tap(ui.find("Show roots", package=documents))
+    ui.tap(ui.find("Downloads", package=documents))
+    ui.tap(ui.find(name, package=documents))
+    ui.find(name)
+    print(
+        "Android DocumentsUI returned the text file and Orion displayed its attachment.",
+        flush=True,
+    )
 
 
 def native_sessions(database: Path) -> list[tuple[str, int]]:
@@ -141,7 +184,7 @@ def native_sessions(database: Path) -> list[tuple[str, int]]:
         ).fetchall()
 
 
-def smoke(emulator: Emulator, apk: Path) -> None:
+def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
     if emulator.run("shell", "getprop", "sys.boot_completed") != "1":
         raise RuntimeError("Android emulator has not completed boot")
     if emulator.run("shell", "pm", "list", "packages", PACKAGE):
@@ -206,13 +249,51 @@ def smoke(emulator: Emulator, apk: Path) -> None:
                 "Relaunch did not reuse its existing Android enrollment"
             )
         print("Android relaunch reused the saved profile and enrollment.", flush=True)
-        ui.fill("Chat input", "Send the fixture response.", index=0)
+        ui.fill(
+            "Chat input", "Send the fixture response.", index=0, check_keyboard=extended
+        )
         ui.click("Send message")
         until(
             "one completed chat",
             lambda: True if status_rows(database) == [("completed",)] else None,
         )
         ui.find("Headless fixture.")
+        if extended:
+            ui.fill("Chat input", "Wait for SIGINT.", index=0)
+            ui.click("Send message")
+            ui.find("Stop generating")
+            if not provider_type.waiting.wait(20):
+                raise RuntimeError("The request did not reach the holding provider")
+            emulator.run("shell", "input", "keyevent", "KEYCODE_HOME")
+            until(
+                "Orion in the Android background",
+                lambda: (
+                    True
+                    if not any(
+                        PACKAGE in line
+                        for line in emulator.run(
+                            "shell", "dumpsys", "activity", "activities"
+                        ).splitlines()
+                        if "topResumedActivity=" in line
+                    )
+                    else None
+                ),
+            )
+            emulator.launch()
+            ui.click("Stop generating")
+            until(
+                "one completed and one cancelled chat",
+                lambda: (
+                    True
+                    if status_rows(database) == [("completed",), ("cancelled",)]
+                    else None
+                ),
+            )
+            print(
+                "Android returned from Home and cancelled the single admitted request.",
+                flush=True,
+            )
+            check_file_picker(ui, stack, database.parent)
         ui.click("Sign out")
         until(
             "revoked Android session",
@@ -230,8 +311,17 @@ def main() -> None:
     parser.add_argument("apk", type=Path)
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--serial", required=True)
+    parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Check IME, background/foreground chat and the system file picker",
+    )
     args = parser.parse_args()
-    smoke(Emulator(args.adb, args.serial), args.apk.resolve(strict=True))
+    smoke(
+        Emulator(args.adb, args.serial),
+        args.apk.resolve(strict=True),
+        extended=args.extended,
+    )
 
 
 if __name__ == "__main__":

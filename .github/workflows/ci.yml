@@ -188,7 +188,7 @@ jobs:
           "$adb" uninstall io.orion.desktop
           python ../scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
           serial="$("$adb" get-serialno)"
-          python ../scripts/android/smoke.py "$apk" --adb "$adb" --serial "$serial"
+          python ../scripts/android/smoke.py "$apk" --adb "$adb" --serial "$serial" --extended
 
   ios:
     runs-on: macos-15
