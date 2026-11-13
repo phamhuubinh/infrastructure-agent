@@ -2,7 +2,7 @@ name: Release bundles
 
 on:
   push:
-    branches: ['codex/orion-r16-r18']
+    branches: ['codex/orion-r16-r18', 'codex/orion-r26-systemd']
     paths: ['.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
@@ -127,6 +127,56 @@ jobs:
           tar -xzf "candidate/orion-worker-${{ needs.build.outputs.version }}-linux-x86_64.tar.gz"
           python "$GITHUB_WORKSPACE/scripts/worker/smoke.py" "$RUNNER_TEMP/orion-worker-${{ needs.build.outputs.version }}-linux-x86_64"
           python "$GITHUB_WORKSPACE/scripts/release/smoke.py" "$RUNNER_TEMP/orion-${{ needs.build.outputs.version }}-linux-x86_64" linux-x86_64
+
+      - name: Verify user systemd lifecycle of the archived server
+        env:
+          ORION_RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d "$RUNNER_TEMP/orion-systemd.XXXXXX")"
+          unit="orion-release-smoke.service"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          sudo loginctl enable-linger "$(id -un)"
+          timeout 30 bash -c 'until systemctl --user show-environment >/dev/null 2>&1; do sleep 1; done'
+          unit_dir="$XDG_RUNTIME_DIR/systemd/user"
+          mkdir -p "$unit_dir/$unit.d"
+          cleanup() {
+            systemctl --user stop "$unit" || true
+            rm -f "$unit_dir/$unit" "$unit_dir/$unit.d/smoke.conf"
+            rmdir "$unit_dir/$unit.d"
+            systemctl --user daemon-reload
+          }
+          trap cleanup EXIT
+          archive="$RUNNER_TEMP/orion-$ORION_RELEASE_VERSION-linux-x86_64"
+          "$archive/install.sh" --prefix "$work/install"
+          install -m 0644 scripts/linux/orion.service "$unit_dir/$unit"
+          cat > "$unit_dir/$unit.d/smoke.conf" <<EOF
+          [Service]
+          ExecStart=
+          ExecStart=$work/install/.venv/bin/orion serve
+          Environment=ORION_DATA_DIR=$work/data
+          EOF
+          systemctl --user daemon-reload
+          health=http://127.0.0.1:61888/api/health
+          if curl -fsS "$health" >/dev/null 2>&1; then
+            echo "Orion smoke port is already in use" >&2
+            exit 1
+          fi
+          wait_for_health() {
+            timeout 60 bash -c 'until curl -fsS "$1" >/dev/null 2>&1; do sleep 1; done' _ "$health"
+            systemctl --user is-active "$unit"
+          }
+          systemctl --user start "$unit"
+          wait_for_health
+          first_pid="$(systemctl --user show "$unit" -p MainPID --value)"
+          systemctl --user restart "$unit"
+          wait_for_health
+          test "$(systemctl --user show "$unit" -p MainPID --value)" != "$first_pid"
+          systemctl --user stop "$unit"
+          test "$(systemctl --user show "$unit" -p ActiveState --value)" = inactive
+          test "$(systemctl --user show "$unit" -p Result --value)" = success
+          test "$(systemctl --user show "$unit" -p ExecMainStatus --value)" = 0
 
   smoke-windows:
     needs: build
