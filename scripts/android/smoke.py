@@ -286,7 +286,6 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
                 if spec in emulator.run("reverse", "--list").split():
                     raise AssertionError("Fixture route is still available")
                 emulator.launch()
-                ui.find("Stop generating")
             finally:
                 emulator.run("reverse", "--no-rebind", spec, spec)
             ui.click("Stop generating")
