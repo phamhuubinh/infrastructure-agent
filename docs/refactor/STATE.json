@@ -732,6 +732,10 @@
           "kind": "native_checkpoint",
           "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43344192762",
           "result": "Hosted Windows candidate archive and portable worker passed on 8e0241259cae61c07b1311cfadef0f9e9af862c3. Isolated native Windows server upgrade from public v0.1.2 to exact v0.1.3 candidate passed with session and database preserved."
+        },
+        {
+          "kind": "local_windows_synthetic_upgrade",
+          "result": "Windows ran isolated synthetic NSIS installers 0.1.3 and 0.1.4 and verified version registration, executable removal, uninstall registration removal, and unchanged SQLite SHA-256 9421E07FF90F03336C5A189F4850E0B31102309F01B7846B916F97907534CB82. Log: F:/Orion-toolchains/r25-desktop-upgrade-20261113.log. The public release upgrade gate remains open."
         }
       ],
       "blockers": [
@@ -813,10 +817,14 @@
           "kind": "local_fixture_only",
           "path": "scripts/android/smoke.py",
           "result": "Extended smoke now interrupts an active SSE response after the first assistant delta and checks same request and exact cursor before releasing the provider. Windows HTTP SSE fixture passed exact and incorrect cursor checks. Native execution is pending."
+        },
+        {
+          "kind": "local_android_emulator_boot",
+          "result": "Windows 10.0.26300 WHPX passed emulator -accel-check. The disposable Orion_R27_API_35 AVD on emulator-5556 reached ADB device and sys.boot_completed=1. Android API 35 resolved DocumentsUI and reported WebView 124.0.6367.219."
         }
       ],
       "blockers": [
-        "Run extended smoke on the x86_64 debug APK with an online disposable Android emulator to verify active-stream cursor continuity. Both Windows AVD transports (5554 and 5556) remained offline with software acceleration. HypervisorPlatform is disabled; DISM returned 740 without elevation. The Windows x86_64 APK build hit Tauri build-script STATUS_ACCESS_VIOLATION even with a fresh target and dlltool configured."
+        "Run extended smoke on a verified x86_64 debug APK to establish active-stream cursor continuity. ADB and Android boot are verified. The previous GNU Windows-host build failed in Tauri build-script-build.exe with STATUS_ACCESS_VIOLATION. Retrying with the Rust 1.99.1 host rust-lld linker, a fresh target directory, and the existing Android NDK target linker."
       ]
     },
     {
@@ -874,7 +882,7 @@
       "R18 Linux server and worker lifecycle, and frozen Windows/Linux worker browser fixtures pass. Remaining native app matrix has separate scope.",
       "Windows Tauri debug installer and portable verified. R25 final release candidate and R29 signing remain separate."
     ],
-    "reproduction": "R27 Windows: use SDK under F:/Orion-toolchains/r16-android/sdk. Verify emulator -accel-check, adb devices -l, and sys.boot_completed=1 on Orion_R27_API_35 (emulator-5556). Run scripts/android/smoke.py with the x86_64 debug APK, --adb pointing to that SDK, --serial emulator-5556 and --extended. Enable Windows Hypervisor Platform from an elevated Windows session and reboot if required before relaunching the disposable AVD. See r27-isolated.stderr.log and r27-win-dlltool.log in F:/Orion-toolchains/r16-android for the software boot and Tauri build diagnostics.",
+    "reproduction": "R27 Windows: use the SDK under F:/Orion-toolchains/r16-android/sdk and boot Orion_R27_API_35 on port 5556 with -accel on -gpu swiftshader -feature -Vulkan -no-snapshot. Check adb -s emulator-5556 shell getprop sys.boot_completed. Build with tauri android build --ci --debug --apk --target x86_64 --features desktop. Host linker override: CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER points to Rust 1.99.1 bin/rust-lld.exe under its x86_64-pc-windows-gnu rustlib. Logs: F:/Orion-toolchains/r16-android/r27-whpx-lld-build.log and r27-whpx.stdout.log. Run scripts/android/smoke.py <x86_64 APK> --adb <SDK adb.exe> --serial emulator-5556 --extended.",
     "reviewed_files_at_checkpoint": 655,
     "inventory_files_at_checkpoint": 636,
     "next_task": "R27"
