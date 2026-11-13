@@ -12,3 +12,13 @@
 - Log local: `release-work/windows-acceptance-python.log`, `release-work/windows-acceptance-pytest.log`, `release-work/windows-acceptance-ui.log`.
 - Checkpoint `b49644fc4e1d41df2043cdc4a0badd5ccffea5fd` đã push lên `origin/codex/orion-windows-acceptance`. `git ls-remote` xác nhận SHA. Lần commit đầu thiếu Git author nên đã dùng danh tính Codex của checkpoint trước qua cấu hình chỉ áp dụng cho lệnh commit.
 - `plan.py --next` trả về danh sách sẵn sàng rỗng. R21 tiếp tục sau khi các điều kiện bên ngoài được đáp ứng.
+
+## 2026-11-13 · R25 · Windows dùng cá nhân
+
+- Build từ checkpoint `b220d42`. UI Vite và Tauri debug x64 đạt. Dùng Rust 1.99.1 GNU với `rust-lld` và `RUSTFLAGS=-Clink-self-contained=yes` để dùng CRT đồng bộ. Các lần trộn LLVM MinGW và CRT của Rust thiếu symbol khi link.
+- Python 3.12.14 đi kèm runtime Codex tạo được EXE nhưng worker lỗi `FileNotFoundError` khi pairing và backend lỗi khi chat. Đóng gói lại bằng CPython 3.12.16 độc lập do uv quản lý. `test_headless_cli.py -k managed_serve` đạt 1 test và `portable_smoke.py` đạt pairing, file, command, cancel, disconnect, reconnect và revoke khi PATH/PYTHONPATH/PYTHONHOME trống.
+- Bộ cài dùng cá nhân `release-work/r25-personal/Orion_0.1.3_x64-setup.exe`, SHA-256 `aab16883228655b7186ee85f786825c7ac678da765adc2096a8b037f6002bbbb`. Portable desktop nằm trong `release-work/r25-personal/desktop-portable`. Worker đã kiểm nằm trong `release-work/r25-personal/worker-standard`.
+- Smoke trên bản cài candidate thực đạt WebView2, backend xác thực, chat fixture, Stop, đăng nhập/đăng xuất bằng mã, Credential Manager và đóng sạch. Log `release-work/r25-personal-desktop-candidate-smoke.log`.
+- Kiểm thử nâng cấp giữa bản tự build R15 0.1.3 và NSIS 0.1.4 tạo cục bộ từ binary candidate. 0.1.4 là phiên bản của installer thử nghiệm. Kiểm tra phiên bản đăng ký, hash sidecar đã cài, giữ nguyên SQLite khi nâng cấp và gỡ, và mở lại với request completed/cancelled còn nguyên. Dữ liệu có sẵn được chuyển tạm rồi khôi phục. Log `release-work/r25-personal-desktop-install-smoke.log`.
+- 45 test endpoint/SSH đạt. Worker WebSocketDisconnect lịch sử liên quan fixture ping timing. R27 giữ bằng chứng native về ADB và SSE cursor; lần lỗi đầu do fixture delta bị buffer, đã sửa ở `2828337`.
+- Tiếp theo dùng provider profile và thiết bị do chủ sở hữu cấu hình. iOS, signing và nâng cấp từ release công khai được ghi riêng trong nghiệm thu toàn scope.

@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Resume R22-R24 with owner-configured live profiles, R25 with a prior released desktop installer, and R28 on macOS/Xcode. Validate signed candidates under R29 after its prerequisites, then close R21.",
+  "next_action": "Use the private Windows build for personal operation and validate against the owner's configured model and managed devices. Track live provider, public upgrade, iOS and signing evidence under the full-scope gates.",
   "work_items": [
     {
       "id": "R00",
@@ -736,10 +736,15 @@
         {
           "kind": "local_windows_synthetic_upgrade",
           "result": "Windows ran isolated synthetic NSIS installers 0.1.3 and 0.1.4 and verified version registration, executable removal, uninstall registration removal, and unchanged SQLite SHA-256 9421E07FF90F03336C5A189F4850E0B31102309F01B7846B916F97907534CB82. Log: F:/Orion-toolchains/r25-desktop-upgrade-20261113.log. The public release upgrade gate remains open."
+        },
+        {
+          "kind": "windows_personal_use_local",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Unsigned NSIS and portable desktop built locally. Real NSIS upgrade from the earlier self-built Orion 0.1.3 to the locally versioned 0.1.4 installer preserved SQLite, relaunched the current app and preserved data on uninstall. Standalone CPython 3.12.16 frozen backend and worker passed local smoke."
         }
       ],
       "blockers": [
-        "The public v0.1.2 release contains Linux and Windows server archives and checksums. A prior released desktop installer is required for the cross-version desktop upgrade gate."
+        "Personal-use upgrade has local self-built evidence. Full-scope public upgrade evidence still requires a prior released desktop installer."
       ]
     },
     {
