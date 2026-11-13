@@ -279,7 +279,16 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
                     else None
                 ),
             )
-            emulator.launch()
+            # Interrupt the emulator's route to this fixture without changing
+            # system-wide Wi-Fi or relying on an external endpoint.
+            emulator.run("reverse", "--remove", spec)
+            try:
+                if spec in emulator.run("reverse", "--list").split():
+                    raise AssertionError("Fixture route is still available")
+                emulator.launch()
+                ui.find("Stop generating")
+            finally:
+                emulator.run("reverse", "--no-rebind", spec, spec)
             ui.click("Stop generating")
             until(
                 "one completed and one cancelled chat",
@@ -290,7 +299,7 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
                 ),
             )
             print(
-                "Android returned from Home and cancelled the single admitted request.",
+                "Android restored the fixture route and cancelled the single admitted request.",
                 flush=True,
             )
             check_file_picker(ui, stack, database.parent)
