@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "3f2b62461733e16f4fbbea1b62fef37fb0f99281",
+  "source_commit": "b49644fc4e1d41df2043cdc4a0badd5ccffea5fd",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -7310,8 +7310,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 2004,
-      "sha256": "44eb81b481cffd7792bb24f0cf2cc926b4ef77d0804d2653a927258556facc48",
+      "bytes": 2318,
+      "sha256": "35d313827e949b9ea77757db8defec1e7001cd33c7e30326363655fc131faabf",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7320,7 +7320,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 13,
+      "lines": 14,
       "python_syntax": null
     },
     {
@@ -7427,11 +7427,11 @@
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "unreviewed",
-      "final_action": "",
-      "reason": "",
-      "replacement_or_callers": "",
-      "verification": "",
+      "review_status": "reviewed",
+      "final_action": "keep",
+      "reason": "Record external acceptance dependencies and the current Windows checkpoint.",
+      "replacement_or_callers": "scripts/refactor/plan.py and docs/refactor/ACCEPTANCE.md",
+      "verification": "Compared with the acceptance matrix, Windows test logs, R27 evidence and plan.py output.",
       "lines": 895,
       "python_syntax": null
     },
