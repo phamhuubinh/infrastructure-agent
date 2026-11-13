@@ -259,6 +259,10 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             for content in (FIRST_DELTA, "resumed."):
                 value = {"choices": [{"index": 0, "delta": {"content": content}}]}
                 self.wfile.write(f"data: {json.dumps(value)}\n\n".encode())
+                if content == FIRST_DELTA:
+                    # The provider adapter reads 16 KiB blocks. Flush the first
+                    # event through that buffer before holding the response open.
+                    self.wfile.write(b":" + b" " * 16_384 + b"\n\n")
                 self.wfile.flush()
                 if content == FIRST_DELTA and not probe.release.wait(45):
                     return

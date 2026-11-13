@@ -6030,8 +6030,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 45754,
-      "sha256": "72b66632c2b2160b0dafa10277512898c919acc78227141e5db671d5881510d9",
+      "bytes": 46281,
+      "sha256": "f6cb2b0f20feef64860d51bf25559c2971186e975302724149b001b8919d278f",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -6040,7 +6040,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 890,
+      "lines": 894,
       "python_syntax": null
     },
     {
@@ -7678,8 +7678,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 17152,
-      "sha256": "8a6cd9012e2002b117f3c54ef60e1475e1f325cc878f2044bf199f7d5eb3b6da",
+      "bytes": 17430,
+      "sha256": "62c8d3c12f1ab477f9f903b21bd793ac8bfc375aeb660b07664c2ae617f06cca",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7688,7 +7688,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 440,
+      "lines": 444,
       "python_syntax": "parsed"
     },
     {

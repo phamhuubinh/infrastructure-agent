@@ -7,8 +7,8 @@
     "claude",
     "openai"
   ],
-  "current_task": "R27",
-  "next_action": "Verify active Android stream cursor continuity across network interruption, then exercise iOS functional flows. Windows desktop upgrade awaits a prior released installer.",
+  "current_task": "R28",
+  "next_action": "Exercise iOS functional flows on a macOS/Xcode simulator. Windows desktop upgrade awaits a prior released installer.",
   "work_items": [
     {
       "id": "R00",
@@ -786,7 +786,7 @@
         "R16",
         "R18"
       ],
-      "status": "in_progress",
+      "status": "done",
       "evidence": [
         {
           "kind": "hosted_native_partial",
@@ -820,12 +820,16 @@
         },
         {
           "kind": "local_android_emulator_boot",
+          "path": "scripts/android/smoke.py",
           "result": "Windows 10.0.26300 WHPX passed emulator -accel-check. The disposable Orion_R27_API_35 AVD on emulator-5556 reached ADB device and sys.boot_completed=1. Android API 35 resolved DocumentsUI and reported WebView 124.0.6367.219."
+        },
+        {
+          "kind": "local_android_x86_64_extended_smoke",
+          "path": "scripts/android/smoke.py",
+          "result": "Windows Rust 1.99.1 host rust-lld built the Android x86_64 native library. Tauri's symlink step lacked Windows permission, so the compiled library was copied into generated jniLibs and Gradle :app:assembleX86_64Debug -x :app:rustBuildX86_64Debug packaged the APK. SHA-256 3a42c2e8503695a80cf9f5b606fd1943ab1f62337ee84936f923703c9cf41738. On API 35, --extended exited 0 after enrollment, relaunch, IME, route interruption and Stop, active SSE resume, DocumentsUI and server-side logout revocation. The fixture recorded request c236a3f6-f6c4-47e0-9244-af3245ebdd75 with cursor 137e74c3-2717-4ef7-86fa-df400755bd60 while running, then verified completion without another admission. Logs: F:/Orion-toolchains/r16-android/r27-gradle-copy.log and r27-whpx-smoke-retry.log."
         }
       ],
-      "blockers": [
-        "Run extended smoke on a verified x86_64 debug APK to establish active-stream cursor continuity. ADB and Android boot are verified. The previous GNU Windows-host build failed in Tauri build-script-build.exe with STATUS_ACCESS_VIOLATION. Retrying with the Rust 1.99.1 host rust-lld linker, a fresh target directory, and the existing Android NDK target linker."
-      ]
+      "blockers": []
     },
     {
       "id": "R28",
@@ -885,6 +889,6 @@
     "reproduction": "R27 Windows: use the SDK under F:/Orion-toolchains/r16-android/sdk and boot Orion_R27_API_35 on port 5556 with -accel on -gpu swiftshader -feature -Vulkan -no-snapshot. Check adb -s emulator-5556 shell getprop sys.boot_completed. Build with tauri android build --ci --debug --apk --target x86_64 --features desktop. Host linker override: CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER points to Rust 1.99.1 bin/rust-lld.exe under its x86_64-pc-windows-gnu rustlib. Logs: F:/Orion-toolchains/r16-android/r27-whpx-lld-build.log and r27-whpx.stdout.log. Run scripts/android/smoke.py <x86_64 APK> --adb <SDK adb.exe> --serial emulator-5556 --extended.",
     "reviewed_files_at_checkpoint": 655,
     "inventory_files_at_checkpoint": 636,
-    "next_task": "R27"
+    "next_task": "R28"
   }
 }
