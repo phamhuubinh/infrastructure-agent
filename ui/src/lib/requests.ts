@@ -159,14 +159,21 @@ export async function runIntent(
     let more = true;
     while (more) {
       sameServer(intent);
-      const page = await serverRequest(
-        "events_api_requests__request_id__event_page_get",
-        {
-          path: { request_id: admitted.request_id },
-          query: { after: cursor, limit: 64 },
-        },
-        signal,
-      );
+      let page;
+      try {
+        page = await serverRequest(
+          "events_api_requests__request_id__event_page_get",
+          {
+            path: { request_id: admitted.request_id },
+            query: { after: cursor, limit: 64 },
+          },
+          signal,
+        );
+      } catch (error) {
+        if (signal.aborted || attempt === 3) throw error;
+        await new Promise<void>((resolve) => setTimeout(resolve, 500));
+        break;
+      }
       for (const event of page.events) await accept(event);
       more = page.has_more;
       if (!more && !["queued", "running"].includes(page.status)) {

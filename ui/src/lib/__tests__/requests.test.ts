@@ -71,9 +71,14 @@ describe("durable shared chat transport", () => {
     const intent = requestIntent("known-session", "Known request");
     const fetcher = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(json({ request_id: "known", status: "running" }))
-      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
-      .mockRejectedValueOnce(new Error("page unavailable"))
+      .mockResolvedValueOnce(json({ request_id: "known", status: "running" }));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      fetcher
+        .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+        .mockRejectedValueOnce(new Error("page unavailable"));
+    }
+    fetcher
+      .mockRejectedValueOnce(new Error("stream unavailable"))
       .mockResolvedValueOnce(stream([record(completedId, "request.completed")]));
     vi.stubGlobal("fetch", fetcher);
     await expect(
@@ -92,7 +97,7 @@ describe("durable shared chat transport", () => {
       new AbortController().signal,
     );
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
-    expect(fetcher.mock.calls[3][0]).toBe("/api/requests/known/stream");
+    expect(fetcher.mock.lastCall?.[0]).toBe("/api/requests/known/stream");
   });
 
   it("does not confirm Stop until the canonical request status becomes terminal", async () => {
@@ -146,6 +151,32 @@ describe("durable shared chat transport", () => {
     expect(admitted).toHaveBeenCalledExactlyOnceWith("request");
     expect(events).toEqual([acceptedId, completedId]);
     expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("keeps observing with the last cursor when reconciliation also loses connectivity", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ request_id: "request", status: "running" }))
+      .mockResolvedValueOnce(stream([record(acceptedId, "request.accepted")]))
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce(stream([record(completedId, "request.completed")]));
+    vi.stubGlobal("fetch", fetcher);
+    const received: string[] = [];
+
+    await runIntent(
+      requestIntent("offline-session", "Resume observation"),
+      () => {},
+      (event) => {
+        received.push(event.event_id);
+      },
+      new AbortController().signal,
+    );
+
+    expect(received).toEqual([acceptedId, completedId]);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    const resumed = new URL(String(fetcher.mock.calls[3][0]), "http://localhost");
+    expect(resumed.pathname).toBe("/api/requests/request/stream");
+    expect(resumed.searchParams.get("after")).toBe(acceptedId);
   });
 
   it("keeps the same nonce/content after a lost admission reply and uses it for Stop", async () => {
