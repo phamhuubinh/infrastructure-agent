@@ -7,8 +7,8 @@
     "claude",
     "openai"
   ],
-  "current_task": "R25",
-  "next_action": "Verify Android active stream cursor continuity, iOS functional flows, exact candidate Linux systemd lifecycle and desktop upgrade when a prior desktop artifact is available.",
+  "current_task": "R27",
+  "next_action": "Verify active Android stream cursor continuity across network interruption, then exercise iOS functional flows. Windows desktop upgrade awaits a prior released installer.",
   "work_items": [
     {
       "id": "R00",
@@ -716,7 +716,7 @@
         "R15",
         "R18"
       ],
-      "status": "in_progress",
+      "status": "needs_external",
       "evidence": [
         {
           "kind": "windows_native_unsigned_desktop_candidates",
@@ -745,7 +745,7 @@
         "R14",
         "R18"
       ],
-      "status": "in_progress",
+      "status": "done",
       "evidence": [
         {
           "kind": "runner_available_source_fixtures",
@@ -766,11 +766,14 @@
           "kind": "native_checkpoint",
           "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43344192762",
           "result": "Hosted exact Linux candidate server and worker archives and Ubuntu portable worker smoke passed on 8e0241259cae61c07b1311cfadef0f9e9af862c3. Artifact 14000752547 checksum verified."
+        },
+        {
+          "kind": "hosted_exact_candidate_systemd",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43378201939",
+          "result": "0f8f707: checksum-verified Linux release archive and worker smoke passed. The archived server installed into a disposable prefix and passed user systemd start, health, restart with a new PID, and clean stop."
         }
       ],
-      "blockers": [
-        "Exact-candidate user systemd service lifecycle pending. Disposable Ubuntu guest did not provide a completed result."
-      ]
+      "blockers": []
     },
     {
       "id": "R27",
@@ -869,6 +872,6 @@
     "reproduction": "Run scripts/refactor/dev.py check --backend-only with the pinned Windows Python and the UI lint, TypeScript, Vitest and packaged UI checks with the pinned Node. Hosted CI must be verified by commit SHA.",
     "reviewed_files_at_checkpoint": 655,
     "inventory_files_at_checkpoint": 636,
-    "next_task": "R25"
+    "next_task": "R27"
   }
 }
