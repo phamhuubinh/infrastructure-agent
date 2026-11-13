@@ -8078,8 +8078,8 @@
     {
       "path": "scripts/refactor/inventory.py",
       "kind": "text",
-      "bytes": 14279,
-      "sha256": "6d993b893942be3a9081115259579f62fac48f2fbe1cfb116190703c4da56070",
+      "bytes": 14307,
+      "sha256": "594a52d91d49bfe25989aa8542ab1e7d649819dc047d50d99140532e58ace7f4",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8190,8 +8190,8 @@
     {
       "path": "scripts/refactor/test_tools.py",
       "kind": "text",
-      "bytes": 12853,
-      "sha256": "11b12040fd825cd04c598666e33975430b7bc4d9ba39e4f0990864e3147b5f93",
+      "bytes": 13324,
+      "sha256": "0a26208257f8525e4f02725117a8f883bd06a4cdc40205602539ee157572fa31",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8200,7 +8200,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 261,
+      "lines": 268,
       "python_syntax": "parsed"
     },
     {

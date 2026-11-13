@@ -104,6 +104,9 @@ class AuditGateTests(unittest.TestCase):
         native_output = self.root / "ui/src-tauri/target/generated.txt"
         native_output.parent.mkdir(parents=True)
         native_output.write_text("local native build output")
+        android_output = self.root / "ui/src-tauri/gen/android/app/build.gradle.kts"
+        android_output.parent.mkdir(parents=True)
+        android_output.write_text("generated Android project")
         tracked = self.root / "ui/dist/tracked.txt"
         tracked.parent.mkdir(parents=True)
         tracked.write_text("committed fixture")
@@ -111,6 +114,10 @@ class AuditGateTests(unittest.TestCase):
         rows, errors = inventory.collect(self.root)
         self.assertFalse(errors)
         self.assertEqual({row["path"] for row in rows}, {"source.py", "ui/dist/tracked.txt"})
+        self.run_git("add", android_output.relative_to(self.root).as_posix())
+        rows, errors = inventory.collect(self.root)
+        self.assertFalse(errors)
+        self.assertIn(android_output.relative_to(self.root).as_posix(), {row["path"] for row in rows})
 
     def test_retired_record_is_preserved_and_requires_removal_reason(self):
         self.invoke("inventory.py", "--write")
