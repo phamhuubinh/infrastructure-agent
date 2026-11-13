@@ -32,7 +32,7 @@ def isolate_server_side_infrastructure_paths(monkeypatch) -> None:  # type: igno
     """Unit tests must never consult a workstation's deployed credentials or SSH config."""
     monkeypatch.delenv("ORION_SSH_COMMAND_CONFIG", raising=False)
     monkeypatch.delenv("ORION_MCP_CONFIG", raising=False)
-    monkeypatch.setenv("ORION_TOOL_CREDENTIALS_PATH", "/nonexistent/orion-tool-credentials.json")
+    monkeypatch.delenv("ORION_SSH_TARGET_REFS", raising=False)
     monkeypatch.setenv("ORION_SSH_CONFIG_PATH", "/nonexistent/orion-ssh-config")
 
 

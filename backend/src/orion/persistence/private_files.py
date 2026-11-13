@@ -88,6 +88,18 @@ def _windows_acl_text(path: Path) -> str:
     )
     if code:
         raise OSError(code, "Cannot inspect private Windows ACL")
+    try:
+        return _windows_dacl_sddl(descriptor)
+    finally:
+        kernel.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel.LocalFree(descriptor)
+
+
+def _windows_dacl_sddl(descriptor: ctypes.c_void_p) -> str:
+    if sys.platform != "win32":
+        raise OSError("Windows ACLs are unavailable")
+    advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     string = wintypes.LPWSTR()
     try:
         advapi.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
@@ -111,7 +123,6 @@ def _windows_acl_text(path: Path) -> str:
         kernel.LocalFree.argtypes = [ctypes.c_void_p]
         if string.value:
             kernel.LocalFree(ctypes.cast(string, ctypes.c_void_p))
-        kernel.LocalFree(descriptor)
 
 
 def _windows_private_acl(path: Path, *, directory: bool, validate_only: bool = False) -> None:
@@ -155,10 +166,6 @@ def _windows_private_acl(path: Path, *, directory: bool, validate_only: bool = F
             raise OSError("Cannot identify Windows account")
         inherit = "OICI" if directory else ""
         sddl = f"D:P(A;{inherit};FA;;;{sid_string.value})(A;{inherit};FA;;;SY)"
-        if validate_only:
-            if _windows_acl_text(path) != sddl:
-                raise OSError("Data artifact Windows ACL is not private")
-            return
         advapi.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
             wintypes.LPCWSTR,
             wintypes.DWORD,
@@ -170,6 +177,13 @@ def _windows_private_acl(path: Path, *, directory: bool, validate_only: bool = F
             sddl, 1, ctypes.byref(descriptor), None
         ):
             raise OSError("Cannot build private Windows ACL")
+        # Windows may render a well-known trustee as an SDDL alias. Format
+        # both descriptors with the same API before comparing their DACLs.
+        expected_dacl = _windows_dacl_sddl(descriptor)
+        if validate_only:
+            if _windows_acl_text(path) != expected_dacl:
+                raise OSError("Data artifact Windows ACL is not private")
+            return
         present, defaulted, dacl = wintypes.BOOL(), wintypes.BOOL(), ctypes.c_void_p()
         advapi.GetSecurityDescriptorDacl.argtypes = [
             ctypes.c_void_p,
@@ -199,7 +213,7 @@ def _windows_private_acl(path: Path, *, directory: bool, validate_only: bool = F
         result = advapi.SetNamedSecurityInfoW(str(path), 1, 0x80000004, None, None, dacl, None)
         if result:
             raise OSError(result, "Cannot protect private Windows path")
-        if _windows_acl_text(path) != sddl:
+        if _windows_acl_text(path) != expected_dacl:
             raise OSError("Private Windows ACL verification failed")
     finally:
         kernel.LocalFree.argtypes = [ctypes.c_void_p]

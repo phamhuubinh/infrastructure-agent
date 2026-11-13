@@ -19,7 +19,13 @@ def main() -> None:
         / f"orion-native-regression-{args.mode}.log"
     )
     command = (
-        [sys.executable, "-m", "pip", "install", "-e", "./backend[dev]"]
+        [
+            sys.executable,
+            "scripts/refactor/dev.py",
+            "bootstrap",
+            "--backend-only",
+            "--current-python",
+        ]
         if args.mode == "install"
         else [
             sys.executable,
@@ -34,6 +40,7 @@ def main() -> None:
             "backend/tests/test_mcp.py",
             "backend/tests/test_endpoints.py",
             "backend/tests/test_device_chat.py",
+            "backend/tests/test_headless_cli.py",
         ]
     )
     timed_out = False

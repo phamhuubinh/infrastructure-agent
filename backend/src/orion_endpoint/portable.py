@@ -113,6 +113,7 @@ def main() -> None:
     # Frozen Playwright otherwise looks inside its bundle while its install command
     # uses a user cache. Bind both paths explicitly, without implicit provisioning.
     os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(data_path() / "browsers"))
+    phase = "startup"
     try:
         if args.self_test:
             hello = asyncio.run(Executor(Policy()).hello())
@@ -135,6 +136,7 @@ def main() -> None:
             "Temporary session is the default. --remember explicitly remembers this device.",
             flush=True,
         )
+        phase = "policy"
         policy = Policy.load(args.policy) if args.policy else Policy()
         if args.policy is None:
             policy.commands = (
@@ -156,6 +158,7 @@ def main() -> None:
                     input("Permit keyboard/mouse control? [y/N]: ").lower() == "y"
                 )
             policy.browser = input("Permit isolated browser automation? [y/N]: ").lower() == "y"
+        phase = "identity"
         state = args.data / "identity.json"
         if args.remember and state.exists():
             if state.stat().st_size > 4096:
@@ -167,9 +170,11 @@ def main() -> None:
             token = os.environ.pop("ORION_PAIRING_TOKEN", None) or getpass.getpass(
                 "One-time pairing code: "
             )
+            phase = "pairing"
             identity = pair(server, token, name, args.remember)
             if args.remember:
                 private_write(state, identity.model_dump())
+        phase = "session"
         logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
         # Only state owned by this run is removed. No OS/security/audit history is touched.
         with tempfile.TemporaryDirectory(prefix="orion-remote-session-") as temporary:
@@ -182,10 +187,8 @@ def main() -> None:
         print("Disconnected. Worker-owned temporary session state removed.", flush=True)
     except KeyboardInterrupt:
         print("Disconnected. Worker-owned temporary session state removed.", flush=True)
-    except Exception:
-        parser.exit(
-            1, "Portable session unavailable; check pairing, policy and server connectivity.\n"
-        )
+    except Exception as error:
+        parser.exit(1, f"Portable session unavailable ({phase}, {type(error).__name__}).\n")
 
 
 if __name__ == "__main__":

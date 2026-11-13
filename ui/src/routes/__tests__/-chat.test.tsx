@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatProvider, useChat } from "@/lib/chat-store";
 import { ChatPage, parseSseEvents } from "@/routes/index";
+import { isMobileHost } from "@/lib/server-profiles";
+
+vi.mock("@/lib/server-profiles", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/server-profiles")>()),
+  isMobileHost: vi.fn(() => false),
+}));
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -58,6 +64,7 @@ describe("M1 Chat integration", () => {
     window.dispatchEvent(new Event("orion-server-changed"));
     window.localStorage.clear();
     vi.restoreAllMocks();
+    vi.mocked(isMobileHost).mockReturnValue(false);
   });
 
   it("creates a draft session on mode change and requires a warning before auto", async () => {
@@ -867,6 +874,53 @@ describe("M1 Chat integration", () => {
     expect(
       fetcher.mock.calls.filter(([path]) => path === "/api/sessions/chat-race/requests"),
     ).toHaveLength(1);
+  });
+
+  it("resumes an admitted mobile chat after connectivity returns without posting again", async () => {
+    vi.mocked(isMobileHost).mockReturnValue(true);
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const paused = vi.fn();
+    let observations = 0;
+    const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions")
+        return init?.method === "POST"
+          ? jsonResponse({ session_id: "mobile" }, 201)
+          : jsonResponse([]);
+      if (path === "/api/sessions/mobile/requests")
+        return jsonResponse({ request_id: "mobile-request", status: "running" }, 202);
+      if (path.startsWith("/api/requests/mobile-request/stream")) {
+        observations += 1;
+        return observations === 1
+          ? new Response(new ReadableStream<Uint8Array>({ cancel: paused }))
+          : sseResponse([]);
+      }
+      if (path === "/api/sessions/mobile")
+        return jsonResponse({ session_id: "mobile", project_id: null });
+      if (path === "/api/sessions/mobile/timeline") return jsonResponse([]);
+      throw new Error("unexpected fixture path " + path);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    renderChat();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Chat input" }), {
+      target: { value: "Observe this mobile request" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(observations).toBe(1));
+    online.mockReturnValue(false);
+    fireEvent(window, new Event("offline"));
+    await screen.findByText("Tạm ngừng kết nối");
+    await waitFor(() => expect(paused).toHaveBeenCalledOnce());
+    online.mockReturnValue(true);
+    fireEvent(window, new Event("online"));
+    await waitFor(() => expect(observations).toBe(2));
+    expect(
+      fetcher.mock.calls.filter(([path]) => path === "/api/sessions/mobile/requests"),
+    ).toHaveLength(1);
+    expect(fetcher.mock.calls.some(([path]) => path.endsWith("/request-cancellations"))).toBe(
+      false,
+    );
   });
 
   it("uploads into the active Chat session and presents its ready lifecycle state", async () => {

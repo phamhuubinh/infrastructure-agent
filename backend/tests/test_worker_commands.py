@@ -73,7 +73,8 @@ async def test_worker_shell_unicode_streams_cwd_and_nonzero_exit(tmp_path, shell
     runner = CommandProcesses()
     script = tmp_path / "program with spaces.py"
     script.write_text(
-        "import os,sys\nprint('hello 你好',flush=True)\n"
+        "import os,sys\nsys.stdout.reconfigure(encoding='utf-8')\n"
+        "print('hello 你好',flush=True)\n"
         "print(os.getcwd(),flush=True)\nprint('error stream',file=sys.stderr)\n"
         "raise SystemExit(7)\n",
         encoding="utf-8",

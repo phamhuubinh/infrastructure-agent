@@ -47,8 +47,15 @@ fi
 }
 package="$wheel"
 if [[ "$with_embeddings" == true ]]; then package="$wheel[semantic]"; fi
-"$venv/bin/python" -m pip install "$package"
-"$venv/bin/python" -c 'import json,sys; from pathlib import Path; m=json.loads(Path(sys.argv[1]).read_text()); Path(sys.prefix,".orion-build.json").write_text(json.dumps({"version":m["version"],"source_sha":m["commit"]}))' "$bundle/release-manifest.json"
+if [[ "$with_embeddings" == false && -f "$bundle/core.txt" ]] &&
+  "$venv/bin/python" -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'; then
+  "$venv/bin/python" -m pip install --require-hashes -r "$bundle/core.txt"
+  "$venv/bin/python" -m pip install --no-deps --force-reinstall "$wheel"
+  "$venv/bin/python" -m pip check
+else
+  "$venv/bin/python" -m pip install "$package"
+fi
+"$venv/bin/python" -c 'import json,sys; from pathlib import Path; m=json.loads(Path(sys.argv[1]).read_text()); Path(sys.prefix,".orion-build.json").write_text(json.dumps({"version":m["version"],"source_sha":m["commit"],"source_dirty":m.get("source_dirty",False)}))' "$bundle/release-manifest.json"
 "$venv/bin/python" -c 'import orion.ui_package,sys; from pathlib import Path; orion.ui_package.replace_ui_bundle(Path(sys.argv[1]),Path(sys.argv[2]))' "$bundle/ui" "$prefix/.orion-ui"
 if [[ "$with_embeddings" == true ]]; then
   "$venv/bin/orion" model install embeddings

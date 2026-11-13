@@ -68,7 +68,7 @@ endpoint source must not be described as missing.
 - [Remote browser access](operations/REMOTE_ACCESS.md)
 - [Portable/remembered endpoints](operations/ENDPOINTS.md)
 - [MCP](operations/MCP.md)
-- [Docker status](operations/DOCKER.md)
+- [Linux headless](operations/HEADLESS.md)
 - [Troubleshooting](operations/TROUBLESHOOTING.md)
 
 Operations pages must match actual scripts/configuration. A target document cannot

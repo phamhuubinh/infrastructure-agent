@@ -1897,8 +1897,6 @@ class ChatRuntime:
         definition = self._registry.definition(result.tool_name)
         if definition is not None and result.tool_name.split(".", 1)[0] in {
             "linux",
-            "grafana",
-            "zabbix",
             "endpoint",
             "system",
         }:
@@ -1924,8 +1922,6 @@ class ChatRuntime:
         definition = self._registry.definition(tool_name)
         if definition is not None and tool_name.split(".", 1)[0] in {
             "linux",
-            "grafana",
-            "zabbix",
             "endpoint",
             "system",
         }:
@@ -2145,6 +2141,7 @@ class ChatRuntime:
             source = sources_by_id[source_ref_id]
             if source.source_kind == "internet" and source.document_id is None and source.url:
                 continue
+            # Monitoring source kinds can appear in conversations saved before removal.
             if (
                 source.source_kind in {"linux", "grafana", "zabbix", "system_command"}
                 and source.document_id is None

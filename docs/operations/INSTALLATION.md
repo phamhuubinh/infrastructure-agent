@@ -1,6 +1,30 @@
 # Installation
 
-## Normal installation from a release
+## Windows desktop app
+
+The Windows x64 desktop build includes WebView2 integration and a bundled Orion
+backend. Install the NSIS artifact, or extract the desktop ZIP and open `Orion.exe`
+with the adjacent backend directory and loader DLL in place. The target machine
+needs the WebView2 runtime. Python, Node.js and npm are build tools for this app.
+
+Orion opens its local backend by default. Use Settings to add a remote Orion
+server and enroll with a code from its owner. Native session credentials live in
+Windows Credential Manager. The local backend keeps its database and logs under
+`%LOCALAPPDATA%\io.orion.desktop\managed`.
+
+Close Orion before installing a newer build or replacing a portable directory.
+The NSIS uninstaller removes the app installation. Retain the managed data
+directory to reuse the local database on a later install.
+
+For a development build, use Windows x64 with Rust, Microsoft C++ Build Tools
+and the Windows SDK. Build the backend wheel with `scripts/refactor/dev.py build
+--backend-only`, then use `scripts/desktop/build_sidecar.py` to stage it at
+`release-work/managed-backend`. From `ui`, run `npm ci` and `npm run desktop:build`.
+`scripts/desktop/portable.py` packages the app, WebView2 loader and exact sidecar
+files into a checksummed ZIP. Local debug evidence and artifact identities are
+recorded in [the R15 session](../refactor/evidence/R15_SESSION_2026-11-10.md).
+
+## CLI and web installation from a release
 
 Download the archive for your platform from the matching GitHub Release. Orion needs
 Python 3.12 or newer. No Git, Node.js, npm, or source checkout is needed on the target.
@@ -25,8 +49,11 @@ orion
 
 The release installers verify the bundled wheel and every packaged UI file against
 `release-manifest.json` before installing anything. They create or reuse an install-owned
-virtual environment, install the bundled wheel and copy the prebuilt UI. First installation
-needs network access for uncached Python dependencies. E5 semantic retrieval is optional:
+virtual environment, install the bundled wheel and copy the prebuilt UI. With
+Python 3.12, the standard install uses the hash-verified dependency lock in the
+archive. Newer Python versions and the optional semantic extra resolve dependencies
+from wheel metadata. First installation needs network access for uncached packages.
+E5 semantic retrieval is optional:
 `--with-embeddings` (Linux) or `-WithEmbeddings` (Windows) installs the `semantic` extra
 and calls `orion model install embeddings` to provision the pinned model. E5 is never
 included in release archives. A verified cache is reused; corrupt data is repaired by the
@@ -45,11 +72,21 @@ normal application-data meanings; model data stays outside the installation pref
 does not enable hybrid retrieval, run semantic indexing, or start the server. Remote Access v1
 retains loopback by default and its normal authentication and non-loopback checks.
 
+To update, stop Orion and rerun the newer archive installer with the same prefix.
+To uninstall, stop Orion and run `python payload.py uninstall --prefix INSTALL_PREFIX`
+from the extracted archive with Python outside that prefix. Add `--launcher LAUNCHER_PATH`
+to remove the matching managed launcher. Application data is separate from the
+installation and can be reused by a later install.
+
 The release manifest records the version, exact source commit, platform, wheel SHA-256, and
 individual UI file SHA-256 digests. `SHA256SUMS` covers both final archives. Compare an archive
 with that checksum file before extracting when transferring it outside GitHub Releases.
 
 ## Source/developer installation
+
+For a Linux installation that only needs the API and terminal client, follow
+[the headless setup](HEADLESS.md) to install just the backend wheel and run
+`orion serve` directly or through systemd.
 
 From a repository checkout, use `./install.sh` on Linux or `.\install.ps1` in Windows
 PowerShell. These source installers require Python 3.12+, Node.js 22.12+, and npm. They
@@ -59,7 +96,7 @@ Existing environments can install `./backend[semantic]` (source) or the matching
 wheel's `[semantic]` extra, then run `orion model install embeddings`. Ordinary Chat,
 Projects, lexical/exact knowledge and data export/import need neither E5 nor its dependencies.
 
-## Publishing a release
+## Publishing CLI, web and worker bundles
 
 Set the release version once in `backend/src/orion/_version.py`, merge that change to `main`,
 then manually dispatch the **Release bundles** workflow with the same version. The workflow

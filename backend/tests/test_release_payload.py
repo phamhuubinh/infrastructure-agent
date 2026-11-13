@@ -21,6 +21,31 @@ payload = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(payload)
 
 
+@pytest.mark.parametrize("windows", [False, True])
+def test_portable_archive_ignores_timestamps(tmp_path: Path, windows: bool) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "worker_portable", REPOSITORY / "scripts/worker/portable.py"
+    )
+    assert spec is not None and spec.loader is not None
+    portable = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(portable)
+    directory = tmp_path / "frozen"
+    directory.mkdir()
+    executable = directory / "worker"
+    executable.write_bytes(b"worker fixture")
+    executable.chmod(0o755)
+    suffix = ".zip" if windows else ".tar.gz"
+    first, second = (tmp_path / (name + suffix) for name in ("first", "second"))
+    portable._archive(directory, first, "bundle", windows=windows)
+    for path in (directory, executable):
+        os.utime(path, (946684800, 946684800))
+    portable._archive(directory, second, "bundle", windows=windows)
+    assert first.read_bytes() == second.read_bytes()
+    if not windows and os.name != "nt":
+        with tarfile.open(first) as archive:
+            assert archive.getmember("bundle/worker").mode & 0o111 == 0o111
+
+
 def test_release_archives_manifest_and_tamper_rejection(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     version = __import__("orion._version", fromlist=["__version__"]).__version__
     wheel = tmp_path / f"orion-{version}-py3-none-any.whl"
@@ -41,25 +66,38 @@ def test_release_archives_manifest_and_tamper_rejection(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(payload.subprocess, "check_output", git_output)
     output = tmp_path / "artifacts"
+    unrelated = output / f"orion-{version}-linux-x86_64"
+    unrelated.mkdir(parents=True)
+    sentinel = unrelated / "unrelated.txt"
+    sentinel.write_text("preserve")
     linux, windows = payload.build(REPOSITORY, wheel, ui, output)
     assert linux.name == f"orion-{version}-linux-x86_64.tar.gz"
     assert windows.name == f"orion-{version}-windows-x64.zip"
     assert linux.is_file() and windows.is_file()
     assert len((output / "SHA256SUMS").read_text().splitlines()) == 2
+    checksums = [payload.digest(archive) for archive in (linux, windows)]
+    assert [
+        payload.digest(archive) for archive in payload.build(REPOSITORY, wheel, ui, output)
+    ] == checksums
+    assert sentinel.read_text() == "preserve"
+    extracted = tmp_path / "extracted"
     for platform, archive in (("linux-x86_64", linux), ("windows-x64", windows)):
-        root = output / f"orion-{version}-{platform}"
+        if platform == "linux-x86_64":
+            with tarfile.open(archive) as package:
+                names = package.getnames()
+                package.extractall(extracted, filter="data")
+        else:
+            with zipfile.ZipFile(archive) as package:
+                names = package.namelist()
+                package.extractall(extracted)
+        root = extracted / f"orion-{version}-{platform}"
         manifest = payload.verify(root, platform)
         assert manifest["version"] == version
         assert manifest["artifact"] == archive.name
         assert manifest["commit"] == "a" * 40
+        assert manifest["source_dirty"] is False
         assert manifest["wheel_sha256"] == payload.digest(root / wheel.name)
         assert manifest["ui_files"] == payload.inventory(root / "ui")
-        if platform == "linux-x86_64":
-            with tarfile.open(archive) as package:
-                names = package.getnames()
-        else:
-            with zipfile.ZipFile(archive) as package:
-                names = package.namelist()
         assert any(name.endswith("/release-manifest.json") for name in names)
         assert any(name.endswith("/ui/_shell.html") for name in names)
         assert not any(
@@ -83,6 +121,43 @@ def test_release_archives_manifest_and_tamper_rejection(tmp_path: Path, monkeypa
         (root / "ui/extra.js").write_text("extra")
         with pytest.raises(ValueError, match="missing or unexpected"):
             payload.verify(root, platform)
+        (root / "ui/extra.js").unlink()
+        (root / "core.txt").write_text("tampered lock")
+        with pytest.raises(ValueError, match="Runtime dependency lock SHA-256 mismatch"):
+            payload.verify(root, platform)
+
+
+def test_uninstall_preserves_unmanaged_files_and_refuses_wrong_launcher(tmp_path, monkeypatch):
+    import json
+    import shlex
+
+    prefix = tmp_path / "prefix with spaces"
+    environment = prefix / ".venv"
+    environment.mkdir(parents=True)
+    (environment / ".orion-build.json").write_text(
+        json.dumps({"version": "0.1.3", "source_sha": "a" * 40}), encoding="utf-8"
+    )
+    (prefix / ".orion-ui").mkdir()
+    private = prefix / "private.sqlite"
+    private.write_text("preserve")
+    launcher = tmp_path / "orion"
+    launcher.write_text('#!/bin/sh\n# Orion managed launcher\nexec /other/orion "$@"\n')
+    with pytest.raises(ValueError, match="not managed by this Orion installation"):
+        payload.uninstall(prefix, launcher)
+    assert environment.is_dir()
+    executable = shlex.quote(str(environment / "bin/orion"))
+    launcher.write_text(
+        f'#!/bin/sh\n# Orion managed launcher\nexec {executable} "$@"\n', encoding="utf-8"
+    )
+    monkeypatch.setenv("ORION_DATABASE_PATH", str(environment / "configured.db"))
+    with pytest.raises(ValueError, match="Move ORION_DATABASE_PATH"):
+        payload.uninstall(prefix, launcher)
+    monkeypatch.setenv("ORION_DATABASE_PATH", str(private))
+    payload.uninstall(prefix, launcher)
+    assert private.read_text() == "preserve"
+    assert (
+        not environment.exists() and not launcher.exists() and not (prefix / ".orion-ui").exists()
+    )
 
 
 def test_dirty_checkout_rejected(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -91,6 +166,7 @@ def test_dirty_checkout_rejected(tmp_path: Path, monkeypatch) -> None:  # type: 
         payload.build(REPOSITORY, tmp_path / "missing.whl", tmp_path / "ui", tmp_path / "output")
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux release installer")
 @pytest.mark.parametrize("with_embeddings", [False, True])
 def test_linux_release_installer_optional_model_and_launcher(
     tmp_path: Path, with_embeddings: bool

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -16,15 +18,42 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _archive(root: Path, artifact: Path, *, linux: bool) -> None:
+    files = sorted(root.iterdir(), key=lambda path: path.name)
+    if linux:
+        with (
+            artifact.open("wb") as stream,
+            gzip.GzipFile(
+                filename="", fileobj=stream, mode="wb", mtime=0
+            ) as compressed,
+            tarfile.open(fileobj=compressed, mode="w") as archive,
+        ):
+            for file in files:
+                info = archive.gettarinfo(str(file), arcname=f"{root.name}/{file.name}")
+                info.mtime = info.uid = info.gid = 0
+                info.uname = info.gname = ""
+                info.mode = 0o644
+                with file.open("rb") as source:
+                    archive.addfile(info, source)
+    else:
+        with zipfile.ZipFile(artifact, "w", zipfile.ZIP_DEFLATED) as archive:
+            for file in files:
+                archive.writestr(
+                    zipfile.ZipInfo(f"{root.name}/{file.name}"),
+                    file.read_bytes(),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                )
+
+
 def build(
     repository: Path, wheel: Path, output: Path, *, allow_dirty: bool = False
 ) -> list[Path]:
-    if (
-        not allow_dirty
-        and subprocess.check_output(
+    dirty = bool(
+        subprocess.check_output(
             ["git", "status", "--porcelain", "--untracked-files=all"], cwd=repository
         ).strip()
-    ):
+    )
+    if dirty and not allow_dirty:
         raise ValueError("Worker release requires clean source")
     commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repository, text=True
@@ -43,37 +72,40 @@ def build(
     artifacts = []
     for platform in ("linux-x86_64", "windows-x64"):
         name = f"orion-worker-{version}-{platform}"
-        root = output / name
-        if root.exists():
-            shutil.rmtree(root)
-        root.mkdir()
-        shutil.copy2(wheel, root / wheel.name)
-        shutil.copy2(repository / "scripts/worker/install.py", root / "install.py")
-        shutil.copy2(
-            repository / "worker/policy.example.json", root / "policy.example.json"
-        )
-        files = {file.name: digest(file) for file in root.iterdir()}
-        manifest = {
-            "version": version,
-            "commit": commit,
-            "platform": platform,
-            "wheel": wheel.name,
-            "wheel_sha256": digest(wheel),
-            "files": files,
-        }
-        (root / "worker-manifest.json").write_text(
-            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
-        )
-        artifact = output / (
-            name + (".tar.gz" if platform.startswith("linux") else ".zip")
-        )
-        if platform.startswith("linux"):
-            with tarfile.open(artifact, "w:gz") as archive:
-                archive.add(root, arcname=name)
-        else:
-            with zipfile.ZipFile(artifact, "w", zipfile.ZIP_DEFLATED) as archive:
-                for file in root.iterdir():
-                    archive.write(file, f"{name}/{file.name}")
+        linux = platform.startswith("linux")
+        artifact = output / (name + (".tar.gz" if linux else ".zip"))
+        with tempfile.TemporaryDirectory(
+            prefix=".orion-worker-", dir=output
+        ) as temporary:
+            stage = Path(temporary)
+            root = stage / name
+            root.mkdir()
+            shutil.copy2(wheel, root / wheel.name)
+            shutil.copy2(repository / "scripts/worker/install.py", root / "install.py")
+            shutil.copy2(
+                repository / "scripts/refactor/locks/worker.txt", root / "worker.txt"
+            )
+            shutil.copy2(
+                repository / "worker/policy.example.json", root / "policy.example.json"
+            )
+            files = {file.name: digest(file) for file in root.iterdir()}
+            manifest = {
+                "version": version,
+                "commit": commit,
+                "source_dirty": dirty,
+                "platform": platform,
+                "wheel": wheel.name,
+                "wheel_sha256": files[wheel.name],
+                "files": files,
+            }
+            (root / "worker-manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            staged_archive = stage / artifact.name
+            _archive(root, staged_archive, linux=linux)
+            staged_archive.replace(artifact)
         artifacts.append(artifact)
     sums = output / "SHA256SUMS"
     previous = sums.read_text(encoding="utf-8").splitlines() if sums.exists() else []

@@ -1,3 +1,4 @@
+import { newUuid } from "./uuid";
 import { serverEvents } from "./sdk/events";
 import type { Schemas } from "./sdk/generated";
 import {
@@ -28,12 +29,17 @@ export function pendingIntent(sessionId: string): RequestIntent | null {
   return pending.get(JSON.stringify([activeServer().origin, sessionId]))?.intent ?? null;
 }
 
+export function pendingObservation(sessionId: string): RequestIntent | null {
+  const saved = pending.get(JSON.stringify([activeServer().origin, sessionId]));
+  return saved?.requestId ? saved.intent : null;
+}
+
 export function requestIntent(sessionId: string, content: string): RequestIntent {
   const intent = Object.freeze({
     origin: activeServer().origin,
     sessionId,
     content,
-    clientId: crypto.randomUUID(),
+    clientId: newUuid(),
     context: serverContext(),
   });
   const previous = pending.get(key(intent));

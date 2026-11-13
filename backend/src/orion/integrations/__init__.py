@@ -1,11 +1,6 @@
 """Replaceable external integration boundaries."""
 
-from orion.integrations.infrastructure import (
-    GrafanaClient,
-    LinuxExecutor,
-    TargetCatalog,
-    ZabbixClient,
-)
+from orion.integrations.infrastructure import LinuxExecutor, TargetCatalog
 from orion.integrations.internet import (
     DuckDuckGoInternetClient,
     InternetClient,
@@ -26,8 +21,6 @@ __all__ = [
     "InternetStatus",
     "SearxngInternetClient",
     "UnavailableInternetClient",
-    "GrafanaClient",
     "LinuxExecutor",
     "TargetCatalog",
-    "ZabbixClient",
 ]

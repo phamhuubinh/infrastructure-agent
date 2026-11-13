@@ -15,10 +15,7 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
-from urllib.parse import urlsplit, urlunsplit
-
-import httpx
+from typing import Protocol
 
 
 class InfrastructureError(RuntimeError):
@@ -40,7 +37,6 @@ class Target:
     display_name: str
     connection: Mapping[str, object]
     credential_ref: str | None
-    datasource_types: Mapping[str, str]
 
 
 class CredentialResolver:
@@ -73,7 +69,7 @@ class TargetCatalog:
     def from_environment(cls) -> TargetCatalog:
         path = os.getenv("ORION_INFRASTRUCTURE_CONFIG")
         if not path:
-            return cls._from_tool_credentials()
+            return cls._from_ssh_config()
         try:
             raw = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -82,52 +78,26 @@ class TargetCatalog:
         return cls.from_mapping(raw)
 
     @classmethod
-    def _from_tool_credentials(cls) -> TargetCatalog:
-        """Adapt the established server-only credential file without exposing it."""
-        path = Path(os.getenv("ORION_TOOL_CREDENTIALS_PATH", "/etc/orion/tool-credentials.json"))
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return cls()
-        if not isinstance(raw, dict):
-            return cls()
-        credentials: dict[str, object] = {}
-        targets: dict[str, list[dict[str, object]]] = {"linux": [], "grafana": [], "zabbix": []}
-        for family in ("grafana", "zabbix"):
-            item = raw.get(family)
-            if (
-                not isinstance(item, dict)
-                or not isinstance(item.get("url"), str)
-                or not item.get("token")
-            ):
-                continue
-            reference = f"{family}-token"
-            credentials[reference] = item["token"]
-            base_url = item["url"]
-            if family == "zabbix":
-                normalized = _zabbix_jsonrpc_endpoint(base_url)
-                if normalized is None:
-                    continue
-                base_url = normalized
-            targets[family].append(
-                {"target_ref": family, "credential_ref": reference, "base_url": base_url}
-            )
-        aliases = [
-            item for item in os.getenv("ORION_SSH_TARGET_REFS", "monitor").split(",") if item
-        ]
+    def _from_ssh_config(cls) -> TargetCatalog:
         ssh_config = Path(os.getenv("ORION_SSH_CONFIG_PATH", str(Path.home() / ".ssh/config")))
-        if ssh_config.exists():
-            targets["linux"] = [
-                {
-                    "target_ref": alias,
-                    "display_name": alias,
-                    "ssh_alias": alias,
-                    "credential_ref": "ssh",
-                }
-                for alias in aliases
-            ]
-            credentials["ssh"] = "ssh-config"
-        return cls.from_mapping({"credentials": credentials, "targets": targets})
+        if not ssh_config.exists():
+            return cls()
+        aliases = os.getenv("ORION_SSH_TARGET_REFS", "monitor").split(",")
+        return cls.from_mapping(
+            {
+                "credentials": {"ssh": "ssh-config"},
+                "targets": {
+                    "linux": [
+                        {
+                            "target_ref": alias,
+                            "ssh_alias": alias,
+                            "credential_ref": "ssh",
+                        }
+                        for alias in aliases
+                    ],
+                },
+            }
+        )
 
     @classmethod
     def from_mapping(cls, raw: object) -> TargetCatalog:
@@ -137,63 +107,54 @@ class TargetCatalog:
         if not isinstance(credentials, dict):
             credentials = {}
         entries = raw.get("targets", raw.get("integrations", {}))
-        targets: list[Target] = []
-        # A flat list is convenient for hand-written local config; normalize it
-        # to the same family map without widening the model-facing contract.
-        if isinstance(entries, list):
-            grouped: dict[str, list[object]] = {"linux": [], "grafana": [], "zabbix": []}
-            for entry in entries:
-                if isinstance(entry, dict) and entry.get("family") in grouped:
-                    grouped[str(entry["family"])].append(entry)
-            entries = grouped
         if isinstance(entries, dict):
-            for family in ("linux", "grafana", "zabbix"):
-                values = entries.get(family, [])
-                if isinstance(values, dict):
-                    values = [values]
-                if not isinstance(values, list):
-                    continue
-                for value in values:
-                    if not isinstance(value, dict):
-                        continue
-                    reference = value.get("target_ref")
-                    if not isinstance(reference, str) or not _target_ref_valid(reference):
-                        continue
-                    display = value.get("display_name", value.get("display", reference))
-                    if not isinstance(display, str) or not re.fullmatch(
-                        r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}", display
-                    ):
-                        display = reference
-                    credential_ref = value.get("credential_ref")
-                    datasources = value.get("datasources", {})
-                    datasource_types: dict[str, str] = {}
-                    if isinstance(datasources, dict):
-                        for uid, kind in datasources.items():
-                            if isinstance(uid, str) and isinstance(kind, str):
-                                datasource_types[uid] = kind
-                    connection = {
-                        key: item
-                        for key, item in value.items()
-                        if key
-                        not in {
-                            "target_ref",
-                            "display_name",
-                            "display",
-                            "credential_ref",
-                            "datasources",
-                        }
-                    }
-                    targets.append(
-                        Target(
-                            family,
-                            reference,
-                            display[:128],
-                            connection,
-                            credential_ref if isinstance(credential_ref, str) else None,
-                            datasource_types,
-                        )
-                    )
-        return cls(tuple(targets), credentials)
+            values = entries.get("linux", [])
+            if isinstance(values, dict):
+                values = [values]
+        elif isinstance(entries, list):
+            values = [
+                entry
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("family") == "linux"
+            ]
+        else:
+            return cls()
+        if not isinstance(values, list):
+            return cls()
+
+        targets: list[Target] = []
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            reference = value.get("target_ref")
+            if not isinstance(reference, str) or not _target_ref_valid(reference):
+                continue
+            display = value.get("display_name", value.get("display", reference))
+            if not isinstance(display, str) or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}", display
+            ):
+                display = reference
+            credential_ref = value.get("credential_ref")
+            connection = {
+                key: item
+                for key, item in value.items()
+                if key not in {"target_ref", "display_name", "display", "credential_ref"}
+            }
+            targets.append(
+                Target(
+                    "linux",
+                    reference,
+                    display,
+                    connection,
+                    credential_ref if isinstance(credential_ref, str) else None,
+                )
+            )
+        used_credentials = {
+            target.credential_ref: credentials[target.credential_ref]
+            for target in targets
+            if target.credential_ref is not None and target.credential_ref in credentials
+        }
+        return cls(tuple(targets), used_credentials)
 
     def configured(self, family: str) -> bool:
         return any(target.family == family for target in self._targets)
@@ -211,18 +172,6 @@ class TargetCatalog:
         return tuple(
             (target.family, target.target_ref, target.display_name) for target in self._targets
         )
-
-
-def _zabbix_jsonrpc_endpoint(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    parts = urlsplit(value)
-    if parts.scheme not in {"http", "https"} or not parts.netloc or parts.query or parts.fragment:
-        return None
-    path = parts.path.rstrip("/")
-    if not path.endswith("/api_jsonrpc.php"):
-        path = f"{path}/api_jsonrpc.php"
-    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 def _target_ref_valid(value: str) -> bool:
@@ -496,189 +445,3 @@ def _human_bytes(value: int) -> str:
             return f"{quantity:.2f} {unit}"
         quantity /= 1000
     return f"{quantity:.2f} {units[-1]}"
-
-
-class GrafanaClient(Protocol):
-    def datasource_type(self, target: Target, credential: object, uid: str) -> str: ...
-
-    def dashboard_get(
-        self, target: Target, credential: object, uid: str
-    ) -> Mapping[str, object]: ...
-    def datasource_query(
-        self,
-        target: Target,
-        credential: object,
-        uid: str,
-        query: str,
-        start: str,
-        end: str,
-        maximum: int,
-    ) -> object: ...
-    def alert_list(self, target: Target, credential: object) -> object: ...
-    def annotation_create(
-        self, target: Target, credential: object, payload: Mapping[str, object]
-    ) -> str: ...
-    def annotation_verify(
-        self, target: Target, credential: object, annotation_id: str
-    ) -> bool | None: ...
-    def health(self, target: Target, credential: object) -> None: ...
-
-
-class HttpGrafanaClient:
-    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
-        self._transport = transport
-
-    def _client(self, target: Target, credential: object) -> httpx.Client:
-        base_url = target.connection.get("base_url")
-        if not isinstance(base_url, str):
-            raise InfrastructureError("unavailable", "Grafana target transport is incomplete.")
-        return httpx.Client(
-            base_url=base_url.rstrip("/"),
-            headers={"Authorization": f"Bearer {credential}"},
-            timeout=10,
-            transport=self._transport,
-        )
-
-    def _request(
-        self, target: Target, credential: object, method: str, url: str, **kwargs: Any
-    ) -> object:
-        try:
-            with self._client(target, credential) as client:
-                response = client.request(method, url, **kwargs)
-                response.raise_for_status()
-                return response.json()
-        except httpx.TimeoutException as error:
-            raise InfrastructureError("timeout", "Grafana request timed out.", True) from error
-        except httpx.HTTPStatusError as error:
-            if error.response.status_code == 404:
-                raise InfrastructureError("not_found", "Grafana resource was not found.") from error
-            raise InfrastructureError("upstream_error", "Grafana request failed.") from error
-        except (httpx.HTTPError, ValueError) as error:
-            raise InfrastructureError(
-                "connection_error", "Grafana is unavailable.", True
-            ) from error
-
-    def dashboard_get(self, target: Target, credential: object, uid: str) -> Mapping[str, object]:
-        response = self._request(target, credential, "GET", f"/api/dashboards/uid/{uid}")
-        return response if isinstance(response, dict) else {}
-
-    def datasource_query(
-        self,
-        target: Target,
-        credential: object,
-        uid: str,
-        query: str,
-        start: str,
-        end: str,
-        maximum: int,
-    ) -> object:
-        return self._request(
-            target,
-            credential,
-            "POST",
-            "/api/ds/query",
-            json={
-                "from": start,
-                "to": end,
-                "maxDataPoints": maximum,
-                "queries": [{"refId": "A", "datasource": {"uid": uid}, "expr": query}],
-            },
-        )
-
-    def datasource_type(self, target: Target, credential: object, uid: str) -> str:
-        response = self._request(target, credential, "GET", f"/api/datasources/uid/{uid}")
-        kind = response.get("type") if isinstance(response, dict) else None
-        if not isinstance(kind, str):
-            raise InfrastructureError("unavailable", "Grafana datasource metadata is unavailable.")
-        return kind
-
-    def alert_list(self, target: Target, credential: object) -> object:
-        try:
-            response = self._request(
-                target, credential, "GET", "/api/prometheus/grafana/api/v1/rules"
-            )
-        except InfrastructureError as error:
-            if error.code == "upstream_error":
-                raise InfrastructureError(
-                    "unavailable", "Grafana alert state API is unavailable."
-                ) from error
-            raise
-        if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
-            raise InfrastructureError("unavailable", "Grafana alert state API is unavailable.")
-        rules: list[object] = []
-        for group in response["data"].get("groups", []):
-            if isinstance(group, dict) and isinstance(group.get("rules"), list):
-                rules.extend(group["rules"])
-        return rules
-
-    def annotation_create(
-        self, target: Target, credential: object, payload: Mapping[str, object]
-    ) -> str:
-        response = self._request(target, credential, "POST", "/api/annotations", json=dict(payload))
-        if not isinstance(response, dict) or not isinstance(response.get("id"), (str, int)):
-            raise InfrastructureError(
-                "upstream_error", "Grafana did not return an annotation identity."
-            )
-        return str(response["id"])
-
-    def annotation_verify(
-        self, target: Target, credential: object, annotation_id: str
-    ) -> bool | None:
-        return True
-
-    def health(self, target: Target, credential: object) -> None:
-        self._request(target, credential, "GET", "/api/health")
-
-
-class ZabbixClient(Protocol):
-    def call(
-        self, target: Target, credential: object, method: str, params: Mapping[str, object]
-    ) -> object: ...
-    def health(self, target: Target, credential: object) -> None: ...
-
-
-class HttpZabbixClient:
-    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
-        self._transport = transport
-
-    def _request(
-        self,
-        target: Target,
-        credential: object,
-        method: str,
-        params: Mapping[str, object],
-        *,
-        auth: bool,
-    ) -> object:
-        base_url = target.connection.get("base_url")
-        if not isinstance(base_url, str):
-            raise InfrastructureError("unavailable", "Zabbix target transport is incomplete.")
-        payload: dict[str, object] = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": dict(params),
-        }
-        if auth:
-            payload["auth"] = credential
-        try:
-            with httpx.Client(transport=self._transport, timeout=10) as client:
-                response = client.post(base_url, json=payload)
-            response.raise_for_status()
-            body = response.json()
-        except httpx.TimeoutException as error:
-            raise InfrastructureError("timeout", "Zabbix request timed out.", True) from error
-        except (httpx.HTTPError, ValueError) as error:
-            raise InfrastructureError("connection_error", "Zabbix is unavailable.", True) from error
-        if not isinstance(body, dict) or "error" in body:
-            raise InfrastructureError("upstream_error", "Zabbix request failed.")
-        return body.get("result")
-
-    def call(
-        self, target: Target, credential: object, method: str, params: Mapping[str, object]
-    ) -> object:
-        return self._request(target, credential, method, params, auth=True)
-
-    def health(self, target: Target, credential: object) -> None:
-        self._request(target, credential, "apiinfo.version", {}, auth=False)
-        self._request(target, credential, "host.get", {"output": ["hostid"], "limit": 1}, auth=True)

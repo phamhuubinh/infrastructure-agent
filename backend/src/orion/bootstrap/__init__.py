@@ -22,12 +22,10 @@ from orion.endpoints.persistence import EndpointStore
 from orion.endpoints.tools import endpoint_registrations
 from orion.integrations import (
     DuckDuckGoInternetClient,
-    GrafanaClient,
     InternetClient,
     LinuxExecutor,
     SearxngInternetClient,
     TargetCatalog,
-    ZabbixClient,
 )
 from orion.integrations.mcp import MCPConfigurationError, MCPManager, load_config
 from orion.integrations.ssh.config import load_configuration as load_ssh_configuration
@@ -93,8 +91,6 @@ def build_application(
     internet_client: InternetClient | None = None,
     infrastructure_catalog: TargetCatalog | None = None,
     linux_executor: LinuxExecutor | None = None,
-    grafana_client: GrafanaClient | None = None,
-    zabbix_client: ZabbixClient | None = None,
     knowledge_parser: DocumentParser | None = None,
     knowledge_chunker: Chunker | None = None,
     blocked_tool_operation_kinds: frozenset[str] = frozenset(),
@@ -162,8 +158,6 @@ def build_application(
         for registration in infrastructure_registrations(
             infrastructure_catalog,
             linux=linux_executor,
-            grafana=grafana_client,
-            zabbix=zabbix_client,
         ):
             registry_builder.register(registration.definition, registration.handler)
         scheduler = SchedulerService(store)

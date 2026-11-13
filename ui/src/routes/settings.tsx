@@ -11,6 +11,7 @@ import { apiErrorMessage, apiFetch, apiJson } from "@/lib/api";
 import { ServerConnections } from "@/components/ServerConnections";
 import { RuntimeResources } from "@/components/RuntimeResources";
 import { isNativeHost, serverRequest } from "@/lib/server-profiles";
+import { newUuid } from "@/lib/uuid";
 import type { Schemas } from "@/lib/sdk/generated";
 
 export const Route = createFileRoute("/settings")({
@@ -110,7 +111,7 @@ export function SettingsPage() {
       const profile: Schemas["ModelProfile"] | undefined = typedProfile
         ? {
             ...editingModel?.profile,
-            profile_id: editingModel?.profile?.profile_id ?? crypto.randomUUID(),
+            profile_id: editingModel?.profile?.profile_id ?? newUuid(),
             provider_id: provider,
             protocol,
             endpoint: baseUrl,

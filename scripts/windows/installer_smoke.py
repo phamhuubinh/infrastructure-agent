@@ -47,8 +47,10 @@ def install(
         ORION_SMOKE_SOURCE="1" if source else "0",
         ORION_SMOKE_INSTALLER=str(bundle / "install.ps1"),
     )
-    # First run discovers 3.12 via py/python; second discovers the existing venv.
-    env.pop("ORION_PYTHON", None)
+    # Source smoke exercises launcher discovery. Archived smoke uses the
+    # runner's exact interpreter for its pinned runtime lock.
+    if source:
+        env.pop("ORION_PYTHON", None)
     command = [
         "powershell",
         "-NoProfile",
@@ -61,6 +63,8 @@ def install(
         created = None
         launcher_content = None
         for attempt in range(2):
+            if attempt:
+                env.pop("ORION_PYTHON", None)
             subprocess.run(command, cwd=root, env=env, check=True)
             assert cli.is_file() and launcher.is_file()
             current = (
@@ -124,6 +128,8 @@ def install(
             and launcher.read_bytes() == unrelated
         )
         assert trace.read_text().splitlines() == ["model install embeddings"] * 2
+        assert launcher_content is not None
+        launcher.write_bytes(launcher_content)
     print(
         "PASS: discovery, venv creation/reuse, spaces, rerun, provisioning failure, launcher refusal"
     )

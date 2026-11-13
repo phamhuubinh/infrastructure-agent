@@ -11,6 +11,7 @@ export interface SecureTokenStore {
 
 type Options =
   | { origin: string; mode: "browser"; fetch?: typeof fetch }
+  | { origin: string; mode: "managed"; fetch: typeof fetch }
   | {
       origin: string;
       mode: "native";
@@ -101,7 +102,7 @@ export class OrionClient {
 
   constructor(private readonly options: Options) {
     this.origin = serverOrigin(options.origin);
-    if (options.mode === "native" && typeof options.fetch !== "function") {
+    if (options.mode !== "browser" && typeof options.fetch !== "function") {
       throw new ClientError("configuration");
     }
     this.fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -127,7 +128,7 @@ export class OrionClient {
   }
 
   private async credentials(): Promise<TokenPair | null> {
-    if (this.options.mode === "browser") return null;
+    if (this.options.mode !== "native") return null;
     try {
       const value = await this.options.tokens.get(this.origin);
       return value === null ? null : tokenPair(value);
@@ -352,7 +353,7 @@ export class OrionClient {
           headers: attemptHeaders,
           body,
           signal,
-          credentials: this.options.mode === "native" ? "omit" : "same-origin",
+          credentials: this.options.mode === "browser" ? "same-origin" : "omit",
           redirect: "error",
           cache: "no-store",
         });

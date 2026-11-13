@@ -3,9 +3,10 @@ import {
   cancelIntent,
   requestIntent,
   pendingIntent,
+  pendingObservation,
   type RequestIntent,
 } from "@/lib/requests";
-import { serverContext } from "@/lib/server-profiles";
+import { isMobileHost, serverContext } from "@/lib/server-profiles";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
@@ -99,6 +100,7 @@ type Generation = {
   sessionId: string | null;
   cancelled: boolean;
   stopRequested: boolean;
+  paused: boolean;
   intent: RequestIntent | null;
 };
 
@@ -495,6 +497,11 @@ function ChatInput({
   setProjectDocuments?: Dispatch<SetStateAction<DocumentStatus[]>>;
 }) {
   const [value, setValue] = useState("");
+  const mobile = isMobileHost();
+  const [mobileAvailable, setMobileAvailable] = useState(
+    () => !mobile || (navigator.onLine && !document.hidden),
+  );
+  const [pausedSession, setPausedSession] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stopPending, setStopPending] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -508,6 +515,27 @@ function ChatInput({
   const generation = useRef<Generation | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   useEffect(() => () => generation.current?.controller.abort(), []);
+  useEffect(() => {
+    if (!mobile) return;
+    const update = () => {
+      const available = navigator.onLine && !document.hidden;
+      setMobileAvailable(available);
+      const current = generation.current;
+      if (!available && current?.requestId && !current.stopRequested) {
+        current.paused = true;
+        current.controller.abort();
+      }
+    };
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    document.addEventListener("visibilitychange", update);
+    update();
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [mobile]);
   const {
     currentSessionId,
     sessions,
@@ -611,7 +639,7 @@ function ChatInput({
     async (resume = false) => {
       const previous = session?.id ? pendingIntent(session.id) : null;
       const content = resume && previous ? previous.content : value.trim();
-      if (!content || generation.current) return;
+      if (!content || generation.current || !mobileAvailable) return;
       setError(null);
       let sessionId = session?.id || null;
       const controller = new AbortController();
@@ -622,6 +650,7 @@ function ChatInput({
         sessionId,
         cancelled: false,
         stopRequested: false,
+        paused: false,
         intent: null,
       };
       generation.current = current;
@@ -638,6 +667,10 @@ function ChatInput({
           current.intent,
           (identity) => {
             current.requestId = identity;
+            if (mobile && (!navigator.onLine || document.hidden) && !current.stopRequested) {
+              current.paused = true;
+              controller.abort();
+            }
           },
           (event) => {
             if (event.type === "request.cancelled") current.cancelled = true;
@@ -687,6 +720,10 @@ function ChatInput({
         if (requestFailure) setError(requestFailure);
         if (current.cancelled) setError("Yêu cầu đã được hủy.");
       } catch (requestError) {
+        if (current.paused) {
+          setPausedSession(sessionId);
+          return;
+        }
         if (requestError instanceof DOMException && requestError.name === "AbortError") {
           setError("Yêu cầu đã được hủy.");
         } else {
@@ -710,6 +747,8 @@ function ChatInput({
       addOptimisticMessage,
       createSession,
       loadSession,
+      mobile,
+      mobileAvailable,
       recordEvent,
       reconcileAssistantMessage,
       setSessionGenerating,
@@ -718,6 +757,13 @@ function ChatInput({
       value,
     ],
   );
+
+  useEffect(() => {
+    if (!mobileAvailable || !pausedSession || session?.id !== pausedSession || generation.current)
+      return;
+    setPausedSession(null);
+    if (pendingObservation(pausedSession)) void submit(true);
+  }, [mobileAvailable, pausedSession, session?.id, submit]);
 
   const stop = useCallback(async () => {
     const current = generation.current;
@@ -936,7 +982,9 @@ function ChatInput({
               size="icon"
               className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active"
               onClick={() => void submit()}
-              disabled={!value.trim() || (!loadingModels && models.length === 0)}
+              disabled={
+                !mobileAvailable || !value.trim() || (!loadingModels && models.length === 0)
+              }
               aria-label="Send message"
             >
               <Send className="h-4 w-4" />
@@ -945,6 +993,11 @@ function ChatInput({
           {stopPending && (
             <span role="status" className="text-xs">
               Đang chờ server xác minh dừng…
+            </span>
+          )}
+          {mobile && !mobileAvailable && (
+            <span role="status" className="text-xs text-muted-foreground">
+              Tạm ngừng kết nối
             </span>
           )}
         </div>

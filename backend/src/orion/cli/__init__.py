@@ -1,4 +1,4 @@
-"""The intentionally small public CLI for the local Orion web application."""
+"""Public Orion commands for web launch, headless service and terminal clients."""
 
 from __future__ import annotations
 
@@ -50,8 +50,36 @@ def main() -> None:
         _configure_default_log_path()
         _show_log(log_path(), database_path())
         return
-    if command == ["help"]:
+    if command in (["help"], ["--help"], ["-h"]):
         _show_help()
+        return
+    if command == ["serve"]:
+        _configure_default_log_path()
+        _serve(_remote_config(), headless=True)
+        return
+    if command == ["serve", "--managed"]:
+        from orion.cli.managed import serve_managed
+
+        serve_managed()
+        return
+    if command[:1] == ["serve"] and command[1:] in (["-h"], ["--help"]):
+        print("Usage: orion serve  (foreground API service; default loopback port 61888)")
+        return
+    if command and command[0] in {
+        "chat",
+        "run",
+        "request",
+        "profile",
+        "project",
+        "target",
+        "command",
+        "doctor",
+        "api",
+        "session",
+    }:
+        from orion.cli.headless import run_client_command
+
+        run_client_command(command)
         return
     if command == ["auth", "hash-password"]:
         try:
@@ -107,6 +135,11 @@ def _show_help() -> None:
         "Orion\n\nUsage:\n"
         "  orion          Start Orion\n"
         "  orion web      Start Orion\n"
+        "  orion serve    Run the foreground service without opening a browser\n"
+        "  orion chat|run   Submit a prompt to a running Orion service\n"
+        "  orion request   Observe, cancel or authorize a request\n"
+        "  orion profile|project|target|command|doctor   Inspect or manage server resources\n"
+        "  orion api skill|mcp   Inspect remote or local server resources\n"
         "  orion log      Show Orion logs\n"
         "  orion auth hash-password  Generate an encoded Argon2id hash\n"
         "  orion model status embeddings   Show local E5 model status\n"
@@ -121,6 +154,7 @@ def _show_help() -> None:
         "\n  orion skill update NAME DIRECTORY   Replace an installed package revision"
         "\n  orion skill enable|disable|remove NAME [--source bundled|user|project]"
         "\n  orion mcp list|doctor|test [SERVER_ID]   Inspect configured MCP servers"
+        "\n  orion session list|mode   Inspect sessions or set their mutation mode"
         "\n  orion --version  Show installed Orion version"
     )
 
@@ -173,11 +207,15 @@ def _configure_default_log_path() -> None:
         os.environ["ORION_LOG_PATH"] = str(log_path())
 
 
-def _run_web() -> None:
+def _remote_config() -> RemoteAccessConfig:
     try:
-        remote = RemoteAccessConfig.from_environment()
+        return RemoteAccessConfig.from_environment()
     except ValueError as error:
         raise SystemExit(str(error)) from error
+
+
+def _run_web() -> None:
+    remote = _remote_config()
     frontend = packaged_ui_directory()
     checkout = source_checkout_root()
     if checkout is not None and frontend.resolve() == (checkout / ".orion-ui").resolve():
@@ -197,6 +235,10 @@ def _run_web() -> None:
     if _port_is_occupied():
         raise SystemExit("Port 61888 is already in use by another application.")
 
+    _serve(remote, headless=False)
+
+
+def _serve(remote: RemoteAccessConfig, *, headless: bool) -> None:
     config = uvicorn.Config(
         "orion.api.app:create_app",
         host=remote.bind_host,
@@ -206,11 +248,15 @@ def _run_web() -> None:
         ws_max_size=1_500_000,
         ws_max_queue=4,
         ws_per_message_deflate=False,
+        workers=1 if headless else None,
+        lifespan="on" if headless else "auto",
+        access_log=not headless,
+        timeout_graceful_shutdown=10 if headless else None,
     )
     server = uvicorn.Server(config)
     if remote.enabled:
         print(f"Remote Orion origin: {remote.public_origin}")
-    elif not _browser_open_suppressed():
+    elif not headless and not _browser_open_suppressed():
         threading.Thread(
             target=_open_when_healthy,
             args=(server,),
@@ -224,6 +270,8 @@ def _run_web() -> None:
         # completed graceful shutdown. Its own CLI catches this at the outer
         # boundary; Orion owns that boundary when calling Server.run directly.
         return
+    if headless and not server.started:
+        raise SystemExit("Orion service failed to start.")
 
 
 def _orion_is_healthy() -> bool:

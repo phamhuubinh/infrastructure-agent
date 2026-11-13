@@ -93,3 +93,22 @@ def test_blob_legacy_file_permissions_upgraded(tmp_path):
     else:
         assert path.stat().st_mode & 0o077 == 0
     assert blobs.get(identity) == b"legacy"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows DACL")
+def test_private_windows_acl_rejects_an_extra_grant(tmp_path):
+    import subprocess
+
+    from orion.persistence.private_files import _windows_private_acl
+
+    path = tmp_path / "private"
+    path.write_bytes(b"")
+    _windows_private_acl(path, directory=False)
+    _windows_private_acl(path, directory=False, validate_only=True)
+    subprocess.run(
+        ["icacls", str(path), "/grant", "*S-1-1-0:R"],
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(OSError, match="ACL is not private"):
+        _windows_private_acl(path, directory=False, validate_only=True)

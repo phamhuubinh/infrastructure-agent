@@ -66,7 +66,8 @@ def test_isolated_browser_local_fixture(tmp_path: Path) -> None:
             await browser.execute("click", {"selector": "#button"})
             assert "Click me" in (await browser.execute("snapshot", {}))["snapshot"]
             await browser.execute("navigate", {"url": url})
-            await browser.execute("click", {"selector": "#download"})
+            async with browser.page.expect_download():
+                await browser.execute("click", {"selector": "#download"})
             await asyncio.gather(*browser.download_tasks)
             saved = list(downloads.glob("download-*"))
             assert len(saved) == 1 and saved[0].read_bytes() == b"controlled-download"

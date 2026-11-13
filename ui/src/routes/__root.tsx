@@ -241,7 +241,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <HeadContent />
       <ChatProvider key={serverGeneration}>
-        <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground grain">
+        <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground grain pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
           <AppSidebar />
           <div className="flex-1 min-w-0 flex pb-14 md:pb-0">
             <Outlet />

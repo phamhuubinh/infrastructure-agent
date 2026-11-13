@@ -262,6 +262,7 @@ function sourceReferences(
         });
         continue;
       }
+      // Existing chat timelines can contain evidence from retired monitoring tools.
       if (
         (source.source_kind === "linux" ||
           source.source_kind === "grafana" ||

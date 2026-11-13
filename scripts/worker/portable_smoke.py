@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 import uvicorn
@@ -52,7 +53,7 @@ def smoke(root: Path) -> None:
             [str(executable), "browser", "install"], env=isolated, check=True
         )
     with tempfile.TemporaryDirectory(prefix="portable smoke with spaces ") as temporary:
-        work = Path(temporary)
+        work = Path(temporary).resolve(strict=True)
         files = work / "allowed files"
         files.mkdir()
         policy = work / "policy.json"
@@ -62,6 +63,7 @@ def smoke(root: Path) -> None:
                     "read_roots": [str(files)],
                     "write_roots": [str(files)],
                     "browser": browser_tests,
+                    "commands": True,
                 }
             )
         )
@@ -129,14 +131,24 @@ def smoke(root: Path) -> None:
                 },
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
             deadline = time.monotonic() + 30
             while True:
                 rows = api("/api/endpoints")
                 if rows and rows[0]["online"]:
                     break
-                if worker.poll() is not None or time.monotonic() > deadline:
+                if worker.poll() is not None:
+                    assert worker.stderr is not None
+                    diagnostic = (
+                        worker.stderr.read(2048)
+                        .decode(errors="replace")
+                        .replace(token, "[redacted]")
+                    )
+                    raise RuntimeError(
+                        f"Portable worker exited ({worker.returncode}): {diagnostic}"
+                    )
+                if time.monotonic() > deadline:
                     raise RuntimeError("portable_connect_timeout")
                 time.sleep(0.1)
             target = rows[0]["endpoint_id"]
@@ -146,13 +158,55 @@ def smoke(root: Path) -> None:
             def rpc(operation: str, args: dict[str, object]) -> dict[str, object]:
                 return asyncio.run_coroutine_threadsafe(
                     manager.dispatch(target, operation, args), loop.result()
-                ).result(15)
+                ).result(manager.timeout + 5)
 
             assert rpc("system.inspect", {})["cpu_count"]
             destination = str(files / "portable file.txt")
             rpc("file.write", {"path": destination, "content": "portable fixture"})
             assert (files / "portable file.txt").read_text() == "portable fixture"
             assert rpc("file.read", {"path": destination})["content_b64"]
+
+            def command_rpc(operation: str, **args: object) -> dict[str, object]:
+                return asyncio.run_coroutine_threadsafe(
+                    manager.dispatch_command(target, operation, args), loop.result()
+                ).result(15)
+
+            shell = "cmd" if os.name == "nt" else "sh"
+            command_id = uuid.uuid4().hex
+            command_rpc(
+                "command.run",
+                command_id=command_id,
+                shell=shell,
+                command="echo Orion portable command",
+                cwd=str(files),
+            )
+            deadline = time.monotonic() + 15
+            while True:
+                result = command_rpc("command.status", command_id=command_id)
+                if result["state"] not in {"created", "running"}:
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("portable_command_timeout")
+                time.sleep(0.1)
+            assert result["exit_code"] == 0 and "Orion portable command" in str(
+                result["stdout"]
+            )
+            assert result["process_tree_terminated"]
+
+            command_id = uuid.uuid4().hex
+            command_rpc(
+                "command.run",
+                command_id=command_id,
+                shell="powershell" if os.name == "nt" else "sh",
+                command="Start-Sleep -Seconds 20"
+                if os.name == "nt"
+                else "exec /bin/sleep 20",
+            )
+            cancelled = command_rpc("command.cancel", command_id=command_id)
+            assert (
+                cancelled["state"] == "cancelled"
+                and cancelled["process_tree_terminated"]
+            )
             if browser_tests:
                 assert "browser.open" in rows[0]["capabilities"]
                 result = rpc(
@@ -229,7 +283,7 @@ def smoke(root: Path) -> None:
             fixture_thread.join(timeout=5)
             fixture.server_close()
     print(
-        "PASS: portable no-Python/no-PATH pairing/system/file/temporary Exit/forget/remembered reconnect"
+        "PASS: portable no-Python/no-PATH pairing/system/file/command/cancel/Exit/forget/reconnect"
     )
 
 
