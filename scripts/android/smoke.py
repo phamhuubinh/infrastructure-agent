@@ -7,6 +7,7 @@ then run ``python scripts/android/smoke.py Orion.apk --serial emulator-5554``.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import runpy
@@ -21,11 +22,67 @@ from contextlib import ExitStack, closing
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import TypeVar
+from urllib.parse import parse_qs
 from xml.etree import ElementTree as ET
+
+from uvicorn._types import (
+    ASGIApplication,
+    ASGIReceiveCallable,
+    ASGISendCallable,
+    ASGISendEvent,
+    Scope,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "io.orion.desktop"
 ACTIVITY = f"{PACKAGE}/.MainActivity"
+RESUME_PROMPT = "Resume the active fixture stream."
+FIRST_DELTA = "Android cursor "
+FINAL_REPLY = FIRST_DELTA + "resumed."
+
+
+class StreamInterrupted(Exception):
+    pass
+
+
+class ResumeProbe:
+    def __init__(self) -> None:
+        self.interrupted: tuple[str, str] | None = None
+        self.resumed = threading.Event()
+        self.release = threading.Event()
+
+    def wrap(self, app: ASGIApplication) -> ASGIApplication:
+        async def observe(
+            scope: Scope, receive: ASGIReceiveCallable, send: ASGISendCallable
+        ) -> None:
+            path = scope.get("path", "")
+            if not re.fullmatch(r"/api/requests/[^/]+/stream", path):
+                await app(scope, receive, send)
+                return
+            after = parse_qs(scope["query_string"].decode()).get("after", [None])[0]
+            if self.interrupted == (path, after):
+                self.resumed.set()
+
+            async def forward(message: ASGISendEvent) -> None:
+                await send(message)
+                body = message.get("body", b"")
+                if self.interrupted is None and body.startswith(b"id: "):
+                    record = json.loads(body.split(b"\ndata: ", 1)[1])
+                    if (
+                        record["type"] == "assistant.delta"
+                        and record["payload"]["content"] == FIRST_DELTA
+                    ):
+                        self.interrupted = (path, record["event_id"])
+                        raise StreamInterrupted
+
+            try:
+                await app(scope, receive, forward)
+            except StreamInterrupted:
+                await send(
+                    {"type": "http.response.body", "body": b"", "more_body": False}
+                )
+
+        return observe
 
 
 class Emulator:
@@ -192,18 +249,39 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
     provider_type = runpy.run_path(str(ROOT / "scripts/linux/headless_smoke.py"))[
         "Provider"
     ]
+    probe = ResumeProbe()
+
+    class Provider(provider_type):
+        def reply(self, body: dict) -> None:
+            if body["messages"][-1].get("content") != RESUME_PROMPT:
+                super().reply(body)
+                return
+            for content in (FIRST_DELTA, "resumed."):
+                value = {"choices": [{"index": 0, "delta": {"content": content}}]}
+                self.wfile.write(f"data: {json.dumps(value)}\n\n".encode())
+                if content == FIRST_DELTA:
+                    # The provider adapter reads 16 KiB blocks. Flush the first
+                    # event through that buffer before holding the response open.
+                    self.wfile.write(b":" + b" " * 16_384 + b"\n\n")
+                self.wfile.flush()
+                if content == FIRST_DELTA and not probe.release.wait(45):
+                    return
+            self.wfile.write(
+                b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+                b"data: [DONE]\n\n"
+            )
+
     remote_fixture = runpy.run_path(str(ROOT / "scripts/desktop/smoke.py"))[
         "remote_fixture"
     ]
     with ExitStack() as stack:
-        provider = stack.enter_context(
-            ThreadingHTTPServer(("127.0.0.1", 0), provider_type)
-        )
+        provider = stack.enter_context(ThreadingHTTPServer(("127.0.0.1", 0), Provider))
         thread = threading.Thread(target=provider.serve_forever, daemon=True)
         thread.start()
         stack.callback(thread.join, 15)
         stack.callback(provider.shutdown)
         stack.callback(provider_type.release.set)
+        stack.callback(probe.release.set)
         os.environ["ORION_MODEL_BASE_URL"] = (
             f"http://127.0.0.1:{provider.server_port}/v1"
         )
@@ -216,7 +294,9 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             )
             / "orion.db"
         )
-        origin, code = remote_fixture(stack, database)
+        origin, code = remote_fixture(
+            stack, database, wrap=probe.wrap if extended else None
+        )
         spec = f"tcp:{origin.rsplit(':', 1)[1]}"
         emulator.run("reverse", "--no-rebind", spec, spec)
         stack.callback(emulator.run, "reverse", "--remove", spec)
@@ -301,6 +381,34 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
                 "Android restored the fixture route and cancelled the single admitted request.",
                 flush=True,
             )
+            ui.fill("Chat input", RESUME_PROMPT, index=0)
+            ui.click("Send message")
+            if not probe.resumed.wait(25) or probe.interrupted is None:
+                raise AssertionError(
+                    "Android did not reopen the same request stream after its delta cursor"
+                )
+            request_id = probe.interrupted[0].split("/")[-2]
+            with closing(
+                sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+            ) as db:
+                status = db.execute(
+                    "SELECT status FROM requests WHERE request_id = ?", (request_id,)
+                ).fetchone()
+            if status != ("running",):
+                raise AssertionError(
+                    f"Request was not running when observation resumed: {status}"
+                )
+            probe.release.set()
+            ui.find(FINAL_REPLY)
+            expected = [("completed",), ("cancelled",), ("completed",)]
+            until(
+                "exactly three requests with the resumed request completed",
+                lambda: True if status_rows(database) == expected else None,
+            )
+            print(
+                f"Android resumed active request {request_id} after cursor {probe.interrupted[1]}.",
+                flush=True,
+            )
             check_file_picker(ui, stack, database.parent)
         ui.click("Sign out")
         until(
@@ -322,7 +430,7 @@ def main() -> None:
     parser.add_argument(
         "--extended",
         action="store_true",
-        help="Check IME, background/foreground chat and the system file picker",
+        help="Check IME, network recovery, active stream resume and the system file picker",
     )
     args = parser.parse_args()
     smoke(

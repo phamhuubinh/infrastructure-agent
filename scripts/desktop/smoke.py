@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from contextlib import ExitStack, closing
 from ctypes import wintypes
 from http.server import ThreadingHTTPServer
@@ -25,6 +26,7 @@ from orion.access import LocalAccessAdapter
 from orion.access.remote import RemoteAccessConfig, hash_password
 from orion.api.app import create_app
 from playwright.sync_api import Page, sync_playwright
+from uvicorn._types import ASGIApplication
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -68,7 +70,12 @@ def close_window(pid: int) -> None:
     assert user32.PostMessageW(owned[0], 0x0010, 0, 0), ctypes.get_last_error()
 
 
-def remote_fixture(stack: ExitStack, database: Path) -> tuple[str, str]:
+def remote_fixture(
+    stack: ExitStack,
+    database: Path,
+    *,
+    wrap: Callable[[ASGIApplication], ASGIApplication] | None = None,
+) -> tuple[str, str]:
     listener = stack.enter_context(socket.socket())
     listener.bind(("127.0.0.1", 0))
     origin = f"http://127.0.0.1:{listener.getsockname()[1]}"
@@ -76,7 +83,10 @@ def remote_fixture(stack: ExitStack, database: Path) -> tuple[str, str]:
         True, "127.0.0.1", origin, hash_password("fixture-only")
     )
     app = create_app(database, remote_config=config)
-    server = uvicorn.Server(uvicorn.Config(app, log_level="error", proxy_headers=False))
+    application: ASGIApplication = app if wrap is None else wrap(app)
+    server = uvicorn.Server(
+        uvicorn.Config(application, log_level="error", proxy_headers=False)
+    )
     thread = threading.Thread(
         target=lambda: server.run(sockets=[listener]), daemon=True
     )

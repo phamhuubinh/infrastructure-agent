@@ -22,9 +22,7 @@ class Provider(BaseHTTPRequestHandler):
         assert self.path == "/v1/chat/completions"
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         assert body["model"] == "headless-fixture" and body["stream"]
-        hold = any(
-            item.get("content") == "Wait for SIGINT." for item in body["messages"]
-        )
+        hold = body["messages"][-1].get("content") == "Wait for SIGINT."
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
@@ -32,6 +30,9 @@ class Provider(BaseHTTPRequestHandler):
             self.waiting.set()
             self.release.wait(timeout=45)
             return
+        self.reply(body)
+
+    def reply(self, body: dict) -> None:
         for value in (
             {"choices": [{"index": 0, "delta": {"content": "Headless fixture."}}]},
             {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
