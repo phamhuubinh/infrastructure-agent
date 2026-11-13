@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "phase": "implementation_in_progress",
-  "scope": "R00-R19 complete at documented scope. R20 offline regression and remaining native, live-provider and signing acceptance are open.",
+  "scope": "R00-R20 complete at documented scope. R21 full acceptance waits on remaining live provider, native release/device and signing gates.",
   "providers": [
     "deepseek",
     "claude",
     "openai"
   ],
-  "current_task": "R20",
-  "next_action": "Run full backend and UI regression, verify hosted CI for R19 cleanup, and continue the separate native gates.",
+  "current_task": "R25",
+  "next_action": "Verify Android active stream cursor continuity, iOS functional flows, exact candidate Linux systemd lifecycle and desktop upgrade when a prior desktop artifact is available.",
   "work_items": [
     {
       "id": "R00",
@@ -643,8 +643,14 @@
       "depends_on": [
         "R19"
       ],
-      "status": "in_progress",
-      "evidence": [],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "hosted_offline_regression",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43279566378",
+          "result": "475eaffe90912472fbf67997099a5990859656ae: all six CI jobs and Windows CI 43279566408 passed. Full Linux backend: 1622 passed, 10 skipped, 23 subtests passed. UI, packaged UI, worker, operations and Windows installed desktop also passed."
+        }
+      ],
       "blockers": []
     },
     {
@@ -663,7 +669,9 @@
       ],
       "status": "todo",
       "evidence": [],
-      "blockers": []
+      "blockers": [
+        "Pending live providers R22-R24, native release/device gates R25-R28 and signing R29."
+      ]
     },
     {
       "id": "R22",
@@ -719,10 +727,15 @@
           "kind": "hosted_native_partial",
           "path": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
           "result": "Windows CI 43139711872 built and installed the debug NSIS candidate and passed the managed backend smoke. The installed desktop failed to expose the expected WebView2 DevTools endpoint."
+        },
+        {
+          "kind": "native_checkpoint",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43344192762",
+          "result": "Hosted Windows candidate archive and portable worker passed on 8e0241259cae61c07b1311cfadef0f9e9af862c3. Isolated native Windows server upgrade from public v0.1.2 to exact v0.1.3 candidate passed with session and database preserved."
         }
       ],
       "blockers": [
-        "Hosted debug NSIS and Windows worker passed. Release candidate update between versions and signed release remain separate gates."
+        "No prior released desktop installer exists for real cross-version desktop upgrade validation. Windows server upgrade and hosted debug desktop checks passed."
       ]
     },
     {
@@ -748,10 +761,15 @@
           "kind": "native_linux_exact_archive_smokes",
           "path": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
           "result": "Exact server and worker tarballs and Linux frozen worker passed Ubuntu x86_64 lifecycle checks. Optional browser/desktop scope and the R18 prerequisite remain open."
+        },
+        {
+          "kind": "native_checkpoint",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43344192762",
+          "result": "Hosted exact Linux candidate server and worker archives and Ubuntu portable worker smoke passed on 8e0241259cae61c07b1311cfadef0f9e9af862c3. Artifact 14000752547 checksum verified."
         }
       ],
       "blockers": [
-        "Verify full release candidate installation, service and worker evidence together before closing native Linux acceptance."
+        "Exact-candidate user systemd service lifecycle pending. Disposable Ubuntu guest did not provide a completed result."
       ]
     },
     {
@@ -772,10 +790,25 @@
           "kind": "hosted_exact_sha",
           "path": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
           "result": "Hosted CI 43142173976 on 71e6fd2 verified the arm64 APK and installed, launched, backgrounded and reopened the x86_64 APK on an Android 35 emulator."
+        },
+        {
+          "kind": "hosted_android_functional",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43279566378",
+          "result": "Exact x86_64 APK passed UIAutomator enrollment, force-stop/reopen with stored session, chat completion, and logout with server-side revocation."
+        },
+        {
+          "kind": "native_checkpoint",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43344261965",
+          "result": "Hosted extended exact x86_64 APK smoke passed on e78baf6898aa1d8ba2e1839f5de880ac4203fa01: native IME, DocumentsUI attachment, background/resume with one cancelled request, enrollment, chat and logout."
+        },
+        {
+          "kind": "hosted_android_network_recovery",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43376313405",
+          "result": "Android job passed on 65f92df: ADB route interruption and restoration, app resume and Stop. Database verified one completed and one cancelled request."
         }
       ],
       "blockers": [
-        "Native enrollment, streaming, file picker, keyboard and reconnect still require functional smoke."
+        "Verify active streaming cursor continuity across a network interruption; route recovery and Stop passed separately."
       ]
     },
     {
@@ -796,6 +829,11 @@
           "kind": "hosted_exact_sha",
           "path": "docs/refactor/evidence/R18_SESSION_2026-11-09.md",
           "result": "Hosted CI 43142173976 on 71e6fd2 built, installed and launched the arm64 iOS Simulator app. Archive artifact 13910272724."
+        },
+        {
+          "kind": "native_checkpoint",
+          "url": "https://github.com/phamhuubinh/infrastructure-agent/actions/runs/43344261965",
+          "result": "Hosted arm64 iOS Simulator build, install and launch passed on e78baf6898aa1d8ba2e1839f5de880ac4203fa01."
         }
       ],
       "blockers": [
@@ -824,13 +862,13 @@
     "report": "docs/refactor/evidence/R19_SESSION_2026-11-13.md",
     "unresolved": [
       "Hosted Windows desktop and mobile startup passed. Full native mobile functional gates, release signing and live providers remain open.",
-      "R20/R21, live providers, release candidate validation, native mobile functional checks and signing remain open.",
+      "R21 waits on live provider, native release/device and signing gates.",
       "R18 Linux server and worker lifecycle, and frozen Windows/Linux worker browser fixtures pass. Remaining native app matrix has separate scope.",
       "Windows Tauri debug installer and portable verified. R25 final release candidate and R29 signing remain separate."
     ],
     "reproduction": "Run scripts/refactor/dev.py check --backend-only with the pinned Windows Python and the UI lint, TypeScript, Vitest and packaged UI checks with the pinned Node. Hosted CI must be verified by commit SHA.",
     "reviewed_files_at_checkpoint": 655,
     "inventory_files_at_checkpoint": 636,
-    "next_task": "R20"
+    "next_task": "R25"
   }
 }
