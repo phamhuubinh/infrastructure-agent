@@ -3,6 +3,7 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "orion_host",
+            "orion_stop_host",
             "orion_prepare",
             "orion_start",
             "orion_read",

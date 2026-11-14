@@ -28,6 +28,8 @@ struct Host {
     backend: Option<ManagedBackend>,
     #[cfg(windows)]
     backend_error: Option<&'static str>,
+    #[cfg(windows)]
+    keep_host_running: bool,
     transport: Transport,
     pending: Mutex<HashMap<String, Arc<Pending>>>,
 }
@@ -54,6 +56,10 @@ struct HostInfo {
     managed_origin: Option<String>,
     #[cfg(windows)]
     managed_error: Option<&'static str>,
+    #[cfg(windows)]
+    host_mode: bool,
+    #[cfg(windows)]
+    host_origin: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -107,6 +113,14 @@ fn orion_host(_state: State<'_, Host>) -> HostInfo {
         managed_origin: None,
         #[cfg(windows)]
         managed_error: _state.backend_error,
+        #[cfg(windows)]
+        host_mode: _state.keep_host_running,
+        #[cfg(windows)]
+        host_origin: if _state.keep_host_running {
+            std::env::var("ORION_PUBLIC_ORIGIN").ok()
+        } else {
+            None
+        },
     }
 }
 
@@ -348,12 +362,23 @@ fn allow_navigation(url: &url::Url) -> bool {
     )
 }
 
+#[cfg(windows)]
+#[tauri::command]
+fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &'static str> {
+    if !host.keep_host_running {
+        return Err("Host Mode is not active");
+    }
+    app.exit(0);
+    Ok(())
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(windows)]
     let builder = builder
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window(WINDOW) {
+                let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -377,8 +402,11 @@ pub fn run() {
                     (None, Some(reason))
                 }
             };
+            let keep_host_running = backend.is_some()
+                && std::env::var("ORION_DESKTOP_HOST_MODE").as_deref() == Ok("1");
             app.manage(Host {
                 backend,
+                keep_host_running,
                 backend_error,
                 transport: Transport::new()?,
                 pending: Mutex::new(HashMap::new()),
@@ -400,6 +428,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             orion_host,
+            orion_stop_host,
             orion_prepare,
             orion_start,
             orion_read,
@@ -449,6 +478,21 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("build Orion native application")
         .run(|app, event| {
+            #[cfg(windows)]
+            if let RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } = &event
+            {
+                if label == WINDOW && app.state::<Host>().keep_host_running {
+                    if let Some(window) = app.get_webview_window(WINDOW) {
+                        if window.hide().is_ok() {
+                            api.prevent_close();
+                        }
+                    }
+                }
+            }
             if matches!(event, RunEvent::Exit) {
                 let state = app.state::<Host>();
                 state.cancel_all();

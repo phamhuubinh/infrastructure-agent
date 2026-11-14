@@ -8,6 +8,8 @@ export type NativeHost = {
   fetch: typeof fetch;
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
+  hostOrigin?: string;
+  stopHost?: () => Promise<void>;
   managedError?: string;
   managedBackend?: { origin: string; fetch: typeof fetch };
 };
@@ -63,6 +65,14 @@ export function activeServer(): ServerProfile {
     selected ??
     managedServer ?? { id: "browser", name: "Server hiện tại", origin: window.location.origin }
   );
+}
+
+export function activeHostOrigin() {
+  return nativeHost?.hostOrigin;
+}
+
+export function activeHostStop() {
+  return nativeHost?.stopHost;
 }
 
 export function managedServerError() {

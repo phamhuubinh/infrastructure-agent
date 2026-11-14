@@ -87,3 +87,22 @@ without compatible release metadata show unavailable. Confirmed End & forget
 removes endpoint-owned metadata/history under existing active-request safeguards.
 See the endpoint operations/architecture reference for platform prerequisites,
 cleanup/expiry, download integrity and native artifact smoke coverage.
+
+## Windows Desktop Host Mode (opt-in)
+
+Host Mode uses the desktop app's existing backend and managed data directory.
+For an internal deployment, launch Orion with these process environment settings:
+
+- `ORION_DESKTOP_HOST_MODE=1`
+- `ORION_REMOTE_ACCESS=1`
+- `ORION_PUBLIC_ORIGIN` set to the exact HTTPS origin
+- `ORION_AUTH_PASSWORD_HASH` set to an Argon2id hash produced by `orion auth hash-password`
+- `ORION_ENDPOINTS=1` if paired endpoints are needed
+
+Unset `ORION_BIND_HOST` or set it to `127.0.0.1`. Configure the authorized
+HTTPS tunnel or reverse proxy to forward to `127.0.0.1:61888`. Keep the password
+hash in private launch configuration. Browser users sign in at the HTTPS origin.
+Native clients use the same HTTPS origin with an enrollment code created by the
+owner. Closing the desktop window hides it while Host Mode is running. Reopening
+Orion restores the window. Use **Dừng server và đóng Orion** in connection
+settings to stop the server and exit.

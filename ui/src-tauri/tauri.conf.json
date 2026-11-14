@@ -25,6 +25,7 @@
           ],
           "permissions": [
             "allow-orion-host",
+            "allow-orion-stop-host",
             "allow-orion-prepare",
             "allow-orion-start",
             "allow-orion-read",

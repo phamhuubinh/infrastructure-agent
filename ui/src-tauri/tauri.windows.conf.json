@@ -11,7 +11,8 @@
       "../public/favicon.ico"
     ],
     "resources": {
-      "../../release-work/managed-backend/": "backend/"
+      "../../release-work/managed-backend/": "backend/",
+      "../dist/client/": "web/"
     }
   }
 }

@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { apiJson } from "@/lib/api";
+import type { Schemas } from "@/lib/sdk/generated";
 import {
   activeServer,
+  activeHostOrigin,
+  activeHostStop,
   activateManagedServer,
   activateServer,
   hasActiveServer,
@@ -21,11 +25,107 @@ export function ServerConnections() {
   const [code, setCode] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [clients, setClients] = useState<ReadonlyArray<Schemas["NativeSessionView"]>>([]);
+  const [enrollment, setEnrollment] = useState<Schemas["NativeEnrollmentCode"] | null>(null);
   const current = activeServer();
+  const nativePath = "/api/auth/native";
+  async function refreshClients() {
+    setClients(
+      await apiJson<ReadonlyArray<Schemas["NativeSessionView"]>>(nativePath + "/sessions"),
+    );
+  }
+  async function manageClients(action: () => Promise<void>) {
+    setBusy(true);
+    setNotice("");
+    try {
+      await action();
+    } catch {
+      setNotice("Không thể cập nhật kết nối của thiết bị.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const stopHost = activeHostStop();
   const backendError = managedServerError();
   return (
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
+      {stopHost && (
+        <div className="flex items-center gap-3 text-sm">
+          <span>Host Mode đang chạy · {activeHostOrigin()}</span>
+          <button
+            type="button"
+            className="rounded border px-2 py-1"
+            onClick={() => void stopHost().catch(() => setNotice("Không thể dừng server."))}
+          >
+            Dừng server và đóng Orion
+          </button>
+        </div>
+      )}
+      {stopHost && isManagedServer() && (
+        <div className="space-y-2 text-sm">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void manageClients(async () => {
+                  setEnrollment(
+                    await apiJson<Schemas["NativeEnrollmentCode"]>(
+                      nativePath + "/enrollment-codes",
+                      { method: "POST" },
+                    ),
+                  );
+                })
+              }
+            >
+              Tạo mã kết nối
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void manageClients(refreshClients)}
+            >
+              Tải danh sách thiết bị
+            </button>
+          </div>
+          {enrollment && (
+            <p role="status">
+              Mã dùng một lần <code>{enrollment.code}</code> · Hết hạn{" "}
+              {new Date(enrollment.expires_at * 1000).toLocaleTimeString("vi-VN")}
+            </p>
+          )}
+          <ul>
+            {clients
+              .filter((client) => !client.revoked_at)
+              .map((client) => (
+                <li key={client.session_id} className="flex items-center gap-2">
+                  <span>
+                    {client.name} · {client.platform}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void manageClients(async () => {
+                        await apiJson(
+                          nativePath +
+                            "/sessions/" +
+                            encodeURIComponent(client.session_id) +
+                            "/revoke",
+                          { method: "POST" },
+                        );
+                        await refreshClients();
+                      })
+                    }
+                  >
+                    Thu hồi
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
       {backendError && (
         <p role="alert" className="text-sm">
           {backendError} Chi tiết trong managed/desktop-backend.log nếu ghi được nhật ký.
