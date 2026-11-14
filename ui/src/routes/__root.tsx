@@ -183,6 +183,10 @@ function RootComponent() {
   async function signOut() {
     try {
       await logout();
+      if (!isNativeHost()) {
+        window.location.reload();
+        return;
+      }
       queryClient.clear();
       setAuth({ remote_access: true, authenticated: false, expires_at: null });
     } catch {

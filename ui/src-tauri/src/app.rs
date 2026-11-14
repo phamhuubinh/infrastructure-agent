@@ -30,6 +30,8 @@ struct Host {
     backend_error: Option<&'static str>,
     #[cfg(windows)]
     keep_host_running: bool,
+    #[cfg(windows)]
+    host_origin: Option<String>,
     transport: Transport,
     pending: Mutex<HashMap<String, Arc<Pending>>>,
 }
@@ -116,11 +118,7 @@ fn orion_host(_state: State<'_, Host>) -> HostInfo {
         #[cfg(windows)]
         host_mode: _state.keep_host_running,
         #[cfg(windows)]
-        host_origin: if _state.keep_host_running {
-            std::env::var("ORION_PUBLIC_ORIGIN").ok()
-        } else {
-            None
-        },
+        host_origin: _state.host_origin.clone(),
     }
 }
 
@@ -372,6 +370,20 @@ fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &
     Ok(())
 }
 
+#[cfg(windows)]
+#[tauri::command]
+fn orion_host_settings() -> Result<crate::host_settings::Status, String> {
+    crate::host_settings::Settings::status().map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
+#[tauri::command]
+fn orion_save_host_settings(app: tauri::AppHandle, settings: crate::host_settings::Settings) -> Result<(), String> {
+    settings.save().map_err(|error| error.to_string())?;
+    app.request_restart();
+    Ok(())
+}
+
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(windows)]
@@ -384,9 +396,14 @@ pub fn run() {
             }
         }))
         .setup(|app| {
+            let settings = crate::host_settings::Settings::read()?;
             let backend_path = app.path().resource_dir()?.join("backend/OrionBackend.exe");
             let data_path = app.path().app_local_data_dir()?.join("managed");
-            let (backend, backend_error) = match ManagedBackend::start(&backend_path, &data_path) {
+            let (backend, backend_error) = match ManagedBackend::start_configured(&backend_path, &data_path, |child| {
+                if let Some(settings) = &settings {
+                    settings.configure(child);
+                }
+            }) {
                 Ok(backend) => (Some(backend), None),
                 Err(error) => {
                     let reason = match error.kind() {
@@ -402,11 +419,17 @@ pub fn run() {
                     (None, Some(reason))
                 }
             };
-            let keep_host_running = backend.is_some()
-                && std::env::var("ORION_DESKTOP_HOST_MODE").as_deref() == Ok("1");
+            let configured_host = settings.as_ref().map(|settings| settings.enabled)
+                .unwrap_or_else(|| std::env::var("ORION_DESKTOP_HOST_MODE").as_deref() == Ok("1"));
+            let keep_host_running = backend.is_some() && configured_host;
+            let host_origin = if keep_host_running {
+                settings.as_ref().map(|settings| settings.origin.clone())
+                    .or_else(|| std::env::var("ORION_PUBLIC_ORIGIN").ok())
+            } else { None };
             app.manage(Host {
                 backend,
                 keep_host_running,
+                host_origin,
                 backend_error,
                 transport: Transport::new()?,
                 pending: Mutex::new(HashMap::new()),
@@ -429,6 +452,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             orion_host,
             orion_stop_host,
+            orion_host_settings,
+            orion_save_host_settings,
             orion_prepare,
             orion_start,
             orion_read,

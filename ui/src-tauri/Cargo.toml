@@ -1,6 +1,6 @@
 [package]
 name = "orion-native"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 publish = false
 
@@ -30,6 +30,7 @@ tauri-plugin-single-instance = { version = "2", optional = true }
 tokio = { version = "1", features = ["macros", "sync"], optional = true }
 tokio-util = { version = "0.7", features = ["rt"], optional = true }
 url = "2.5"
+winreg = "0.56.0"
 windows-sys = { version = "0.61.2", features = ["Win32_Security_Credentials", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [target.'cfg(windows)'.dev-dependencies]

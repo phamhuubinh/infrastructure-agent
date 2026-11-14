@@ -1567,7 +1567,7 @@
   },
   "info": {
     "title": "Orion",
-    "version": "0.1.4"
+    "version": "0.1.5"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -1998,6 +1998,56 @@
           }
         ],
         "summary": "Worker Artifacts",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/endpoints/artifacts/download/{filename}": {
+      "get": {
+        "operationId": "worker_artifact_api_endpoints_artifacts_download__filename__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "filename",
+            "required": true,
+            "schema": {
+              "title": "Filename",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Worker Artifact",
         "x-orion-auth": "owner",
         "x-orion-local-loopback-owner": true
       }

@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiJson } from "@/lib/api";
 import type { Schemas } from "@/lib/sdk/generated";
 import {
   activeServer,
   activeHostOrigin,
   activeHostStop,
+  desktopHostSettings,
+  type HostSettingsOptions,
   activateManagedServer,
   activateServer,
   hasActiveServer,
@@ -17,6 +19,97 @@ import {
   isManagedServer,
   enrollServer,
 } from "@/lib/server-profiles";
+
+function HostSettingsPanel() {
+  const bridge = desktopHostSettings();
+  const [settings, setSettings] = useState<HostSettingsOptions | null>(null);
+  const [passwordHash, setPasswordHash] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    void bridge
+      ?.load()
+      .then(setSettings)
+      .catch(() => setError("Không đọc được cấu hình Host Mode."));
+  }, [bridge]);
+  if (!bridge) return null;
+  return (
+    <form
+      className="space-y-2 rounded border p-3 text-sm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!settings || saving) return;
+        setSaving(true);
+        setError("");
+        void bridge.save({ ...settings, passwordHash }).catch(() => {
+          setError("Không lưu được. Kiểm tra địa chỉ HTTPS và mã băm Argon2id.");
+          setSaving(false);
+        });
+      }}
+    >
+      <h3 className="font-medium">Cấu hình Host Mode</h3>
+      {settings && (
+        <>
+          <label className="block">
+            <input
+              type="checkbox"
+              checked={settings.enabled}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  enabled: e.target.checked,
+                })
+              }
+            />{" "}
+            Bật Host Mode
+          </label>
+          {settings.enabled && (
+            <>
+              <label className="block">
+                Địa chỉ HTTPS
+                <input
+                  className="block w-full rounded border bg-background px-2"
+                  type="url"
+                  required
+                  value={settings.origin}
+                  onChange={(e) => setSettings({ ...settings, origin: e.target.value })}
+                />
+              </label>
+              <label className="block">
+                Mã băm mật khẩu Argon2id
+                <input
+                  autoComplete="off"
+                  className="block w-full rounded border bg-background px-2"
+                  type="password"
+                  placeholder="Bỏ trống để giữ mã băm hiện có"
+                  value={passwordHash}
+                  onChange={(e) => setPasswordHash(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <input
+                  type="checkbox"
+                  checked={settings.autostart}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      autostart: e.target.checked,
+                    })
+                  }
+                />{" "}
+                Chạy khi đăng nhập Windows
+              </label>
+            </>
+          )}
+          <button type="submit" disabled={saving} className="rounded border px-2 py-1">
+            Lưu và khởi động lại Orion
+          </button>
+        </>
+      )}
+      {error && <p role="alert">{error}</p>}
+    </form>
+  );
+}
 
 export function ServerConnections() {
   const [profiles, setProfiles] = useState(serverProfiles);
@@ -50,6 +143,7 @@ export function ServerConnections() {
   return (
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
+      <HostSettingsPanel />
       {stopHost && (
         <div className="flex items-center gap-3 text-sm">
           <span>Host Mode đang chạy · {activeHostOrigin()}</span>

@@ -39,7 +39,11 @@ pub struct ManagedBackend {
 }
 
 impl ManagedBackend {
-    pub fn start(executable: &Path, data_dir: &Path) -> io::Result<Self> {
+    pub fn start_configured(
+        executable: &Path,
+        data_dir: &Path,
+        configure: impl FnOnce(&mut Command),
+    ) -> io::Result<Self> {
         if !executable.is_absolute() || !data_dir.is_absolute() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -58,7 +62,7 @@ impl ManagedBackend {
             .create(true)
             .append(true)
             .open(data_dir.join("desktop-backend.log"))?;
-        let result = Self::spawn(executable, executable_dir, data_dir, log.try_clone()?);
+        let result = Self::spawn(executable, executable_dir, data_dir, log.try_clone()?, configure);
         if let Err(error) = &result {
             let _ = writeln!(log, "Managed backend startup failed: {error}");
         }
@@ -70,13 +74,15 @@ impl ManagedBackend {
         executable_dir: &Path,
         data_dir: &Path,
         log: File,
+        configure: impl FnOnce(&mut Command),
     ) -> io::Result<Self> {
         let mut random = [0; 32];
         getrandom::fill(&mut random)
             .map_err(|_| io::Error::other("Cannot generate the managed owner token"))?;
         let token = URL_SAFE_NO_PAD.encode(random);
         let job = create_job()?;
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        command
             .current_dir(executable_dir)
             .creation_flags(CREATE_NO_WINDOW)
             .env_remove("PYTHONPATH")
@@ -88,8 +94,9 @@ impl ManagedBackend {
             .env("ORION_DATA_DIR", data_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::from(log))
-            .spawn()?;
+            .stderr(Stdio::from(log));
+        configure(&mut command);
+        let mut child = command.spawn()?;
         // The backend waits for its token before creating the application or spawning work.
         if unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) } == 0 {
             let error = io::Error::last_os_error();
@@ -291,7 +298,7 @@ mod tests {
         let path = |name| PathBuf::from(env::var_os(name).expect("missing fixture path"));
         let executable = path("ORION_TEST_MANAGED_EXE");
         let data = path("ORION_TEST_MANAGED_DATA_DIR");
-        let backend = ManagedBackend::start(&executable, &data).unwrap();
+        let backend = ManagedBackend::start_configured(&executable, &data, |_| {}).unwrap();
         let address: SocketAddrV4 = backend
             .origin()
             .strip_prefix("http://")

@@ -35,7 +35,13 @@ type Artifacts = {
   available: boolean;
   version: string;
   reason?: string;
-  artifacts: Array<{ filename: string; platform: string; sha256: string; url: string }>;
+  artifacts: Array<{
+    filename: string;
+    platform: string;
+    sha256: string;
+    url: string;
+    local?: boolean;
+  }>;
 };
 
 export function EndpointsPage() {
@@ -226,18 +232,45 @@ export function EndpointsPage() {
           x64, Linux x86_64 (glibc 2.35+).
         </p>
         {artifacts?.available ? (
-          artifacts.artifacts.map((artifact) => (
-            <div key={artifact.platform}>
-              <a href={artifact.url} rel="noreferrer">
-                {artifact.platform === "windows-x64"
-                  ? "Download Windows portable worker"
-                  : "Download Linux portable worker"}
-              </a>
-              <p>
-                SHA-256: <code>{artifact.sha256}</code>
-              </p>
-            </div>
-          ))
+          artifacts.artifacts.map((artifact) => {
+            const label =
+              artifact.platform === "windows-x64"
+                ? "Download Windows portable worker"
+                : "Download Linux portable worker";
+            return (
+              <div key={artifact.platform}>
+                {artifact.local ? (
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void action(async () => {
+                        const filename = encodeURIComponent(artifact.filename);
+                        const response = await apiFetch(
+                          `/api/endpoints/artifacts/download/${filename}`,
+                        );
+                        if (!response.ok) throw new Error("Artifact unavailable for this build");
+                        const url = URL.createObjectURL(await response.blob());
+                        const link = document.createElement("a");
+                        link.href = url;
+                        link.download = artifact.filename;
+                        link.click();
+                        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      })
+                    }
+                  >
+                    {label}
+                  </Button>
+                ) : (
+                  <a href={artifact.url} rel="noreferrer">
+                    {label}
+                  </a>
+                )}
+                <p>
+                  SHA-256: <code>{artifact.sha256}</code>
+                </p>
+              </div>
+            );
+          })
         ) : (
           <p role="status">Artifact unavailable for this build</p>
         )}

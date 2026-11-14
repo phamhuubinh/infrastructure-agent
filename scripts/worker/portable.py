@@ -251,14 +251,91 @@ def combine(output: Path) -> None:
     )
 
 
+def stage_desktop(output: Path, sidecar: Path, version: str, source_sha: str) -> None:
+    """Stage one verified Windows worker archive for the matching frozen desktop backend."""
+    if (
+        not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[a-z][0-9]+)?", version)
+        or not re.fullmatch(r"[0-9a-f]{40}", source_sha)
+        or sidecar.resolve() != sidecar
+        or not (sidecar / "OrionBackend.exe").is_file()
+    ):
+        raise ValueError("Expected an existing desktop sidecar and exact build identity")
+    sidecar_manifest_path = sidecar / "sidecar-manifest.json"
+    sidecar_manifest = json.loads(sidecar_manifest_path.read_text(encoding="utf-8"))
+    if (
+        sidecar_manifest.get("version") != version
+        or sidecar_manifest.get("source_sha") != source_sha
+        or sidecar_manifest.get("source_dirty") is not False
+    ):
+        raise ValueError("Desktop sidecar build identity mismatch")
+    platform = "windows-x64"
+    record = json.loads((output / f"portable-{platform}.json").read_text(encoding="utf-8"))
+    filename = f"OrionRemote-{version}-{platform}.zip"
+    artifact = record["artifact"]
+    digest = artifact.get("sha256", "")
+    if (
+        record.get("version") != version
+        or record.get("source_sha") != source_sha
+        or record.get("source_dirty") is not False
+        or artifact.get("platform") != platform
+        or artifact.get("filename") != filename
+        or not re.fullmatch(r"[0-9a-f]{64}", digest)
+    ):
+        raise ValueError("Portable archive build identity mismatch")
+    directory = sidecar / "worker-artifacts"
+    metadata = sidecar / "orion-build.json"
+    if directory.exists() or directory.is_symlink() or metadata.exists() or metadata.is_symlink():
+        raise ValueError("Use a freshly built desktop sidecar")
+    build = {"version": version, "source_sha": source_sha}
+    with tempfile.TemporaryDirectory(prefix=".orion-worker-", dir=sidecar) as temporary:
+        staged = Path(temporary) / directory.name
+        staged.mkdir()
+        archive = staged / filename
+        shutil.copyfile(output / filename, archive)
+        with archive.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
+                raise ValueError("Portable checksum mismatch")
+        worker_manifest = staged / "worker-artifacts.json"
+        worker_manifest.write_text(
+            json.dumps({**build, "artifacts": [artifact]}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        staged_build = Path(temporary) / metadata.name
+        staged_build.write_text(json.dumps(build, indent=2) + "\n", encoding="utf-8")
+        sidecar_manifest["files"].update(
+            {
+                f"{directory.name}/{archive.name}": digest,
+                f"{directory.name}/{worker_manifest.name}": hashlib.sha256(
+                    worker_manifest.read_bytes()
+                ).hexdigest(),
+                metadata.name: hashlib.sha256(staged_build.read_bytes()).hexdigest(),
+            }
+        )
+        staged_manifest = Path(temporary) / sidecar_manifest_path.name
+        staged_manifest.write_text(
+            json.dumps(sidecar_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        staged.rename(directory)
+        staged_build.rename(metadata)
+        staged_manifest.replace(sidecar_manifest_path)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--allow-dirty", action="store_true")
-    parser.add_argument("--combine", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--combine", action="store_true")
+    mode.add_argument("--stage-desktop", type=Path, metavar="SIDECAR")
+    parser.add_argument("--version")
+    parser.add_argument("--source-sha")
     args = parser.parse_args()
     if args.combine:
         combine(args.output)
+    elif args.stage_desktop:
+        if not args.version or not args.source_sha:
+            parser.error("--stage-desktop requires --version and --source-sha")
+        stage_desktop(args.output, args.stage_desktop.absolute(), args.version, args.source_sha)
     else:
         print(build(args.repository, args.output, args.allow_dirty))

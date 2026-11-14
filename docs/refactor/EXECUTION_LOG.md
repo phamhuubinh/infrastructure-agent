@@ -40,3 +40,9 @@
 - Đóng cửa sổ giữ host chạy, mở shortcut hiện lại cửa sổ. Settings hiển thị origin và có Stop, tạo mã enrollment, liệt kê/thu hồi native sessions. Web bundle là resource NSIS.
 - Backend 76 test đạt, sau đó bài Host Mode bổ sung enroll/refresh/logout cũng đạt. Windows cargo check và UI TypeScript đạt. Log backend/Rust tại release-work/desktop-host-backend.log và release-work/desktop-host-rust.log.
 - Bản đang cài vẫn là 0.1.4. Còn kiểm thử native host lifecycle và HTTPS qua proxy thật, cấu hình bật/tắt và autostart trong UI, tunnel status, đóng gói worker xác minh, và nghiệm thu trước nâng cấp.
+
+### Windows Host Settings và gói Worker 0.1.5
+
+- Host Mode lưu cấu hình theo tài khoản Windows, tùy chọn chạy khi đăng nhập và áp dụng bằng khởi động lại ứng dụng. Backend vẫn do một tiến trình Desktop quản lý và dùng thư mục dữ liệu hiện có.
+- Thêm phân phối Worker local qua route owner, xác minh hash trước khi gửi. Công cụ staging yêu cầu cùng phiên bản và commit nguồn sạch.
+- Tailscale Serve phù hợp với truy cập cá nhân qua tailnet. Máy hiện chưa có Tailscale hoặc cloudflared được kết nối. Serve trên Windows cần phiên Administrator và tailnet bật HTTPS. Cloudflare published application cần tài khoản và domain. Chưa xác minh truy cập từ ngoài máy.

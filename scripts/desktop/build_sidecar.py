@@ -37,6 +37,14 @@ def build(wheel: Path, output: Path) -> None:
         raise ValueError("Expected a built Orion backend wheel.")
     if output.exists() or output.is_symlink() or output.is_junction():
         raise ValueError("Use a new destination for the desktop sidecar.")
+    source_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    source_dirty = bool(
+        subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT, text=True
+        ).strip()
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     environment = {
         key: value
@@ -89,6 +97,8 @@ def build(wheel: Path, output: Path) -> None:
         bundle = stage / "dist" / NAME
         manifest = {
             "version": match.group(1),
+            "source_sha": source_sha,
+            "source_dirty": source_dirty,
             "platform": "windows-x64",
             "entrypoint": NAME + ".exe",
             "wheel_sha256": sha256(wheel),

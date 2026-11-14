@@ -14,10 +14,12 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import Response, StreamingResponse
 from pydantic import Field
+from starlette.background import BackgroundTask
 
 from orion.access.remote import COOKIE_NAME, BrowserSessions, RemoteAccessConfig
 from orion.api.schema import request_body_schema
 from orion.contracts import RuntimeScope
+from orion.endpoints.artifacts import CHUNK_BYTES, LOCAL_ROUTE
 from orion.endpoints.manager import EndpointError, EndpointManager
 from orion_endpoint.protocol import CHUNK_SIZE, MAX_TRANSFER, OPERATIONS, Capture, Strict
 
@@ -26,6 +28,7 @@ DEVICE_API_ROUTES = {("POST", "/api/endpoints/{endpoint_id}/end")}
 DEVICE_WS_ROUTES = {("WEBSOCKET", "/api/endpoints/{endpoint_id}/worker")}
 ENDPOINT_OWNER_ROUTES = {
     ("GET", "/api/endpoints/artifacts"),
+    ("GET", LOCAL_ROUTE + "/{filename}"),
     ("POST", "/api/endpoints/{endpoint_id}/chat"),
     ("POST", "/api/endpoints/{endpoint_id}/forget"),
     ("POST", "/api/endpoints/{endpoint_id}/operation"),
@@ -234,6 +237,36 @@ def install_endpoint_routes(
         from orion.endpoints.artifacts import compatible_artifacts
 
         return await compatible_artifacts()
+
+    @app.get(
+        LOCAL_ROUTE + "/{filename}",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "content": {
+                    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                }
+            }
+        },
+    )
+    async def worker_artifact(filename: str, request: Request) -> StreamingResponse:
+        owner(request)
+        from orion.endpoints.artifacts import open_local_artifact
+
+        artifact = await asyncio.to_thread(open_local_artifact, filename)
+        if artifact is None:
+            raise HTTPException(404, "Artifact unavailable for this build.")
+        snapshot, size = artifact
+        return StreamingResponse(
+            iter(lambda: snapshot.read(CHUNK_BYTES), b""),
+            media_type="application/octet-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(size),
+            },
+            background=BackgroundTask(snapshot.close),
+        )
 
     @app.post("/api/endpoints/{endpoint_id}/chat")
     async def device_chat(endpoint_id: str, request: Request) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 import { newUuid } from "./uuid";
 import { invoke } from "@tauri-apps/api/core";
-import { installNativeHost } from "./server-profiles";
+import { installNativeHost, type HostSettingsOptions } from "./server-profiles";
 import type { SecureTokenStore } from "./sdk/client";
 
 type HostInfo = {
@@ -31,6 +31,14 @@ export async function installTauriHost() {
     tokens,
     fetch: nativeFetch(false, platform !== "windows"),
     hostOrigin: hostOrigin ?? undefined,
+    hostSettings:
+      platform === "windows"
+        ? {
+            load: () => invoke("orion_host_settings"),
+            save: (settings: HostSettingsOptions & { passwordHash: string }) =>
+              invoke("orion_save_host_settings", { settings }),
+          }
+        : undefined,
     stopHost: hostMode ? () => invoke<void>("orion_stop_host") : undefined,
     managedError: managedError ?? undefined,
     managedBackend: managedOrigin ? { origin: managedOrigin, fetch: nativeFetch(true) } : undefined,

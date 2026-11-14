@@ -26,6 +26,8 @@
           "permissions": [
             "allow-orion-host",
             "allow-orion-stop-host",
+            "allow-orion-host-settings",
+            "allow-orion-save-host-settings",
             "allow-orion-prepare",
             "allow-orion-start",
             "allow-orion-read",
