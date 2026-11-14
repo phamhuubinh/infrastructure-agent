@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Start Windows Desktop without opening a console and log managed backend startup failures.
+- Run authorized Windows Desktop commands against the explicit local target.
+
 ## 0.1.3
 
 - Paired Windows/Linux model-free worker, isolated browser automation and authenticated Remote Desktop.

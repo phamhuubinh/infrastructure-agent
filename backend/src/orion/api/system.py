@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from orion._version import __version__
 from orion.bootstrap import OrionApplication
 from orion.contracts.application import StrictRequest
-from orion.integrations.ssh.transport import CommandRouter
+from orion.integrations.ssh.transport import LOCAL_WINDOWS, CommandRouter
 
 SYSTEM_PUBLIC_ROUTES = {("GET", "/api/version")}
 SYSTEM_OWNER_ROUTES = {("GET", "/api/doctor"), ("GET", "/api/targets")}
@@ -25,6 +25,7 @@ class DoctorView(StrictRequest):
     skills_available: bool
     worker_connections_enabled: bool
     command_service_available: bool
+    local_command_unavailable_reason: str | None = None
     mcp_connected: int
     mcp_configured: int
     active_requests: int
@@ -32,7 +33,7 @@ class DoctorView(StrictRequest):
 
 class TargetView(StrictRequest):
     target_ref: str
-    kind: Literal["ssh", "worker"]
+    kind: Literal["ssh", "worker", "local"]
     connected: bool
     command_shells: tuple[Literal["powershell", "cmd", "sh", "bash"], ...]
 
@@ -50,6 +51,7 @@ def install_system_routes(app: FastAPI, application: OrionApplication) -> None:
             skills_available=application.skills is not None,
             worker_connections_enabled=application.endpoint_enabled,
             command_service_available=application.commands is not None,
+            local_command_unavailable_reason=application.local_command_unavailable_reason,
             mcp_connected=sum(item["state"] == "connected" for item in servers),
             mcp_configured=len(servers),
             active_requests=sum(not task.done() for task in application.requests.tasks.values()),
@@ -63,6 +65,8 @@ def install_system_routes(app: FastAPI, application: OrionApplication) -> None:
         transport = commands.transport
         refs: list[tuple[str, str]] = []
         if isinstance(transport, CommandRouter):
+            if transport.configured(LOCAL_WINDOWS):
+                refs.append((LOCAL_WINDOWS, "local"))
             refs.extend(
                 (target.target_ref, "ssh")
                 for target in transport.configuration.targets

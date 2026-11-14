@@ -741,6 +741,11 @@
           "kind": "windows_personal_use_local",
           "path": "docs/refactor/EXECUTION_LOG.md",
           "result": "Unsigned NSIS and portable desktop built locally. Real NSIS upgrade from the earlier self-built Orion 0.1.3 to the locally versioned 0.1.4 installer preserved SQLite, relaunched the current app and preserved data on uninstall. Standalone CPython 3.12.16 frozen backend and worker passed local smoke."
+        },
+        {
+          "kind": "windows_personal_in_place_upgrade_0_1_4",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Installed NSIS 0.1.4 over the user's 0.1.3, verified existing SQLite and model references, shortcut startup without Windows Terminal, clean shutdown, and live model execution of approved local PowerShell without worker pairing."
         }
       ],
       "blockers": [

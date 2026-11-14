@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fs::{self, File, OpenOptions},
     io::{self, BufRead, BufReader, Read, Write},
     mem::size_of,
     net::{Ipv4Addr, SocketAddrV4},
@@ -53,6 +53,24 @@ impl ManagedBackend {
             )
         })?;
         fs::create_dir_all(data_dir)?;
+        // Keep Python and bootloader diagnostics even when no console is attached.
+        let mut log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(data_dir.join("desktop-backend.log"))?;
+        let result = Self::spawn(executable, executable_dir, data_dir, log.try_clone()?);
+        if let Err(error) = &result {
+            let _ = writeln!(log, "Managed backend startup failed: {error}");
+        }
+        result
+    }
+
+    fn spawn(
+        executable: &Path,
+        executable_dir: &Path,
+        data_dir: &Path,
+        log: File,
+    ) -> io::Result<Self> {
         let mut random = [0; 32];
         getrandom::fill(&mut random)
             .map_err(|_| io::Error::other("Cannot generate the managed owner token"))?;
@@ -70,7 +88,7 @@ impl ManagedBackend {
             .env("ORION_DATA_DIR", data_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(log))
             .spawn()?;
         // The backend waits for its token before creating the application or spawning work.
         if unsafe { AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) } == 0 {

@@ -26,6 +26,8 @@ const WINDOW: &str = "main";
 struct Host {
     #[cfg(windows)]
     backend: Option<ManagedBackend>,
+    #[cfg(windows)]
+    backend_error: Option<&'static str>,
     transport: Transport,
     pending: Mutex<HashMap<String, Arc<Pending>>>,
 }
@@ -50,6 +52,8 @@ struct Prepared {
 struct HostInfo {
     platform: &'static str,
     managed_origin: Option<String>,
+    #[cfg(windows)]
+    managed_error: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -101,6 +105,8 @@ fn orion_host(_state: State<'_, Host>) -> HostInfo {
             .map(|backend| backend.origin().to_owned()),
         #[cfg(any(target_os = "android", target_os = "ios"))]
         managed_origin: None,
+        #[cfg(windows)]
+        managed_error: _state.backend_error,
     }
 }
 
@@ -355,9 +361,25 @@ pub fn run() {
         .setup(|app| {
             let backend_path = app.path().resource_dir()?.join("backend/OrionBackend.exe");
             let data_path = app.path().app_local_data_dir()?.join("managed");
-            let backend = ManagedBackend::start(&backend_path, &data_path).ok();
+            let (backend, backend_error) = match ManagedBackend::start(&backend_path, &data_path) {
+                Ok(backend) => (Some(backend), None),
+                Err(error) => {
+                    let reason = match error.kind() {
+                        std::io::ErrorKind::NotFound => "Không tìm thấy tệp backend cục bộ.",
+                        std::io::ErrorKind::PermissionDenied => {
+                            "Orion không có quyền mở backend hoặc thư mục dữ liệu."
+                        }
+                        std::io::ErrorKind::TimedOut => {
+                            "Backend cục bộ khởi động quá thời gian chờ."
+                        }
+                        _ => "Backend cục bộ không khởi động được.",
+                    };
+                    (None, Some(reason))
+                }
+            };
             app.manage(Host {
                 backend,
+                backend_error,
                 transport: Transport::new()?,
                 pending: Mutex::new(HashMap::new()),
             });

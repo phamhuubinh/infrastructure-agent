@@ -71,7 +71,12 @@ export function CommandApprovalReview({
       {!payload && !error && <p>Đang tải lệnh chờ xác nhận…</p>}
       {args && (
         <>
-          <p>Máy: {String(args.target_ref ?? "")}</p>
+          <p>
+            Máy:{" "}
+            {args.target_ref === "local:windows"
+              ? "Máy Windows này (local:windows)"
+              : String(args.target_ref ?? "")}
+          </p>
           {args.shell != null && <p>Shell: {String(args.shell)}</p>}
           {args.cwd != null && <p>Thư mục: {String(args.cwd)}</p>}
           {args.timeout_seconds != null && (

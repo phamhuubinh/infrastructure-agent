@@ -71,7 +71,8 @@ class _Command:
 
 
 class CommandProcesses:
-    def __init__(self) -> None:
+    def __init__(self, *, environment: dict[str, str] | None = None) -> None:
+        self.environment = environment
         self.handles: dict[str, _Command] = {}
         self.shells = available_shells()
         self.closed = False
@@ -206,7 +207,7 @@ class CommandProcesses:
         finally:
             os.close(descriptor)
         executable = self.shells[shell]
-        environment = os.environ.copy()
+        environment = os.environ.copy() if self.environment is None else self.environment.copy()
         if shell == "cmd":
             environment["ORION_COMMAND_SCRIPT"] = str(script)
             args: str | list[str] = f'"{executable}" /d /s /c ""%ORION_COMMAND_SCRIPT%""'

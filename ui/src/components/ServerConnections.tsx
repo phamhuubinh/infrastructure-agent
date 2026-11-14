@@ -5,6 +5,7 @@ import {
   activateServer,
   hasActiveServer,
   hasManagedServer,
+  managedServerError,
   saveServerProfile,
   serverProfiles,
   removeServerProfile,
@@ -21,9 +22,15 @@ export function ServerConnections() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const current = activeServer();
+  const backendError = managedServerError();
   return (
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
+      {backendError && (
+        <p role="alert" className="text-sm">
+          {backendError} Chi tiết trong managed/desktop-backend.log nếu ghi được nhật ký.
+        </p>
+      )}
       {hasActiveServer() && (
         <p className="break-all text-sm">
           {current.name} · {current.origin}

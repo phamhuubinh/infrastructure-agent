@@ -302,18 +302,26 @@ def create_app(
     application: OrionApplication | None = None,
     ui_directory: Path | None = None,
     remote_config: RemoteAccessConfig | None = None,
+    *,
+    managed_desktop: bool = False,
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     remote = remote_config or RemoteAccessConfig.from_environment()
     manager = prepare_mcp_manager() if application is None else None
     assembled = application or (
-        build_application(database_path, backend) if manager is None else None
+        build_application(database_path, backend, managed_desktop=managed_desktop)
+        if manager is None
+        else None
     )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with application_context(
-            database_path, backend, application=assembled, mcp_manager=manager
+            database_path,
+            backend,
+            application=assembled,
+            mcp_manager=manager,
+            managed_desktop=managed_desktop,
         ) as running:
             if assembled is None:
                 _install_application_routes(app, running, ui_directory, sessions, remote)

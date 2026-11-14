@@ -77,7 +77,7 @@ def serve_managed() -> None:
         raise SystemExit("Managed Orion did not receive a valid owner token.")
 
     os.environ.setdefault("ORION_LOG_PATH", str(log_path()))
-    app = create_app(remote_config=RemoteAccessConfig(False, ORION_HOST))
+    app = create_app(remote_config=RemoteAccessConfig(False, ORION_HOST), managed_desktop=True)
     app.add_middleware(ManagedAccess, token=line[:-1])
     with socket.socket() as listener:
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):

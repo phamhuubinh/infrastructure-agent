@@ -317,6 +317,17 @@
             "title": "Command Service Available",
             "type": "boolean"
           },
+          "local_command_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Command Unavailable Reason"
+          },
           "mcp_configured": {
             "title": "Mcp Configured",
             "type": "integer"
@@ -1416,7 +1427,8 @@
           "kind": {
             "enum": [
               "ssh",
-              "worker"
+              "worker",
+              "local"
             ],
             "title": "Kind",
             "type": "string"
@@ -1555,7 +1567,7 @@
   },
   "info": {
     "title": "Orion",
-    "version": "0.1.3"
+    "version": "0.1.4"
   },
   "openapi": "3.1.0",
   "paths": {

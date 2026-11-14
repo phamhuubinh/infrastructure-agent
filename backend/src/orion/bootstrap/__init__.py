@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -82,6 +83,7 @@ class OrionApplication:
     model_configurations: ModelConfigurationService | None = None
     commands: CommandService | None = None
     skills: SkillService | None = None
+    local_command_unavailable_reason: str | None = None
 
 
 def build_application(
@@ -98,6 +100,7 @@ def build_application(
     mcp_manager: MCPManager | None = None,
     mcp_registrations: tuple[ToolRegistration, ...] = (),
     seed_model_from_environment: bool = True,
+    managed_desktop: bool = False,
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
     if mcp_manager is None and load_config().servers:
@@ -121,8 +124,50 @@ def build_application(
             else os.getenv("ORION_ENDPOINTS", "0") == "1"
         )
         endpoints = EndpointManager(EndpointStore(store))
+        local = None
+        local_reason = None
+        if managed_desktop and sys.platform == "win32":
+            try:
+                from orion_endpoint.commands import CommandProcesses
+
+                allowed = {
+                    "APPDATA",
+                    "COMPUTERNAME",
+                    "COMSPEC",
+                    "HOMEDRIVE",
+                    "HOMEPATH",
+                    "LOCALAPPDATA",
+                    "OS",
+                    "PATH",
+                    "PATHEXT",
+                    "PROCESSOR_ARCHITECTURE",
+                    "PROGRAMDATA",
+                    "PROGRAMFILES",
+                    "PROGRAMFILES(X86)",
+                    "PSMODULEPATH",
+                    "PUBLIC",
+                    "SYSTEMDRIVE",
+                    "SYSTEMROOT",
+                    "TEMP",
+                    "TMP",
+                    "USERDOMAIN",
+                    "USERNAME",
+                    "USERPROFILE",
+                    "WINDIR",
+                }
+                processes = CommandProcesses(
+                    environment={
+                        key: value for key, value in os.environ.items() if key.upper() in allowed
+                    }
+                )
+                if processes.shells:
+                    local = processes
+                else:
+                    local_reason = "PowerShell and CMD executables were not found."
+            except (ImportError, OSError):
+                local_reason = "Windows command executor dependencies are unavailable."
         command_transport = CommandRouter(
-            endpoints, load_ssh_configuration(), worker_enabled=enabled
+            endpoints, load_ssh_configuration(), worker_enabled=enabled, local=local
         )
         ssh_enabled = bool(command_transport.model_context())
         commands = CommandService(store, command_transport)
@@ -248,6 +293,7 @@ def build_application(
             model_configurations=model_configurations,
             commands=commands,
             skills=skills,
+            local_command_unavailable_reason=local_reason,
         )
     except BaseException:
         store.close()
@@ -267,6 +313,7 @@ async def application_context(
     *,
     application: OrionApplication | None = None,
     mcp_manager: MCPManager | None = None,
+    managed_desktop: bool = False,
 ) -> AsyncIterator[OrionApplication]:
     """Own async discovery before composition/freeze and close all integration resources."""
     if application is not None:
@@ -274,7 +321,9 @@ async def application_context(
         return
     manager = mcp_manager or prepare_mcp_manager()
     if manager is None:
-        local_application = build_application(database_path, backend)
+        local_application = build_application(
+            database_path, backend, managed_desktop=managed_desktop
+        )
         try:
             yield local_application
         finally:
@@ -289,7 +338,11 @@ async def application_context(
         registrations = await manager.start()
         try:
             assembled = build_application(
-                database_path, backend, mcp_manager=manager, mcp_registrations=registrations
+                database_path,
+                backend,
+                mcp_manager=manager,
+                mcp_registrations=registrations,
+                managed_desktop=managed_desktop,
             )
         except ValueError:
             raise MCPConfigurationError("composition") from None

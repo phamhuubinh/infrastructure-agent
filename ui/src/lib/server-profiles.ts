@@ -8,6 +8,7 @@ export type NativeHost = {
   fetch: typeof fetch;
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
+  managedError?: string;
   managedBackend?: { origin: string; fetch: typeof fetch };
 };
 const storageKey = "orion-server-profiles-v1";
@@ -62,6 +63,10 @@ export function activeServer(): ServerProfile {
     selected ??
     managedServer ?? { id: "browser", name: "Server hiện tại", origin: window.location.origin }
   );
+}
+
+export function managedServerError() {
+  return nativeHost?.managedError;
 }
 
 export function hasManagedServer() {

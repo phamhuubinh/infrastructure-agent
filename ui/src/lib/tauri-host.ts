@@ -3,11 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { installNativeHost } from "./server-profiles";
 import type { SecureTokenStore } from "./sdk/client";
 
-type HostInfo = { platform?: "windows" | "android" | "ios"; managedOrigin: string | null };
+type HostInfo = {
+  platform?: "windows" | "android" | "ios";
+  managedOrigin: string | null;
+  managedError?: string | null;
+};
 type ResponseHead = { status: number; headers: [string, string][] };
 
 export async function installTauriHost() {
-  const { platform = "windows", managedOrigin } = await invoke<HostInfo>("orion_host");
+  const { platform = "windows", managedOrigin, managedError } = await invoke<HostInfo>("orion_host");
   if (!["windows", "android", "ios"].includes(platform)) throw new Error("Invalid Orion host");
   const tokens: SecureTokenStore = {
     get: (origin) => invoke("orion_vault_get", { origin }),
@@ -18,6 +22,7 @@ export async function installTauriHost() {
     platform,
     tokens,
     fetch: nativeFetch(false, platform !== "windows"),
+    managedError: managedError ?? undefined,
     managedBackend: managedOrigin ? { origin: managedOrigin, fetch: nativeFetch(true) } : undefined,
   });
 }
