@@ -16,12 +16,23 @@ Close Orion before installing a newer build or replacing a portable directory.
 The NSIS uninstaller removes the app installation. Retain the managed data
 directory to reuse the local database on a later install.
 
+In the desktop app's local backend, `local:windows` identifies the current PC.
+Ask Orion to inspect this PC and choose **Hỏi trước khi sửa** to review the exact
+PowerShell or CMD command. Each shell run follows the current session's policy
+and uses the current Windows account's permissions. Device Chat and configured
+SSH targets retain their own bindings.
+
 For a development build, use Windows x64 with Rust, Microsoft C++ Build Tools
-and the Windows SDK. Build the backend wheel with `scripts/refactor/dev.py build
+and the Windows SDK. Use a standalone CPython 3.12 installation for PyInstaller.
+A Python interpreter bundled with another application can build an executable
+that starts but fails when its first HTTP client is initialized. Verify chat
+and worker pairing with the exact frozen binaries. Build the backend wheel with `scripts/refactor/dev.py build
 --backend-only`, then use `scripts/desktop/build_sidecar.py` to stage it at
 `release-work/managed-backend`. From `ui`, run `npm ci` and `npm run desktop:build`.
 `scripts/desktop/portable.py` packages the app, WebView2 loader and exact sidecar
-files into a checksummed ZIP. Local debug evidence and artifact identities are
+files into a checksummed ZIP. For a private unsigned installer, run
+`npm run desktop:build -- --debug --bundles nsis --no-sign`.
+Local debug evidence and artifact identities are
 recorded in [the R15 session](../refactor/evidence/R15_SESSION_2026-11-10.md).
 
 ## CLI and web installation from a release

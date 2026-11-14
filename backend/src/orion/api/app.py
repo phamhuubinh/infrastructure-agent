@@ -171,7 +171,10 @@ class RemoteAccessMiddleware:
             return
         request = Request(scope, receive)
         path, method = request.url.path, request.method
-        native_owner = bool(scope.get("state", {}).get("native_authenticated"))
+        state = scope.get("state", {})
+        trusted_owner = bool(
+            state.get("native_authenticated") or state.get("desktop_authenticated")
+        )
 
         async def send_remote(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -196,7 +199,7 @@ class RemoteAccessMiddleware:
                         break
         if (
             classification not in PAIRING_API_ROUTES | DEVICE_API_ROUTES
-            and not native_owner
+            and not trusted_owner
             and not (
                 classification in NATIVE_PUBLIC_ROUTES and request.headers.get("origin") is None
             )
@@ -211,7 +214,7 @@ class RemoteAccessMiddleware:
                     await Response(status_code=404)(scope, receive, send_remote)
                     return
                 if (
-                    not native_owner
+                    not trusted_owner
                     and self._sessions.expiry(request.cookies.get(COOKIE_NAME)) is None
                 ):
                     await Response(status_code=401)(scope, receive, send_remote)
@@ -302,18 +305,26 @@ def create_app(
     application: OrionApplication | None = None,
     ui_directory: Path | None = None,
     remote_config: RemoteAccessConfig | None = None,
+    *,
+    managed_desktop: bool = False,
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     remote = remote_config or RemoteAccessConfig.from_environment()
     manager = prepare_mcp_manager() if application is None else None
     assembled = application or (
-        build_application(database_path, backend) if manager is None else None
+        build_application(database_path, backend, managed_desktop=managed_desktop)
+        if manager is None
+        else None
     )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with application_context(
-            database_path, backend, application=assembled, mcp_manager=manager
+            database_path,
+            backend,
+            application=assembled,
+            mcp_manager=manager,
+            managed_desktop=managed_desktop,
         ) as running:
             if assembled is None:
                 _install_application_routes(app, running, ui_directory, sessions, remote)
@@ -415,6 +426,7 @@ def _install_application_routes(
         lambda session_id: _session_scope(store, assembled.access, session_id),
         lambda request: (
             bool(getattr(request.state, "native_authenticated", False))
+            or bool(getattr(request.state, "desktop_authenticated", False))
             or not remote.enabled
             or (
                 sessions is not None
@@ -511,7 +523,7 @@ def _install_application_routes(
 
     @app.get("/api/auth/session")
     async def auth_session(request: Request) -> dict[str, object]:
-        if sessions is None:
+        if sessions is None or getattr(request.state, "desktop_authenticated", False):
             return {"remote_access": False, "authenticated": True, "expires_at": None}
         expiry = sessions.expiry(request.cookies.get(COOKIE_NAME))
         return {"remote_access": True, "authenticated": expiry is not None, "expires_at": expiry}

@@ -52,6 +52,23 @@ close/reconnect, locally assigned read/mutation kind, bounded output, versioned
 registry snapshot. Remote prompt/resource không tự thành authority. Protocol
 revision mismatch phải báo đúng.
 
+## Nghiệm thu sử dụng cá nhân
+
+Orion phục vụ Helpdesk, System Administration và hỗ trợ từ xa trên thiết bị
+thuộc quyền sở hữu hoặc được cấp quyền quản trị. Nghiệm thu sử dụng cá nhân
+ưu tiên Windows, Linux và truy cập bằng trình duyệt hoặc Android. Giữ đầy đủ
+yêu cầu về quyền, bảo mật, chức năng và kiểm thử trong các luồng này.
+
+Bằng chứng gồm cài đặt và vận hành ứng dụng thật, AI runtime, đăng nhập và
+kết nối, command/Stop, SSH, worker, khởi động lại và bảo toàn dữ liệu khi
+nâng cấp/gỡ. Có thể dùng installer unsigned hoặc portable. Khi chưa có
+installer desktop công khai đời trước, ghi rõ nguồn và phiên bản của hai
+bản tự build dùng để kiểm tra nâng cấp. Kiểm thử bằng fixture được ghi
+riêng với kết quả provider live.
+
+iOS native, store và signing thương mại thuộc các gate riêng. R21 tiếp tục
+theo dõi nghiệm thu toàn scope và bằng chứng còn thiếu.
+
 ## Native delivery
 
 | Target | Build/smoke bắt buộc | Gate thêm |

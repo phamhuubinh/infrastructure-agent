@@ -1,8 +1,10 @@
 # Command workflow contract
 
 Use only system.command.run/status/cancel on the exact configured target_ref.
-The control plane is not an implicit target. Preserve namespace prefixes such as
-ssh: and the server-owned Device Chat binding. Read actual available shells;
+On the Windows desktop managed backend, `local:windows` refers to this Windows
+PC when discovery lists it. Use it for explicit requests about this PC. Preserve
+SSH prefixes and the server-owned Device Chat binding for other machines. Read
+actual available shells;
 unsupported shell/offline target is unavailable, not permission to switch machines.
 
 Every arbitrary run can mutate state. read_only/scheduler blocks it; confirm binds

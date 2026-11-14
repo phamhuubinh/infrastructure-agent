@@ -104,6 +104,8 @@ def install_endpoint_routes(
 
     def owner(request: Request, mutation: bool = False) -> None:
         available()
+        if getattr(request.state, "desktop_authenticated", False):
+            return
         native = bool(getattr(request.state, "native_authenticated", False))
         if native:
             application = app.state.application
@@ -123,6 +125,8 @@ def install_endpoint_routes(
                 raise HTTPException(403, "Trusted origin required.")
 
     def owner_binding(request: Request) -> tuple[str, str | None]:
+        if getattr(request.state, "desktop_authenticated", False):
+            return "desktop", None
         if getattr(request.state, "native_authenticated", False):
             return "native", getattr(request.state, "native_session_id", None)
         return "browser", request.cookies.get(COOKIE_NAME)

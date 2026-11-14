@@ -322,3 +322,62 @@ def test_remote_owner_session_is_revoked_after_command(tmp_path, monkeypatch, ca
 def test_refuses_unsafe_or_noncanonical_origins(origin):
     with pytest.raises(headless.ClientError):
         headless._origin(origin)
+
+
+def test_managed_host_preserves_remote_cookie_and_owner_pipe(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from orion.access.remote import RemoteAccessConfig, hash_password
+    from orion.api.app import create_app
+
+    origin = "https://orion.example.test"
+    app = create_app(
+        tmp_path / "host.db",
+        remote_config=RemoteAccessConfig(True, "127.0.0.1", origin, hash_password("test secret")),
+    )
+    app.add_middleware(ManagedAccess, token=b"owner-pipe", remote_enabled=True)
+    try:
+        with TestClient(app, base_url=origin) as browser:
+            assert browser.get("/api/sessions").status_code == 401
+            assert (
+                browser.post("/api/sessions", headers={"X-Orion-Managed-Token": "fake"}).status_code
+                == 401
+            )
+            assert (
+                browser.post("/api/auth/login", json={"password": "test secret"}).status_code == 403
+            )
+            headers = {"X-Orion-Managed-Token": "owner-pipe"}
+            session = browser.post("/api/sessions", headers=headers).raise_for_status().json()
+            login = browser.post(
+                "/api/auth/login", headers={"Origin": origin}, json={"password": "test secret"}
+            )
+            assert login.status_code == 200
+            assert "Secure" in login.headers["set-cookie"]
+            session_id = session["session_id"]
+            assert browser.get(f"/api/sessions/{session_id}").status_code == 200
+            code = (
+                browser.post("/api/auth/native/enrollment-codes", headers=headers)
+                .raise_for_status()
+                .json()["code"]
+            )
+            pair = (
+                browser.post(
+                    "/api/auth/native/enroll",
+                    json={"code": code, "name": "Fixture desktop", "platform": "windows"},
+                )
+                .raise_for_status()
+                .json()
+            )
+            refreshed = (
+                browser.post(
+                    "/api/auth/native/refresh", json={"refresh_token": pair["refresh_token"]}
+                )
+                .raise_for_status()
+                .json()
+            )
+            native = {"Authorization": f"Bearer {refreshed['access_token']}"}
+            assert browser.get(f"/api/sessions/{session_id}", headers=native).is_success
+            assert browser.post("/api/auth/native/logout", headers=native).is_success
+            assert browser.get(f"/api/sessions/{session_id}", headers=native).status_code == 401
+    finally:
+        app.state.application.store.close()

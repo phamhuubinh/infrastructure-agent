@@ -73,6 +73,20 @@ it.each(["android", "ios"])(
   },
 );
 
+it("retains the Windows startup error and supports choosing a remote server", async () => {
+  const { installTauriHost } = await import("../tauri-host");
+  const { activateServer, activeServer, hasActiveServer, managedServerError } =
+    await import("../server-profiles");
+  const managedError = "Backend cục bộ khởi động quá thời gian chờ.";
+  invoke.mockResolvedValueOnce({ platform: "windows", managedOrigin: null, managedError });
+  await installTauriHost();
+  expect(managedServerError()).toBe(managedError);
+  expect(hasActiveServer()).toBe(false);
+  const remote = { id: "remote", name: "Remote", origin: "https://orion.example" };
+  activateServer(remote);
+  expect(activeServer()).toEqual(remote);
+});
+
 it("sends managed requests as raw IPC and returns a streamed response", async () => {
   const { installTauriHost } = await import("../tauri-host");
   const { serverResponse } = await import("../server-profiles");
