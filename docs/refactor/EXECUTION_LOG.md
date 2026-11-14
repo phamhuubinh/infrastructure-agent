@@ -31,3 +31,5 @@
 - SQLite integrity_check đạt, hash DB không đổi trong installer. Sau chạy app, so khớp 2 cấu hình model gồm credential reference, 1 session, 4 requests và 14 timeline items gốc. Hồ sơ ban đầu có 0 Projects.
 - Shortcut Start Menu và Desktop mở cửa sổ Orion, không ghi nhận Windows Terminal/OpenConsole. Sidecar có conhost không hiển thị trong trace Start Menu và thoát sạch cùng host. Chưa thử đăng xuất/đăng nhập lại Windows.
 - AI live trên bản đã nâng cấp yêu cầu đúng lệnh PowerShell hostname tại local:windows, chờ xác nhận và trả kết quả khớp OS. Không pairing. Backend regression 48 pass, local executor 3 pass, frozen managed smoke 1 pass, UI 17 pass, mypy và TypeScript đạt. Log trong release-work/desktop-local-014, trace 0.1.3 trong release-work/orion-shortcut-trace.
+
+- Kiểm tra live bổ sung trên 0.1.4: duyệt đúng script PowerShell để lấy hostname, phiên bản Windows, IPv4, DNS và gateway. Kết quả hostname và mạng khớp dữ liệu OS và phản hồi có phiên bản Windows. Sửa đường dẫn PowerShell trong script đối chiếu sau lần đầu lỗi harness. Log `release-work/desktop-local-014/live-network-retry.log`. Checkpoint mã `b70d121` đã được xác minh trên remote.
