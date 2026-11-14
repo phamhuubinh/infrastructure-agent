@@ -46,3 +46,6 @@
 - Host Mode lưu cấu hình theo tài khoản Windows, tùy chọn chạy khi đăng nhập và áp dụng bằng khởi động lại ứng dụng. Backend vẫn do một tiến trình Desktop quản lý và dùng thư mục dữ liệu hiện có.
 - Thêm phân phối Worker local qua route owner, xác minh hash trước khi gửi. Công cụ staging yêu cầu cùng phiên bản và commit nguồn sạch.
 - Tailscale Serve phù hợp với truy cập cá nhân qua tailnet. Máy hiện chưa có Tailscale hoặc cloudflared được kết nối. Serve trên Windows cần phiên Administrator và tailnet bật HTTPS. Cloudflare published application cần tài khoản và domain. Chưa xác minh truy cập từ ngoài máy.
+
+- Checkpoint 26cdc21 đồng bộ phiên bản Worker và Desktop 0.1.5. Backend 21 test của nhóm artifact/managed/local commands đạt. Edge qua TLS loopback xác minh login, cookie Secure/HttpOnly/Strict, Origin, session dùng chung, native enroll/refresh/revoke, logout trả 204 và tài nguyên đã được bảo vệ lại. Harness phải reload để xác nhận màn hình đăng nhập. Log release-work/desktop-host-qa/loopback-https-probe.log.
+- Build native 0.1.5 đạt. Gói sidecar và Worker Windows được build lại từ cùng commit sau khi phát hiện Worker có version riêng. Chưa có bản Linux cùng commit. Windows hiện chưa có đăng nhập tailnet hay Cloudflare Tunnel; nghiệm thu Internet và Android từ thiết bị ngoài máy còn mở.
