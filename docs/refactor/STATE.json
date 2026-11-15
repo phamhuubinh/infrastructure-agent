@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Verify the installed Remote Host preview, private Serve and an independent browser with the Owner present. Record app restart and upgrade evidence separately from Windows reboot and a fresh Serve/UAC configuration.",
+  "next_action": "Installed Remote Host preview passed private HTTPS, close/reopen, and disable/re-enable on the existing external Serve mapping. Await independent browser Owner login; fresh Serve creation/UAC and Windows reboot remain open. Funnel and stable release remain gated.",
   "work_items": [
     {
       "id": "R00",
