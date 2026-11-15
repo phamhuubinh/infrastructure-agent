@@ -372,6 +372,13 @@ fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &
 
 #[cfg(windows)]
 #[tauri::command]
+async fn orion_tailscale_status(host: State<'_, Host>) -> Result<crate::tailscale::Status, ()> {
+    let backend = host.backend.as_ref().map(|backend| backend.origin().to_owned());
+    Ok(crate::tailscale::inspect(backend, host.host_origin.clone()).await)
+}
+
+#[cfg(windows)]
+#[tauri::command]
 fn orion_host_settings() -> Result<crate::host_settings::Status, String> {
     crate::host_settings::Settings::status().map_err(|error| error.to_string())
 }
@@ -453,6 +460,7 @@ pub fn run() {
             orion_host,
             orion_stop_host,
             orion_host_settings,
+            orion_tailscale_status,
             orion_save_host_settings,
             orion_prepare,
             orion_start,

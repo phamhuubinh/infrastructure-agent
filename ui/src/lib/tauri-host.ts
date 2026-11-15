@@ -31,6 +31,7 @@ export async function installTauriHost() {
     tokens,
     fetch: nativeFetch(false, platform !== "windows"),
     hostOrigin: hostOrigin ?? undefined,
+    tailscaleStatus: platform === "windows" ? () => invoke("orion_tailscale_status") : undefined,
     hostSettings:
       platform === "windows"
         ? {

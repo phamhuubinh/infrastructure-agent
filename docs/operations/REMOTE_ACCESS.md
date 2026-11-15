@@ -98,15 +98,15 @@ starts Orion under the current account. To stop the current server, reopen
 Orion and use **Dừng server và đóng Orion**. To keep it disabled on later launches,
 clear **Bật Host Mode** and save.
 
-For personal access on devices you control, use
-[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). The host
-and client devices need access to the same tailnet. With tailnet HTTPS enabled,
-run `tailscale serve --bg http://127.0.0.1:61888` from an Administrator terminal
-on Windows. Use the reported `https://…ts.net` origin in Orion. The browser
-still uses the Orion password and native clients still enroll with a code.
-For a browser on a device outside the tailnet, use an authorized HTTPS reverse
-proxy or a [Cloudflare Tunnel published hostname](https://developers.cloudflare.com/tunnel/get-started/)
-and configure the corresponding Cloudflare domain and access policy.
+For remote access, use [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
+Join the host and client devices to the same tailnet and enable tailnet HTTPS.
+In Orion Settings, select **Kiểm tra kết nối** in the Tailscale section. Use the
+reported tailnet URL as the exact HTTPS origin, save and restart, then run the
+check again. From an Administrator terminal on Windows, run the Serve command
+shown by Settings. The upstream shown there comes from the managed backend's
+readiness response. Recheck the mapping and HTTPS health from Orion before trying
+the URL from a second device. Browser sessions still require the Orion password
+and native clients enroll with a one-time code.
 
 For a controlled deployment without Saved Settings, launch Orion with these
 process environment settings:

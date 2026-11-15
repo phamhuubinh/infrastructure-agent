@@ -56,3 +56,9 @@
 - Trên bản cài, Host Mode kiểm thử bằng cấu hình tiến trình: health hoạt động sau khi đóng cửa sổ, chạy lại mở ứng dụng, Stop Host thoát. Shortcut Start Menu/Desktop không ghi nhận Windows Terminal/OpenConsole. Chưa thử tự chạy sau khi đăng nhập Windows.
 - Frozen host phục vụ web shell, bảo vệ tài nguyên cần đăng nhập, công bố local:windows và tải Worker Windows 0.1.5 với SHA-256 khớp. Worker portable qua pairing/command/cancel/Exit/forget/reconnect. DeepSeek chạy PowerShell local có xác nhận sau nâng cấp. Log tại release-work/desktop-host-015-matched.
 - Chưa có endpoint HTTPS ngoài máy: Tailscale/cloudflared chưa được cấu hình, phiên Windows không có quyền Administrator cho Serve và ADB không thấy thiết bị. Có kết quả TLS loopback ở bước trước. Bản Linux portable cùng phiên bản chưa đóng gói.
+
+### 2026-11-15 · Tailscale Serve
+
+- Settings Windows lấy upstream từ readiness của ManagedBackend, đối chiếu hostname, cổng HTTPS và root proxy từ Tailscale CLI, phân biệt cấu hình Funnel và kiểm tra JSON health qua TLS. Đo trên Orion 0.1.5 bản đã cài với Host Mode tắt: OrionBackend lắng nghe 127.0.0.1:63440 trong phiên thử. Cổng đó chỉ là quan sát của phiên.
+- Windows Rust: 1 test phân biệt upstream chính xác, upstream sai và Funnel. TypeScript và 13 test UI đạt. Log release-work/tailscale/native-test.log và ui-test.log.
+- Winget tải MSI Tailscale 1.104.7 từ nhà phát hành, xác minh checksum và Authenticode hợp lệ. Máy chưa có Tailscale, phiên không elevated. Đã chuyển bước UAC và đăng nhập tailnet cho chủ máy. Chưa chạy Serve thật, chưa bật Funnel, chưa đóng gói NSIS hay thay bản cài 0.1.5.

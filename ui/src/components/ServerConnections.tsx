@@ -6,6 +6,8 @@ import {
   activeHostOrigin,
   activeHostStop,
   desktopHostSettings,
+  desktopTailscaleStatus,
+  type TailscaleStatus,
   type HostSettingsOptions,
   activateManagedServer,
   activateServer,
@@ -111,6 +113,77 @@ function HostSettingsPanel() {
   );
 }
 
+const tailscaleMessages: Record<string, string> = {
+  not_installed: "Chưa cài Tailscale.",
+  unavailable: "Không đọc được trạng thái Tailscale.",
+  login_required: "Đăng nhập Tailscale hoặc duyệt thiết bị trong tailnet.",
+  offline: "Tailscale chưa kết nối.",
+  no_dns: "Chưa có tên DNS Tailscale cho thiết bị này.",
+  host_disabled: "Bật Host Mode để dùng Serve.",
+  origin_mismatch: "Đặt địa chỉ HTTPS của Host Mode theo tên Tailscale.",
+  serve_unavailable: "Không đọc được cấu hình Tailscale Serve.",
+  unconfigured: "Chưa cấu hình Serve HTTPS.",
+  different_backend: "Serve đang trỏ tới backend khác. Kiểm tra cấu hình trước khi thay đổi.",
+  public: "Funnel đang bật cho địa chỉ này. Tắt quyền truy cập công khai trước khi kiểm thử.",
+  configured: "Serve đã trỏ tới backend Orion.",
+};
+
+function TailscalePanel() {
+  const check = desktopTailscaleStatus();
+  const [status, setStatus] = useState<TailscaleStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (!check) return null;
+  return (
+    <div className="space-y-2 rounded border p-3 text-sm">
+      <h3 className="font-medium">Tailscale Serve</h3>
+      <button
+        type="button"
+        disabled={busy}
+        className="rounded border px-2 py-1"
+        onClick={() => {
+          setBusy(true);
+          setFailed(false);
+          void check()
+            .then(setStatus)
+            .catch(() => {
+              setFailed(true);
+              setStatus(null);
+            })
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? "Đang kiểm tra…" : "Kiểm tra kết nối"}
+      </button>
+      {failed && <p role="alert">Không kiểm tra được Tailscale.</p>}
+      {status && (
+        <div role="status">
+          <p>{tailscaleMessages[status.state] ?? "Không xác định được trạng thái."}</p>
+          {status.url && <p className="break-all">URL tailnet · {status.url}</p>}
+          {status.backend && <p>Backend · {status.backend}</p>}
+          {status.state === "unconfigured" && status.backend && (
+            <p>
+              Trong Terminal Administrator, chạy{" "}
+              <code>
+                tailscale serve --bg --https={status.url ? new URL(status.url).port || 443 : 443}{" "}
+                {status.backend}
+              </code>
+              .
+            </p>
+          )}
+          {status.state === "configured" && (
+            <p>
+              {status.reachable
+                ? "Orion phản hồi qua HTTPS từ máy này."
+                : "Orion chưa phản hồi qua HTTPS."}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ServerConnections() {
   const [profiles, setProfiles] = useState(serverProfiles);
   const [name, setName] = useState("");
@@ -144,6 +217,7 @@ export function ServerConnections() {
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
       <HostSettingsPanel />
+      <TailscalePanel />
       {stopHost && (
         <div className="flex items-center gap-3 text-sm">
           <span>Host Mode đang chạy · {activeHostOrigin()}</span>

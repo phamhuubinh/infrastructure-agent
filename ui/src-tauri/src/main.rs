@@ -10,6 +10,9 @@ mod app;
 mod host_settings;
 
 #[cfg(windows)]
+mod tailscale;
+
+#[cfg(windows)]
 fn main() {
     app::run();
 }
