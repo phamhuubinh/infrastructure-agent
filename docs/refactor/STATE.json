@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Use the d75b258 Windows NSIS preview and Android ARM64 debug APK to validate Owner setup, private Serve with Administrator access, and on-device QR, Keystore and reconnect. Back up the installed 0.1.5 profile before in-place upgrade. Public ingress, existing live provider and signing gates remain separately tracked.",
+  "next_action": "Owner completes the setup form on the installed d75b258 preview. Then configure private Serve with Administrator access and test web auth, DeepSeek, Local System Tools and Android QR on a real device. Backup and in-place install verified. Public ingress and stable release remain gated.",
   "work_items": [
     {
       "id": "R00",

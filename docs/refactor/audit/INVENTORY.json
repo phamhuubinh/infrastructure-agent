@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "d75b258063ea820d647202bd3387213c754adee5",
+  "source_commit": "1fbed230176203202acd7dbe70dce1cfab99166e",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -5726,8 +5726,8 @@
     {
       "path": "docs/operations/REMOTE_ACCESS.md",
       "kind": "text",
-      "bytes": 7055,
-      "sha256": "cde493dbd21af9adc9fc571788933622078d7dbb48ffd5e668f12bc05497ab7d",
+      "bytes": 7328,
+      "sha256": "758ce2e2304b0ca9bac9189fd794709953005640e52a3239421dac45e4151e64",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -5736,7 +5736,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 134,
+      "lines": 139,
       "python_syntax": null
     },
     {
@@ -7358,8 +7358,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 14014,
-      "sha256": "5c19c325b6cd1521773990f1add6df1d55546df274e5c0596345efea4530581a",
+      "bytes": 15233,
+      "sha256": "ccc675c3aef29ce68cbbbd85d7c202f9394f99e72ed39bbe8102ca45769500ce",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7368,7 +7368,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 76,
+      "lines": 82,
       "python_syntax": null
     },
     {
@@ -7470,8 +7470,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 47273,
-      "sha256": "eb69cf3a925b20b4851de7ab15ff99de68c95a75f466e25b917d3e45abeff349",
+      "bytes": 47242,
+      "sha256": "3967387d1aa3f14aab381937684621958b13bcf5f72aae4f95209ed7214ed078",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",

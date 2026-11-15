@@ -97,6 +97,11 @@ confirm the six-digit TOTP. Keep the single-use recovery codes somewhere private
 Initial configuration and credential changes require the authenticated Windows
 Desktop channel. Previous native sessions are invalidated when setup completes.
 
+If the first setup expires or the code is rejected, cancel the setup and create
+a new QR. Scan the new QR and use the code from that entry. Desktop writes the
+Owner record only after a correct confirmation. If the app exits mid-setup,
+start again after reopening it.
+
 If you lose the authenticator, use your current password and one unused recovery
 code in **Thay đổi 2FA** on the Windows app. Confirm the new QR with the replacement
 authenticator and save the new recovery codes. Password changes, replacing 2FA,
