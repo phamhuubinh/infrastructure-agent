@@ -109,13 +109,20 @@ and **Đăng xuất tất cả thiết bị** invalidate remote browser and nati
 and pending enrollment codes. Chat data and model configuration stay in the
 managed data directory.
 
-In **Cấu hình Host Mode**, enter the exact HTTPS origin, enable Host Mode, save and
-restart. The Windows sign-in option starts Orion under the current account.
-In the Tailscale panel, check the backend and tailnet URL, then select **Bật Serve**
-after Owner setup. The Windows session must have permission to configure Serve.
-If Orion displays a fallback command, run it from the indicated administrator
-terminal while Orion is running. Recheck the upstream mapping and HTTPS health.
-Private Serve requires both devices to be on the tailnet. Funnel remains off.
+After Owner setup, select **Bật truy cập từ xa** in **Kết nối server**. Orion
+detects the HTTPS URL from the signed-in Tailscale node, saves Host Mode, and
+restarts if the managed backend needs a different listener. If Tailscale denies
+permission, Windows may show a UAC prompt for the specific Serve operation.
+Orion starts under the current account at Windows sign-in. Background Serve
+persists across a Windows restart.
+
+Settings shows the private URL, loopback upstream, and live HTTPS status. A
+protected API answering 401 or 403 confirms HTTPS is responding. When the panel
+confirms the Owner login path, use **Tạo QR kết nối** to enroll Android.
+**Tắt truy cập từ xa** returns Orion to local mode and removes an Orion-created
+mapping only if it still matches the original route. Matching mappings created
+outside Orion are left in place. Private Serve requires both devices to be on
+the tailnet. Funnel remains off.
 See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
 
 Open the HTTPS origin in a browser and enter the Owner password and an unused
@@ -135,5 +142,5 @@ HTTPS proxy to target the loopback upstream shown by Orion. Owner credentials
 come from the local Desktop setup.
 
 Closing the Desktop window keeps Host Mode running. Reopen Orion and select
-**Dừng server và đóng Orion** to stop it. Clear **Bật Host Mode** and save to
-disable it on later launches.
+**Dừng server và đóng Orion** to stop it. Use **Tắt truy cập từ xa** to disable
+Host Mode on later launches.

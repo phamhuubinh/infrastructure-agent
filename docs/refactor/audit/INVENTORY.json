@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "1fbed230176203202acd7dbe70dce1cfab99166e",
+  "source_commit": "942721e21dddaa855546271a9ed7c8309223c760",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -5726,8 +5726,8 @@
     {
       "path": "docs/operations/REMOTE_ACCESS.md",
       "kind": "text",
-      "bytes": 7328,
-      "sha256": "758ce2e2304b0ca9bac9189fd794709953005640e52a3239421dac45e4151e64",
+      "bytes": 7719,
+      "sha256": "c013c88201d7bda0a23b561dee58ee25a3c0e390ac75f1dbbaac7fda7e93717f",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -5736,7 +5736,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 139,
+      "lines": 146,
       "python_syntax": null
     },
     {
@@ -7358,8 +7358,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 15233,
-      "sha256": "ccc675c3aef29ce68cbbbd85d7c202f9394f99e72ed39bbe8102ca45769500ce",
+      "bytes": 16219,
+      "sha256": "6172cc85d84f59707db4a4775da1671a2f3b3d7b10aa18a4e7173cc6237a36e2",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7368,7 +7368,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 82,
+      "lines": 88,
       "python_syntax": null
     },
     {
@@ -7470,8 +7470,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 47242,
-      "sha256": "3967387d1aa3f14aab381937684621958b13bcf5f72aae4f95209ed7214ed078",
+      "bytes": 47170,
+      "sha256": "8e20af24cead1e38172b93bed61a65d27d3257ba93c9b7174aa629ed9e2b5033",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -9150,8 +9150,8 @@
     {
       "path": "ui/src/components/ServerConnections.tsx",
       "kind": "text",
-      "bytes": 17429,
-      "sha256": "3e4362ad689b3ee7980d590a4b058bbc88f46902e286ac762c36d3da761fa2d7",
+      "bytes": 16577,
+      "sha256": "b2915fb766b7e44fd80a1131485807774324d1229eb96398688299d075037633",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9160,7 +9160,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 499,
+      "lines": 464,
       "python_syntax": null
     },
     {
@@ -9614,8 +9614,8 @@
     {
       "path": "ui/src/lib/server-profiles.ts",
       "kind": "text",
-      "bytes": 10440,
-      "sha256": "f1acb9478a4cc0051ce732d9c09074a312346a3bfb17f48ae4ebf49012046277",
+      "bytes": 10473,
+      "sha256": "be75d2822bbd3526cd5d65bce5b31cd80834297b3602eadadc3f3e035ad9bf63",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9624,7 +9624,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 333,
+      "lines": 335,
       "python_syntax": null
     },
     {
@@ -9998,8 +9998,8 @@
     {
       "path": "ui/src-tauri/Cargo.toml",
       "kind": "text",
-      "bytes": 2469,
-      "sha256": "66e5a44de562b236538f2f044f6768ac0510b243f0f919b95d89674176a28bfc",
+      "bytes": 2578,
+      "sha256": "4eac1462951d60d9ec3689b645da915fa161f0ff05963b51e42b9ed347c161b2",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10078,8 +10078,8 @@
     {
       "path": "ui/src-tauri/src/app.rs",
       "kind": "text",
-      "bytes": 19661,
-      "sha256": "3c20bd0f2a9b50925d553d9b9710522f2ac392c43a0999506f1fed582931fd51",
+      "bytes": 23337,
+      "sha256": "3680605984549de6eeea5cf917a85344df77efc9c2a5385623ff8a25edccc4e6",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10088,14 +10088,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 595,
+      "lines": 676,
       "python_syntax": null
     },
     {
       "path": "ui/src-tauri/src/host_settings.rs",
       "kind": "text",
-      "bytes": 3186,
-      "sha256": "2650d0fb71283595549a0f98e01af506d06fdb32d708adf1ebc871e190b8ab5d",
+      "bytes": 3477,
+      "sha256": "6efd65874dc4a315092cd3778247b3c914915f7139cf29b254ad4df17bb5c2c3",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10104,7 +10104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 92,
+      "lines": 101,
       "python_syntax": null
     },
     {
@@ -10174,8 +10174,8 @@
     {
       "path": "ui/src-tauri/src/tailscale.rs",
       "kind": "text",
-      "bytes": 10628,
-      "sha256": "a7e74827992b9793ffaf88e7306703ceccd9ba19b028f4c5038161563ee54861",
+      "bytes": 19136,
+      "sha256": "d877b73c4655a1e2dba437e5745a40fffc3f7fcd31b83fe0fb8442a0a5fc009f",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10184,7 +10184,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 309,
+      "lines": 491,
       "python_syntax": null
     },
     {

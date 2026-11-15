@@ -33,7 +33,7 @@ struct Host {
     #[cfg(windows)]
     host_origin: Option<String>,
     #[cfg(windows)]
-    serve: tokio::sync::Mutex<crate::tailscale::Serve>,
+    serve: tokio::sync::Mutex<Option<&'static str>>,
     transport: Transport,
     pending: Mutex<HashMap<String, Arc<Pending>>>,
 }
@@ -386,35 +386,108 @@ async fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result
     if !host.keep_host_running {
         return Err("Host Mode is not active");
     }
-    host.serve.lock().await.stop();
+    let _operation = host.serve.lock().await;
     app.exit(0);
     Ok(())
 }
 
 #[cfg(windows)]
 #[tauri::command]
-async fn orion_tailscale_status(host: State<'_, Host>) -> Result<crate::tailscale::Status, ()> {
+async fn orion_tailscale_status(host: State<'_, Host>) -> Result<crate::tailscale::Status, &'static str> {
+    let operation = host.serve.lock().await;
+    let settings = remote_settings()?;
     let backend = host.backend.as_ref().map(|backend| backend.origin().to_owned());
-    Ok(host.serve.lock().await.status(backend, host.host_origin.clone()).await)
+    Ok(crate::tailscale::inspect(backend, host.host_origin.clone()).await
+        .with_settings(settings.remote_access,
+            settings.serve_owned, *operation))
 }
 
 #[cfg(windows)]
 #[tauri::command]
-async fn orion_tailscale_set_enabled(host: State<'_, Host>, enabled: bool) -> Result<crate::tailscale::Status, &'static str> {
-    let mut serve = host.serve.lock().await;
-    let backend = host.backend.as_ref();
-    let origin = host.host_origin.clone();
+async fn orion_tailscale_set_enabled(app: tauri::AppHandle, host: State<'_, Host>, enabled: bool) -> Result<crate::tailscale::Status, &'static str> {
+    let mut operation = host.serve.lock().await;
+    let mut settings = remote_settings()?;
+    *operation = None;
     if !enabled {
-        serve.stop();
-        return Ok(serve.status(backend.map(|item| item.origin().to_owned()), origin).await);
+        if settings.serve_owned {
+            crate::tailscale::apply(&settings.origin, false, true).await?;
+        }
+        settings.enabled = false;
+        settings.remote_access = false;
+        settings.serve_pending = false;
+        settings.serve_owned = false;
+        store_remote_settings(settings)?;
+        app.request_restart();
+        return Ok(crate::tailscale::inspect(None, None).await);
     }
-    let (Some(backend), Some(origin)) = (backend, origin) else {
-        return Err("Bật Host Mode trước khi bật Serve.");
-    };
+    let backend = host.backend.as_ref().ok_or("Backend cục bộ chưa sẵn sàng.")?;
     if !crate::tailscale::owner_ready(backend, &host.transport).await {
         return Err("Thiết lập và xác minh tài khoản Owner trước khi bật Serve.");
     }
-    Ok(serve.enable(backend.origin().to_owned(), origin).await)
+    let detected = crate::tailscale::default_origin().await?;
+    let origin = host.host_origin.as_deref().filter(|current| {
+        url::Url::parse(current).ok().zip(url::Url::parse(&detected).ok())
+            .is_some_and(|(current, detected)| current.host_str() == detected.host_str())
+    }).unwrap_or(&detected);
+    if settings.serve_owned && settings.origin != origin {
+        return Err("URL Serve đã đổi. Hãy tắt cấu hình Orion trước khi bật lại.");
+    }
+    crate::tailscale::validate_slot(origin).await?;
+    let restart = host.host_origin.as_deref() != Some(origin);
+    if !restart && backend.origin() != crate::tailscale::HOST_BACKEND {
+        return Err("Backend Host Mode chưa lắng nghe đúng cổng.");
+    }
+    settings.enabled = true;
+    settings.autostart = true;
+    settings.remote_access = true;
+    settings.origin = origin.to_owned();
+    settings.serve_pending = restart;
+    store_remote_settings(settings)?;
+    if restart {
+        app.request_restart();
+        return Ok(crate::tailscale::inspect(None, None).await.with_settings(true, false, None));
+    }
+    configure_remote_serve(&host, true).await?;
+    let settings = remote_settings()?;
+    Ok(crate::tailscale::inspect(Some(backend.origin().to_owned()), Some(origin.to_owned()))
+        .await.with_settings(true, settings.serve_owned, None))
+}
+
+#[cfg(windows)]
+fn remote_settings() -> Result<crate::host_settings::Settings, &'static str> {
+    crate::host_settings::Settings::read().map(Option::unwrap_or_default)
+        .map_err(|_| "Không đọc được cài đặt truy cập từ xa.")
+}
+
+#[cfg(windows)]
+fn store_remote_settings(settings: crate::host_settings::Settings) -> Result<(), &'static str> {
+    settings.save().map_err(|_| "Không lưu được cài đặt truy cập từ xa.")
+}
+
+#[cfg(windows)]
+async fn configure_remote_serve(host: &Host, requested: bool) -> Result<(), &'static str> {
+    let mut settings = remote_settings()?;
+    if !settings.remote_access {
+        return Ok(());
+    }
+    let allow_uac = requested || settings.serve_pending;
+    if settings.serve_pending {
+        settings.serve_pending = false;
+        store_remote_settings(settings)?;
+        settings = remote_settings()?;
+    }
+    let backend = host.backend.as_ref().ok_or("Backend Host Mode chưa sẵn sàng.")?;
+    if backend.origin() != crate::tailscale::HOST_BACKEND
+        || host.host_origin.as_deref() != Some(settings.origin.as_str())
+        || !crate::tailscale::owner_ready(backend, &host.transport).await
+    {
+        return Err("Host Mode cần backend và Owner đã xác minh để bật Serve.");
+    }
+    if crate::tailscale::apply(&settings.origin, true, allow_uac).await? {
+        settings.serve_owned = true;
+        store_remote_settings(settings)?;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -425,7 +498,13 @@ fn orion_host_settings() -> Result<crate::host_settings::Status, String> {
 
 #[cfg(windows)]
 #[tauri::command]
-fn orion_save_host_settings(app: tauri::AppHandle, settings: crate::host_settings::Settings) -> Result<(), String> {
+fn orion_save_host_settings(app: tauri::AppHandle, mut settings: crate::host_settings::Settings) -> Result<(), String> {
+    if remote_settings()?.remote_access {
+        return Err("Tắt truy cập từ xa trước khi sửa Host Mode.".into());
+    }
+    settings.remote_access = false;
+    settings.serve_owned = false;
+    settings.serve_pending = false;
     settings.save().map_err(|error| error.to_string())?;
     app.request_restart();
     Ok(())
@@ -495,6 +574,12 @@ pub fn run() {
                     }
                 })
                 .build()?;
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let host = handle.state::<Host>();
+                let mut operation = host.serve.lock().await;
+                *operation = configure_remote_serve(&host, false).await.err();
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -582,10 +667,6 @@ pub fn run() {
             if matches!(event, RunEvent::Exit) {
                 let state = app.state::<Host>();
                 state.cancel_all();
-                #[cfg(windows)]
-                if let Ok(mut serve) = state.serve.try_lock() {
-                    serve.stop();
-                }
                 #[cfg(windows)]
                 if let Some(backend) = &state.backend {
                     let _ = backend.shutdown();

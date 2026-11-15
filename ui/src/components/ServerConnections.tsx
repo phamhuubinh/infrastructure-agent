@@ -8,10 +8,8 @@ import {
   activeServer,
   activeHostOrigin,
   activeHostStop,
-  desktopHostSettings,
   desktopTailscaleStatus,
   type TailscaleStatus,
-  type HostSettingsOptions,
   activateManagedServer,
   activateServer,
   hasActiveServer,
@@ -25,85 +23,6 @@ import {
   enrollServer,
   desktopTailscaleToggle,
 } from "@/lib/server-profiles";
-
-function HostSettingsPanel() {
-  const bridge = desktopHostSettings();
-  const [settings, setSettings] = useState<HostSettingsOptions | null>(null);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    void bridge
-      ?.load()
-      .then(setSettings)
-      .catch(() => setError("Không đọc được cấu hình Host Mode."));
-  }, [bridge]);
-  if (!bridge) return null;
-  return (
-    <form
-      className="space-y-2 rounded border p-3 text-sm"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!settings || saving) return;
-        setSaving(true);
-        setError("");
-        void bridge.save(settings).catch(() => {
-          setError("Không lưu được. Kiểm tra địa chỉ HTTPS.");
-          setSaving(false);
-        });
-      }}
-    >
-      <h3 className="font-medium">Cấu hình Host Mode</h3>
-      {settings && (
-        <>
-          <label className="block">
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  enabled: e.target.checked,
-                })
-              }
-            />{" "}
-            Bật Host Mode
-          </label>
-          {settings.enabled && (
-            <>
-              <label className="block">
-                Địa chỉ HTTPS
-                <input
-                  className="block w-full rounded border bg-background px-2"
-                  type="url"
-                  required
-                  value={settings.origin}
-                  onChange={(e) => setSettings({ ...settings, origin: e.target.value })}
-                />
-              </label>
-              <label className="block">
-                <input
-                  type="checkbox"
-                  checked={settings.autostart}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      autostart: e.target.checked,
-                    })
-                  }
-                />{" "}
-                Chạy khi đăng nhập Windows
-              </label>
-            </>
-          )}
-          <button type="submit" disabled={saving} className="rounded border px-2 py-1">
-            Lưu và khởi động lại Orion
-          </button>
-        </>
-      )}
-      {error && <p role="alert">{error}</p>}
-    </form>
-  );
-}
 
 const tailscaleMessages: Record<string, string> = {
   not_installed: "Chưa cài Tailscale.",
@@ -121,12 +40,47 @@ const tailscaleMessages: Record<string, string> = {
   configured: "Serve đã trỏ tới backend Orion.",
 };
 
+const probeMessages: Record<string, string> = {
+  login_ready: "HTTPS hoạt động. API yêu cầu đăng nhập Owner và 2FA.",
+  auth_required: "HTTPS phản hồi 401/403. Chưa xác minh được trang đăng nhập.",
+  timeout: "HTTPS quá thời gian chờ.",
+  tls: "Không xác minh được TLS hoặc chứng chỉ HTTPS.",
+  dns: "Không phân giải được tên Tailscale.",
+  connect: "Không kết nối được tới Serve.",
+  backend_unavailable: "Backend Orion không phản hồi qua loopback.",
+  upstream_proxy: "Serve phản hồi lỗi proxy 502–504.",
+  origin_rejected: "Orion từ chối Origin của URL HTTPS.",
+  auth_mismatch: "Phản hồi xác thực Owner không khớp.",
+  invalid_response: "Serve trả về phản hồi không khớp Orion.",
+  probe_unavailable: "Không chạy được kiểm tra HTTPS trên Windows.",
+};
+
 function TailscalePanel() {
   const check = desktopTailscaleStatus();
   const toggle = desktopTailscaleToggle();
   const [status, setStatus] = useState<TailscaleStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
+  useEffect(() => {
+    if (!check || busy) return;
+    let active = true;
+    let timer: number | undefined;
+    async function poll() {
+      try {
+        const result = await check?.();
+        if (active && result) setStatus(result);
+      } catch {
+        if (active) setStatus(null);
+      } finally {
+        if (active) timer = window.setTimeout(() => void poll(), 15000);
+      }
+    }
+    void poll();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [check, busy]);
   if (!check) return null;
   async function refresh(action: () => Promise<TailscaleStatus>) {
     setBusy(true);
@@ -142,40 +96,48 @@ function TailscalePanel() {
   return (
     <div className="space-y-2 rounded border p-3 text-sm">
       <h3 className="font-medium">Tailscale Serve</h3>
-      <button
-        type="button"
-        disabled={busy}
-        className="rounded border px-2 py-1"
-        onClick={() => {
-          void refresh(check);
-        }}
-      >
-        {busy ? "Đang kiểm tra…" : "Kiểm tra kết nối"}
-      </button>
-      {failed && <p role="alert">{failed}</p>}
-      {status && (
-        <div role="status">
-          <p>{tailscaleMessages[status.state] ?? "Không xác định được trạng thái."}</p>
-          {status.url && <p className="break-all">URL tailnet · {status.url}</p>}
-          {status.backend && <p>Backend · {status.backend}</p>}
-          {toggle && (status.state === "unconfigured" || status.owned) && (
+      {toggle && (
+        <div className="flex flex-wrap gap-2">
+          {(!status?.enabled || !!status.error || status.state === "unconfigured") && (
             <button
               type="button"
               className="rounded border px-2 py-1"
               disabled={busy}
-              onClick={() => void refresh(() => toggle(!status.owned))}
+              onClick={() => void refresh(() => toggle(true))}
             >
-              {status.owned ? "Tắt Serve" : "Bật Serve"}
+              Bật truy cập từ xa
             </button>
           )}
-          {status.manualCommand && <code className="break-all">{status.manualCommand}</code>}
-          {status.state === "configured" && (
-            <p>
-              {status.reachable
-                ? "Orion phản hồi qua HTTPS từ máy này."
-                : "Orion chưa phản hồi qua HTTPS."}
-            </p>
+          {(status?.enabled || !!activeHostStop()) && (
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              disabled={busy}
+              onClick={() => void refresh(() => toggle(false))}
+            >
+              Tắt truy cập từ xa
+            </button>
           )}
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded border px-2 py-1"
+            onClick={() => void refresh(check)}
+          >
+            Kiểm tra kết nối
+          </button>
+        </div>
+      )}
+      {busy && <p role="status">Đang cập nhật truy cập từ xa…</p>}
+      {(failed || status?.error) && <p role="alert">{failed || status?.error}</p>}
+      {status && (
+        <div role="status">
+          <p>
+            {status.reachable ? "Online" : "Offline"} · {tailscaleMessages[status.state]}
+          </p>
+          {status.url && <p className="break-all">URL tailnet · {status.url}</p>}
+          {status.backend && <p>Backend · {status.backend}</p>}
+          {status.probe && <p>{probeMessages[status.probe]}</p>}
         </div>
       )}
     </div>
@@ -225,7 +187,6 @@ export function ServerConnections() {
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
       <OwnerSecurity />
-      <HostSettingsPanel />
       <TailscalePanel />
       {stopHost && (
         <div className="flex items-center gap-3 text-sm">
@@ -248,7 +209,11 @@ export function ServerConnections() {
               onClick={() =>
                 void manageClients(async () => {
                   const status = await desktopTailscaleStatus()?.();
-                  if (status?.state !== "configured" || !status.reachable || !status.url) {
+                  if (
+                    status?.state !== "configured" ||
+                    status.probe !== "login_ready" ||
+                    !status.url
+                  ) {
                     setNotice("Cần Tailscale Serve đang hoạt động trước khi tạo QR.");
                     return;
                   }

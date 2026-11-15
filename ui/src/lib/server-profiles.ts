@@ -89,7 +89,9 @@ export type TailscaleStatus = {
   url: string | null;
   reachable: boolean;
   owned?: boolean;
-  manualCommand?: string | null;
+  enabled?: boolean;
+  probe?: string;
+  error?: string | null;
 };
 
 export function desktopTailscaleStatus() {

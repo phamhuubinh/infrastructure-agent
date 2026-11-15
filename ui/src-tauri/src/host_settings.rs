@@ -12,6 +12,12 @@ pub struct Settings {
     pub enabled: bool,
     pub autostart: bool,
     pub origin: String,
+    #[serde(default)]
+    pub remote_access: bool,
+    #[serde(default)]
+    pub serve_owned: bool,
+    #[serde(default)]
+    pub serve_pending: bool,
 }
 
 #[derive(Serialize)]
@@ -86,6 +92,9 @@ impl Settings {
             "enabled": self.enabled,
             "autostart": self.autostart,
             "origin": self.origin,
+            "remoteAccess": self.remote_access,
+            "serveOwned": self.serve_owned,
+            "servePending": self.serve_pending,
         });
         key.set_value("Config", &encoded.to_string())
     }

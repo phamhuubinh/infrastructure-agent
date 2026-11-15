@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Owner completes the setup form on the installed d75b258 preview. Then configure private Serve with Administrator access and test web auth, DeepSeek, Local System Tools and Android QR on a real device. Backup and in-place install verified. Public ingress and stable release remain gated.",
+  "next_action": "Verify the installed Remote Host preview, private Serve and an independent browser with the Owner present. Record app restart and upgrade evidence separately from Windows reboot and a fresh Serve/UAC configuration.",
   "work_items": [
     {
       "id": "R00",

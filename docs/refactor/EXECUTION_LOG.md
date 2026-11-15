@@ -80,3 +80,9 @@
 - Xác minh SHA-256 NSIS và APK của d75b258. Sao lưu 924 file của bản cài và profile khi Orion dừng, đối chiếu từng hash và SQLite integrity_check. Backup có ACL riêng trong LocalAppData/OrionRecovery; giữ thông tin rollback registry của bản cài nếu key tồn tại.
 - Diễn tập migration và phục hồi SQLite trên bản sao offline. Cài đè NSIS preview cùng phiên bản 0.1.5, exit 0. Hash SQLite giữ nguyên trước lần mở đầu. Orion.exe, sidecar và web shell khớp payload. Sau khi khởi động, bảng desktop_owner được tạo, SQLite qua integrity_check, và dòng trong sessions, timeline, model_configs, projects, request_events và document_ingestion_events khớp backup. Lịch sử chat hiển thị trên app đã cài.
 - Mở Cài đặt > Kết nối server > Tài khoản & Bảo mật. Bàn giao biểu mẫu cho chủ máy tự tạo mật khẩu, quét Authenticator và lưu mã khôi phục. Backend chỉ lắng nghe loopback, Serve/Funnel chưa có cấu hình. ADB chưa thấy thiết bị. Web/DeepSeek/Local System Tools qua Serve và Android thật vẫn chờ nghiệm thu.
+
+### 2026-11-15 · Remote Host từ Settings
+
+- Trên preview 942721e, Tailscale Serve 443 có mapping tailnet-only tới 127.0.0.1:61888. HTTPS health 200, protected sessions 401, auth/session xác nhận MFA. POST rỗng/lỗi cú pháp với Origin đúng trả 400 và thiếu Origin trả 403. Lỗi hiển thị cũ không phân biệt HTTP và lỗi vận chuyển. Chưa tái hiện nguyên nhân thời điểm báo lỗi.
+- Nút bật/tắt lưu Host Mode, origin và autostart sau khi Owner sẵn sàng. Cài Serve nền qua CLI và có UAC cho thao tác bị từ chối quyền. Mapping có trước không được nhận là của Orion. Khi tắt chỉ gỡ mapping Orion tạo nếu còn khớp. Funnel không tự bật.
+- TypeScript, ESLint và 14 test UI tập trung đạt. 3 Rust tests đạt, gồm probe HTTPS trực tiếp trên Serve đang chạy và guard mapping xung đột. NSIS preview build lại Desktop/web và tái sử dụng backend/Worker d75b258.
