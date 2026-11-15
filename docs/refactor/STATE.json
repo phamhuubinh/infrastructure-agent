@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Validate Windows Desktop Owner setup, private Tailscale Serve and Android QR camera/enrollment with a release candidate. Track public ingress audit, in-place upgrade and existing live provider, native and signing gates separately.",
+  "next_action": "Use the d75b258 Windows NSIS preview and Android ARM64 debug APK to validate Owner setup, private Serve with Administrator access, and on-device QR, Keystore and reconnect. Back up the installed 0.1.5 profile before in-place upgrade. Public ingress, existing live provider and signing gates remain separately tracked.",
   "work_items": [
     {
       "id": "R00",
