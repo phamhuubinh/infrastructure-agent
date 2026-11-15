@@ -11,6 +11,8 @@ class NativeEnrollmentInput(StrictRequest):
     code: SecretStr = Field(min_length=32, max_length=128, repr=False)
     name: str = Field(min_length=1, max_length=120, pattern=r"^[^\x00-\x1f\x7f]+$")
     platform: Literal["windows", "linux", "android", "ios"]
+    password: SecretStr | None = Field(default=None, min_length=1, max_length=1024, repr=False)
+    totp_code: SecretStr | None = Field(default=None, min_length=1, max_length=64, repr=False)
 
 
 class NativeRefreshInput(StrictRequest):

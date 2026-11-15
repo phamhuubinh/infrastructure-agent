@@ -62,3 +62,11 @@
 - Settings Windows lấy upstream từ readiness của ManagedBackend, đối chiếu hostname, cổng HTTPS và root proxy từ Tailscale CLI, phân biệt cấu hình Funnel và kiểm tra JSON health qua TLS. Đo trên Orion 0.1.5 bản đã cài với Host Mode tắt: OrionBackend lắng nghe 127.0.0.1:63440 trong phiên thử. Cổng đó chỉ là quan sát của phiên.
 - Windows Rust: 1 test phân biệt upstream chính xác, upstream sai và Funnel. TypeScript và 13 test UI đạt. Log release-work/tailscale/native-test.log và ui-test.log.
 - Winget tải MSI Tailscale 1.104.7 từ nhà phát hành, xác minh checksum và Authenticode hợp lệ. Máy chưa có Tailscale, phiên không elevated. Đã chuyển bước UAC và đăng nhập tailnet cho chủ máy. Chưa chạy Serve thật, chưa bật Funnel, chưa đóng gói NSIS hay thay bản cài 0.1.5.
+
+### 2026-11-15 · Owner Auth và QR Android
+
+- Xác minh checkpoint 7a247af và sao lưu 25 file WIP ngoài repo, kiểm tra SHA-256 từng file.
+- Windows Host Mode dùng Owner với Argon2id, TOTP chống tái sử dụng và recovery codes dạng hash. Thiết lập, đổi mật khẩu, thay 2FA và thu hồi phiên qua kênh Desktop xác thực. Luồng browser giữ exact Origin và cookie Secure. Chặn phiên native cũ trước khi 2FA được xác minh.
+- QR Authenticator và QR ghép đôi Android có payload riêng. Mã enrollment hết hạn sau 5 phút, dùng một lần và yêu cầu mật khẩu cùng mã xác thực Owner khi redeem. Java scanner biên dịch được với Gradle x86_64 Debug. ADB chưa thấy thiết bị để thử camera, Keystore và reconnect.
+- Các suite backend tập trung Auth/API/SSE/endpoints đạt, hai fixture native opt-in bị skip. UI 134 test đạt, TypeScript, ESLint, mypy, Ruff và Vite production build đạt. OpenAPI và SDK đã regen.
+- Serve trỏ tới managed upstream và kiểm tra Owner trước khi kích hoạt trong Settings. CLI báo No serve config và phiên này không có quyền Administrator. Chưa bật Serve/Funnel hay nâng cấp bản cài Windows 0.1.5. Cần Windows build/smoke, Owner thao tác Authenticator và Android quét QR thật trước khi chốt nghiệm thu.

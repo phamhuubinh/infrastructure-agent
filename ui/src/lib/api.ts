@@ -11,6 +11,7 @@ import {
 export const AUTH_EXPIRED_EVENT = "orion-auth-expired";
 export type AuthSession = {
   remote_access: boolean;
+  mfa_required?: boolean;
   authenticated: boolean;
   expires_at: number | null;
 };
@@ -36,11 +37,11 @@ export async function getAuthSession(): Promise<AuthSession> {
   return (await response.json()) as AuthSession;
 }
 
-export async function login(password: string): Promise<void> {
+export async function login(password: string, code = ""): Promise<void> {
   const response = await apiFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify(code ? { password, code } : { password }),
   });
   if (!response.ok) throw new Error(await apiErrorMessage(response));
 }

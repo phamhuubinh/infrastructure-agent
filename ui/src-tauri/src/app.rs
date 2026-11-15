@@ -32,6 +32,8 @@ struct Host {
     keep_host_running: bool,
     #[cfg(windows)]
     host_origin: Option<String>,
+    #[cfg(windows)]
+    serve: tokio::sync::Mutex<crate::tailscale::Serve>,
     transport: Transport,
     pending: Mutex<HashMap<String, Arc<Pending>>>,
 }
@@ -312,6 +314,24 @@ fn orion_vault_clear(origin: String) -> Result<(), &'static str> {
 type AndroidVault = tauri::plugin::PluginHandle<tauri::Wry>;
 
 #[cfg(target_os = "android")]
+struct AndroidQr(tauri::plugin::PluginHandle<tauri::Wry>);
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn orion_scan_qr(scanner: State<'_, AndroidQr>) -> Result<Option<String>, &'static str> {
+    #[derive(Deserialize)]
+    struct ScanResult {
+        value: Option<String>,
+    }
+    scanner
+        .0
+        .run_mobile_plugin_async::<ScanResult>("scan", ())
+        .await
+        .map(|result| result.value)
+        .map_err(|_| "Orion QR scan failed")
+}
+
+#[cfg(target_os = "android")]
 #[tauri::command]
 async fn orion_vault_get(
     origin: String,
@@ -362,10 +382,11 @@ fn allow_navigation(url: &url::Url) -> bool {
 
 #[cfg(windows)]
 #[tauri::command]
-fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &'static str> {
+async fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &'static str> {
     if !host.keep_host_running {
         return Err("Host Mode is not active");
     }
+    host.serve.lock().await.stop();
     app.exit(0);
     Ok(())
 }
@@ -374,7 +395,26 @@ fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &
 #[tauri::command]
 async fn orion_tailscale_status(host: State<'_, Host>) -> Result<crate::tailscale::Status, ()> {
     let backend = host.backend.as_ref().map(|backend| backend.origin().to_owned());
-    Ok(crate::tailscale::inspect(backend, host.host_origin.clone()).await)
+    Ok(host.serve.lock().await.status(backend, host.host_origin.clone()).await)
+}
+
+#[cfg(windows)]
+#[tauri::command]
+async fn orion_tailscale_set_enabled(host: State<'_, Host>, enabled: bool) -> Result<crate::tailscale::Status, &'static str> {
+    let mut serve = host.serve.lock().await;
+    let backend = host.backend.as_ref();
+    let origin = host.host_origin.clone();
+    if !enabled {
+        serve.stop();
+        return Ok(serve.status(backend.map(|item| item.origin().to_owned()), origin).await);
+    }
+    let (Some(backend), Some(origin)) = (backend, origin) else {
+        return Err("Bật Host Mode trước khi bật Serve.");
+    };
+    if !crate::tailscale::owner_ready(backend, &host.transport).await {
+        return Err("Thiết lập và xác minh tài khoản Owner trước khi bật Serve.");
+    }
+    Ok(serve.enable(backend.origin().to_owned(), origin).await)
 }
 
 #[cfg(windows)]
@@ -437,6 +477,7 @@ pub fn run() {
                 backend,
                 keep_host_running,
                 host_origin,
+                serve: Default::default(),
                 backend_error,
                 transport: Transport::new()?,
                 pending: Mutex::new(HashMap::new()),
@@ -461,6 +502,7 @@ pub fn run() {
             orion_stop_host,
             orion_host_settings,
             orion_tailscale_status,
+            orion_tailscale_set_enabled,
             orion_save_host_settings,
             orion_prepare,
             orion_start,
@@ -475,6 +517,15 @@ pub fn run() {
         tauri::plugin::Builder::<_, ()>::new("orion-vault")
             .setup(|app, api| {
                 app.manage(api.register_android_plugin("io.orion.desktop", "OrionVaultPlugin")?);
+                Ok(())
+            })
+            .build(),
+    ).plugin(
+        tauri::plugin::Builder::<_, ()>::new("orion-qr")
+            .setup(|app, api| {
+                app.manage(AndroidQr(
+                    api.register_android_plugin("io.orion.desktop", "OrionQrPlugin")?,
+                ));
                 Ok(())
             })
             .build(),
@@ -502,6 +553,8 @@ pub fn run() {
             orion_prepare,
             orion_start_mobile,
             orion_read_mobile,
+            #[cfg(target_os = "android")]
+            orion_scan_qr,
             orion_close,
             orion_vault_get,
             orion_vault_set,
@@ -529,6 +582,10 @@ pub fn run() {
             if matches!(event, RunEvent::Exit) {
                 let state = app.state::<Host>();
                 state.cancel_all();
+                #[cfg(windows)]
+                if let Ok(mut serve) = state.serve.try_lock() {
+                    serve.stop();
+                }
                 #[cfg(windows)]
                 if let Some(backend) = &state.backend {
                     let _ = backend.shutdown();

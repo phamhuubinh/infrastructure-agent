@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Use the private Windows build for personal operation and validate against the owner's configured model and managed devices. Track live provider, public upgrade, iOS and signing evidence under the full-scope gates.",
+  "next_action": "Validate Windows Desktop Owner setup, private Tailscale Serve and Android QR camera/enrollment with a release candidate. Track public ingress audit, in-place upgrade and existing live provider, native and signing gates separately.",
   "work_items": [
     {
       "id": "R00",

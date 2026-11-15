@@ -1,5 +1,6 @@
 """Explicit JSON enrollment/refresh and protected owner-native session administration."""
 
+import asyncio
 import json
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -7,6 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from orion.access import LocalAccessAdapter
 from orion.access.native import NativeAuthError, NativeAuthService
+from orion.access.owner import OwnerAuth, OwnerAuthError
 from orion.api.schema import request_body_schema
 from orion.contracts.native_auth import (
     NativeEnrollmentCode,
@@ -37,12 +39,14 @@ def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return value
 
 
-async def _credentials[T: BaseModel](request: Request, model: type[T]) -> T:
+async def _credentials[T: BaseModel](
+    request: Request, model: type[T], *, max_bytes: int = 2048
+) -> T:
     if request.headers.get("content-type", "").partition(";")[0].lower() != "application/json":
         raise HTTPException(415, "Native credentials require application/json")
     body = bytearray()
     async for chunk in request.stream():
-        if len(body) + len(chunk) > 2048:
+        if len(body) + len(chunk) > max_bytes:
             raise HTTPException(413, "Native credential request is too large")
         body.extend(chunk)
     try:
@@ -55,10 +59,16 @@ def install_native_auth_routes(
     app: FastAPI,
     service: NativeAuthService,
     access: LocalAccessAdapter,
+    *,
+    owner: OwnerAuth | None = None,
 ) -> None:
     @app.post("/api/auth/native/enrollment-codes", response_model=NativeEnrollmentCode)
-    async def create_enrollment(response: Response) -> NativeEnrollmentCode:
+    async def create_enrollment(request: Request, response: Response) -> NativeEnrollmentCode:
         response.headers["Cache-Control"] = "no-store"
+        if owner is not None and (
+            not getattr(request.state, "desktop_authenticated", False) or not owner.configured
+        ):
+            raise HTTPException(403, "Configured Orion Desktop owner is required")
         try:
             return service.create_enrollment(access.current_principal())
         except NativeAuthError:
@@ -71,10 +81,21 @@ def install_native_auth_routes(
     )
     async def enroll(request: Request, response: Response) -> NativeTokenPair:
         response.headers["Cache-Control"] = "no-store"
-        values = await _credentials(request, NativeEnrollmentInput)
+        values = await _credentials(
+            request, NativeEnrollmentInput, max_bytes=8192 if owner is not None else 2048
+        )
         try:
-            return service.enroll(values)
-        except NativeAuthError:
+            if owner is None:
+                return service.enroll(values)
+            if values.password is None or values.totp_code is None:
+                raise OwnerAuthError("invalid_credentials")
+            return await asyncio.to_thread(
+                owner.with_credentials,
+                values.password.get_secret_value(),
+                values.totp_code.get_secret_value(),
+                lambda: service.enroll(values),
+            )
+        except (NativeAuthError, OwnerAuthError):
             raise HTTPException(401, "Invalid native enrollment") from None
 
     @app.post(
@@ -85,6 +106,8 @@ def install_native_auth_routes(
     async def refresh(request: Request, response: Response) -> NativeTokenPair:
         response.headers["Cache-Control"] = "no-store"
         values = await _credentials(request, NativeRefreshInput)
+        if owner is not None and not owner.configured:
+            raise HTTPException(401, "Invalid native refresh credential")
         try:
             return service.refresh(values.refresh_token.get_secret_value())
         except NativeAuthError:

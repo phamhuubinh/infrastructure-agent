@@ -12,7 +12,6 @@ pub struct Settings {
     pub enabled: bool,
     pub autostart: bool,
     pub origin: String,
-    pub password_hash: String,
 }
 
 #[derive(Serialize)]
@@ -55,7 +54,7 @@ impl Settings {
             child.env("ORION_REMOTE_ACCESS", "1")
                 .env("ORION_BIND_HOST", "127.0.0.1")
                 .env("ORION_PUBLIC_ORIGIN", &self.origin)
-                .env("ORION_AUTH_PASSWORD_HASH", &self.password_hash)
+                .env_remove("ORION_AUTH_PASSWORD_HASH")
                 .env("ORION_ENDPOINTS", "1");
         }
     }
@@ -66,19 +65,11 @@ impl Settings {
                 url.scheme() == "https" &&
                 url.origin().ascii_serialization() == self.origin
             });
-            if self.password_hash.is_empty() {
-                self.password_hash = Self::read()?.map(|old| old.password_hash)
-                    .or_else(|| std::env::var("ORION_AUTH_PASSWORD_HASH").ok())
-                    .unwrap_or_default();
-            }
-            if !valid_origin || !self.password_hash.starts_with("$argon2id$")
-                || self.password_hash.len() > 1024
-            {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "HTTPS origin or Argon2id hash is invalid"));
+            if !valid_origin {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "HTTPS origin is invalid"));
             }
         } else {
             self.autostart = false;
-            self.password_hash.clear();
         }
         let user = RegKey::predef(HKEY_CURRENT_USER);
         let (key, _) = user.create_subkey(SETTINGS)?;
@@ -95,7 +86,6 @@ impl Settings {
             "enabled": self.enabled,
             "autostart": self.autostart,
             "origin": self.origin,
-            "passwordHash": self.password_hash,
         });
         key.set_value("Config", &encoded.to_string())
     }

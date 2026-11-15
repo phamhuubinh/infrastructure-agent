@@ -1,4 +1,7 @@
 import { useEffect, useState } from "react";
+import { AndroidConnectionQr } from "./AndroidConnectionQr";
+import { OwnerSecurity } from "./OwnerSecurity";
+import { PrivateQr } from "./PrivateQr";
 import { apiJson } from "@/lib/api";
 import type { Schemas } from "@/lib/sdk/generated";
 import {
@@ -20,12 +23,12 @@ import {
   isNativeHost,
   isManagedServer,
   enrollServer,
+  desktopTailscaleToggle,
 } from "@/lib/server-profiles";
 
 function HostSettingsPanel() {
   const bridge = desktopHostSettings();
   const [settings, setSettings] = useState<HostSettingsOptions | null>(null);
-  const [passwordHash, setPasswordHash] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -43,8 +46,8 @@ function HostSettingsPanel() {
         if (!settings || saving) return;
         setSaving(true);
         setError("");
-        void bridge.save({ ...settings, passwordHash }).catch(() => {
-          setError("Không lưu được. Kiểm tra địa chỉ HTTPS và mã băm Argon2id.");
+        void bridge.save(settings).catch(() => {
+          setError("Không lưu được. Kiểm tra địa chỉ HTTPS.");
           setSaving(false);
         });
       }}
@@ -75,17 +78,6 @@ function HostSettingsPanel() {
                   required
                   value={settings.origin}
                   onChange={(e) => setSettings({ ...settings, origin: e.target.value })}
-                />
-              </label>
-              <label className="block">
-                Mã băm mật khẩu Argon2id
-                <input
-                  autoComplete="off"
-                  className="block w-full rounded border bg-background px-2"
-                  type="password"
-                  placeholder="Bỏ trống để giữ mã băm hiện có"
-                  value={passwordHash}
-                  onChange={(e) => setPasswordHash(e.target.value)}
                 />
               </label>
               <label className="block">
@@ -125,15 +117,28 @@ const tailscaleMessages: Record<string, string> = {
   unconfigured: "Chưa cấu hình Serve HTTPS.",
   different_backend: "Serve đang trỏ tới backend khác. Kiểm tra cấu hình trước khi thay đổi.",
   public: "Funnel đang bật cho địa chỉ này. Tắt quyền truy cập công khai trước khi kiểm thử.",
+  enable_failed: "Orion chưa bật được Serve. Kiểm tra quyền Administrator.",
   configured: "Serve đã trỏ tới backend Orion.",
 };
 
 function TailscalePanel() {
   const check = desktopTailscaleStatus();
+  const toggle = desktopTailscaleToggle();
   const [status, setStatus] = useState<TailscaleStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState("");
   if (!check) return null;
+  async function refresh(action: () => Promise<TailscaleStatus>) {
+    setBusy(true);
+    setFailed("");
+    try {
+      setStatus(await action());
+    } catch (error) {
+      setFailed(typeof error === "string" ? error : "Không thực hiện được thao tác Tailscale.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="space-y-2 rounded border p-3 text-sm">
       <h3 className="font-medium">Tailscale Serve</h3>
@@ -142,35 +147,28 @@ function TailscalePanel() {
         disabled={busy}
         className="rounded border px-2 py-1"
         onClick={() => {
-          setBusy(true);
-          setFailed(false);
-          void check()
-            .then(setStatus)
-            .catch(() => {
-              setFailed(true);
-              setStatus(null);
-            })
-            .finally(() => setBusy(false));
+          void refresh(check);
         }}
       >
         {busy ? "Đang kiểm tra…" : "Kiểm tra kết nối"}
       </button>
-      {failed && <p role="alert">Không kiểm tra được Tailscale.</p>}
+      {failed && <p role="alert">{failed}</p>}
       {status && (
         <div role="status">
           <p>{tailscaleMessages[status.state] ?? "Không xác định được trạng thái."}</p>
           {status.url && <p className="break-all">URL tailnet · {status.url}</p>}
           {status.backend && <p>Backend · {status.backend}</p>}
-          {status.state === "unconfigured" && status.backend && (
-            <p>
-              Trong Terminal Administrator, chạy{" "}
-              <code>
-                tailscale serve --bg --https={status.url ? new URL(status.url).port || 443 : 443}{" "}
-                {status.backend}
-              </code>
-              .
-            </p>
+          {toggle && (status.state === "unconfigured" || status.owned) && (
+            <button
+              type="button"
+              className="rounded border px-2 py-1"
+              disabled={busy}
+              onClick={() => void refresh(() => toggle(!status.owned))}
+            >
+              {status.owned ? "Tắt Serve" : "Bật Serve"}
+            </button>
           )}
+          {status.manualCommand && <code className="break-all">{status.manualCommand}</code>}
           {status.state === "configured" && (
             <p>
               {status.reachable
@@ -192,7 +190,17 @@ export function ServerConnections() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [clients, setClients] = useState<ReadonlyArray<Schemas["NativeSessionView"]>>([]);
-  const [enrollment, setEnrollment] = useState<Schemas["NativeEnrollmentCode"] | null>(null);
+  const [enrollment, setEnrollment] = useState<
+    (Schemas["NativeEnrollmentCode"] & { origin: string }) | null
+  >(null);
+  useEffect(() => {
+    if (!enrollment) return;
+    const timer = window.setTimeout(
+      () => setEnrollment(null),
+      Math.max(0, enrollment.expires_at * 1000 - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [enrollment]);
   const current = activeServer();
   const nativePath = "/api/auth/native";
   async function refreshClients() {
@@ -216,6 +224,7 @@ export function ServerConnections() {
   return (
     <section aria-label="Kết nối server" className="space-y-3 rounded-lg border p-4">
       <h2 className="font-semibold">Kết nối server</h2>
+      <OwnerSecurity />
       <HostSettingsPanel />
       <TailscalePanel />
       {stopHost && (
@@ -238,16 +247,20 @@ export function ServerConnections() {
               disabled={busy}
               onClick={() =>
                 void manageClients(async () => {
-                  setEnrollment(
-                    await apiJson<Schemas["NativeEnrollmentCode"]>(
-                      nativePath + "/enrollment-codes",
-                      { method: "POST" },
-                    ),
+                  const status = await desktopTailscaleStatus()?.();
+                  if (status?.state !== "configured" || !status.reachable || !status.url) {
+                    setNotice("Cần Tailscale Serve đang hoạt động trước khi tạo QR.");
+                    return;
+                  }
+                  const grant = await apiJson<Schemas["NativeEnrollmentCode"]>(
+                    nativePath + "/enrollment-codes",
+                    { method: "POST" },
                   );
+                  setEnrollment({ ...grant, origin: status.url });
                 })
               }
             >
-              Tạo mã kết nối
+              Tạo QR kết nối
             </button>
             <button
               type="button"
@@ -258,10 +271,28 @@ export function ServerConnections() {
             </button>
           </div>
           {enrollment && (
-            <p role="status">
-              Mã dùng một lần <code>{enrollment.code}</code> · Hết hạn{" "}
-              {new Date(enrollment.expires_at * 1000).toLocaleTimeString("vi-VN")}
-            </p>
+            <div className="space-y-2">
+              <p role="status">
+                QR kết nối Android · Hết hạn{" "}
+                {new Date(enrollment.expires_at * 1000).toLocaleTimeString("vi-VN")}
+              </p>
+              <PrivateQr
+                label="QR kết nối Android"
+                value={JSON.stringify({
+                  type: "orion-connect",
+                  version: 1,
+                  origin: enrollment.origin,
+                  code: enrollment.code,
+                })}
+              />
+              <button
+                type="button"
+                className="rounded border px-2 py-1"
+                onClick={() => setEnrollment(null)}
+              >
+                Ẩn QR
+              </button>
+            </div>
           )}
           <ul>
             {clients
@@ -356,6 +387,7 @@ export function ServerConnections() {
           </li>
         ))}
       </ul>
+      <AndroidConnectionQr />
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(event) => {
@@ -403,7 +435,16 @@ export function ServerConnections() {
             event.preventDefault();
             setBusy(true);
             setNotice("");
-            void enrollServer(code, "Orion client")
+            const form = event.currentTarget;
+            const fields = new FormData(form);
+            const password = String(fields.get("owner-password") ?? "");
+            const totp_code = String(fields.get("owner-code") ?? "").trim();
+            form.reset();
+            void enrollServer(
+              code,
+              "Orion client",
+              password || totp_code ? { password, totp_code } : undefined,
+            )
               .then(() => {
                 setCode("");
                 setNotice("Đã kết nối.");
@@ -422,6 +463,25 @@ export function ServerConnections() {
               value={code}
               maxLength={128}
               onChange={(event) => setCode(event.target.value)}
+            />
+          </label>
+          <label>
+            Mật khẩu Owner
+            <input
+              name="owner-password"
+              className="block rounded border bg-background p-2"
+              type="password"
+              autoComplete="current-password"
+              maxLength={1024}
+            />
+          </label>
+          <label>
+            Mã Authenticator hoặc mã khôi phục
+            <input
+              name="owner-code"
+              className="block rounded border bg-background p-2"
+              autoComplete="one-time-code"
+              maxLength={64}
             />
           </label>
           <button type="submit" disabled={busy} className="self-end rounded border px-3 py-2">

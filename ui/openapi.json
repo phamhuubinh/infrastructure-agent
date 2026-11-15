@@ -1553,6 +1553,11 @@
         "name": "orion_session",
         "type": "apiKey"
       },
+      "ManagedDesktop": {
+        "in": "header",
+        "name": "X-Orion-Managed-Token",
+        "type": "apiKey"
+      },
       "NativeOwner": {
         "bearerFormat": "opaque owner access",
         "scheme": "bearer",
@@ -1580,6 +1585,10 @@
               "schema": {
                 "additionalProperties": false,
                 "properties": {
+                  "code": {
+                    "format": "password",
+                    "type": "string"
+                  },
                   "password": {
                     "format": "password",
                     "type": "string"
@@ -1659,6 +1668,21 @@
                     "title": "Name",
                     "type": "string"
                   },
+                  "password": {
+                    "anyOf": [
+                      {
+                        "format": "password",
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string",
+                        "writeOnly": true
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Password"
+                  },
                   "platform": {
                     "enum": [
                       "windows",
@@ -1668,6 +1692,21 @@
                     ],
                     "title": "Platform",
                     "type": "string"
+                  },
+                  "totp_code": {
+                    "anyOf": [
+                      {
+                        "format": "password",
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string",
+                        "writeOnly": true
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Totp Code"
                   }
                 },
                 "required": [
@@ -1887,6 +1926,412 @@
         "summary": "Revoke",
         "x-orion-auth": "owner",
         "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/auth/owner": {
+      "get": {
+        "operationId": "status_api_auth_owner_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Status Api Auth Owner Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Status",
+        "x-orion-auth": "owner"
+      }
+    },
+    "/api/auth/owner/password": {
+      "post": {
+        "operationId": "change_password_api_auth_owner_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "format": "password",
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "title": "Code",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "current_password": {
+                    "format": "password",
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "title": "Current Password",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "new_password": {
+                    "format": "password",
+                    "maxLength": 1024,
+                    "minLength": 12,
+                    "title": "New Password",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "current_password",
+                  "code",
+                  "new_password"
+                ],
+                "title": "_Password",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Change Password Api Auth Owner Password Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Change Password",
+        "x-orion-auth": "owner"
+      }
+    },
+    "/api/auth/owner/revoke-all": {
+      "post": {
+        "operationId": "revoke_all_api_auth_owner_revoke_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "format": "password",
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "title": "Code",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "password": {
+                    "format": "password",
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "title": "Password",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "password",
+                  "code"
+                ],
+                "title": "_Credentials",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Revoke All Api Auth Owner Revoke All Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Revoke All",
+        "x-orion-auth": "owner"
+      }
+    },
+    "/api/auth/owner/setup/confirm": {
+      "post": {
+        "operationId": "confirm_api_auth_owner_setup_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "format": "password",
+                    "maxLength": 6,
+                    "minLength": 6,
+                    "title": "Code",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "setup_id": {
+                    "format": "password",
+                    "maxLength": 32,
+                    "minLength": 32,
+                    "title": "Setup Id",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "setup_id",
+                  "code"
+                ],
+                "title": "_Confirm",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": "Response Confirm Api Auth Owner Setup Confirm Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Confirm",
+        "x-orion-auth": "owner"
+      }
+    },
+    "/api/auth/owner/setup/start": {
+      "post": {
+        "operationId": "start_api_auth_owner_setup_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "password": {
+                    "format": "password",
+                    "maxLength": 1024,
+                    "minLength": 12,
+                    "title": "Password",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "password"
+                ],
+                "title": "_Start",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Start Api Auth Owner Setup Start Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Start",
+        "x-orion-auth": "owner"
+      }
+    },
+    "/api/auth/owner/totp/confirm": {
+      "post": {
+        "operationId": "confirm_rotation_api_auth_owner_totp_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "format": "password",
+                    "maxLength": 6,
+                    "minLength": 6,
+                    "title": "Code",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "setup_id": {
+                    "format": "password",
+                    "maxLength": 32,
+                    "minLength": 32,
+                    "title": "Setup Id",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "setup_id",
+                  "code"
+                ],
+                "title": "_Confirm",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "title": "Response Confirm Rotation Api Auth Owner Totp Confirm Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Confirm Rotation",
+        "x-orion-auth": "owner"
+      }
+    },
+    "/api/auth/owner/totp/start": {
+      "post": {
+        "operationId": "rotate_api_auth_owner_totp_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "format": "password",
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "title": "Code",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "password": {
+                    "format": "password",
+                    "maxLength": 1024,
+                    "minLength": 1,
+                    "title": "Password",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "password",
+                  "code"
+                ],
+                "title": "_Credentials",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Rotate Api Auth Owner Totp Start Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ManagedDesktop": []
+          }
+        ],
+        "summary": "Rotate",
+        "x-orion-auth": "owner"
       }
     },
     "/api/auth/session": {

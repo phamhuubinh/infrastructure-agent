@@ -121,6 +121,7 @@ function RootComponent() {
   const [auth, setAuth] = useState<AuthSession | null>(null);
   const [authError, setAuthError] = useState("");
   const [password, setPassword] = useState("");
+  const [authCode, setAuthCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [serverGeneration, setServerGeneration] = useState(0);
   useEffect(() => {
@@ -128,6 +129,7 @@ function RootComponent() {
       queryClient.clear();
       setAuth(null);
       setPassword("");
+      setAuthCode("");
       setAuthError("");
       setServerGeneration((value) => value + 1);
     };
@@ -170,11 +172,12 @@ function RootComponent() {
     setSubmitting(true);
     setAuthError("");
     try {
-      await login(password);
+      await login(password, authCode.trim());
       setPassword("");
+      setAuthCode("");
       setAuth(await getAuthSession());
     } catch {
-      setAuthError("Invalid password or login temporarily unavailable.");
+      setAuthError("Thông tin xác thực không hợp lệ hoặc đăng nhập đang bị giới hạn.");
     } finally {
       setSubmitting(false);
     }
@@ -225,6 +228,18 @@ function RootComponent() {
             onChange={(event) => setPassword(event.target.value)}
             className="rounded border bg-background p-2"
           />
+          {auth.mfa_required && (
+            <label className="space-y-1">
+              <span> Mã Authenticator hoặc mã khôi phục</span>
+              <input
+                className="w-full rounded border bg-background p-2"
+                autoComplete="one-time-code"
+                value={authCode}
+                onChange={(event) => setAuthCode(event.target.value)}
+                required
+              />
+            </label>
+          )}
           {authError && (
             <p role="alert" className="text-sm text-destructive">
               {authError}

@@ -1,5 +1,10 @@
 import { newUuid } from "./uuid";
-import { ClientError, OrionClient, type SecureTokenStore } from "./sdk/client";
+import {
+  ClientError,
+  OrionClient,
+  type OwnerVerification,
+  type SecureTokenStore,
+} from "./sdk/client";
 import { type OperationId, type Operations } from "./sdk/generated";
 
 export const SERVER_CHANGED_EVENT = "orion-server-changed";
@@ -8,10 +13,12 @@ export type NativeHost = {
   fetch: typeof fetch;
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
+  scanConnectionQr?: () => Promise<string | null>;
   tailscaleStatus?: () => Promise<TailscaleStatus>;
+  tailscaleSetEnabled?: (enabled: boolean) => Promise<TailscaleStatus>;
   hostSettings?: {
     load: () => Promise<HostSettingsOptions>;
-    save: (settings: HostSettingsOptions & { passwordHash: string }) => Promise<void>;
+    save: (settings: HostSettingsOptions) => Promise<void>;
   };
   hostOrigin?: string;
   stopHost?: () => Promise<void>;
@@ -61,6 +68,10 @@ export function isMobileHost() {
   return nativeHost?.platform === "android" || nativeHost?.platform === "ios";
 }
 
+export function androidConnectionScanner() {
+  return nativeHost?.platform === "android" ? nativeHost.scanConnectionQr : undefined;
+}
+
 export function hasActiveServer() {
   return !nativeHost || selected !== null || managedServer !== null;
 }
@@ -77,10 +88,16 @@ export type TailscaleStatus = {
   backend: string | null;
   url: string | null;
   reachable: boolean;
+  owned?: boolean;
+  manualCommand?: string | null;
 };
 
 export function desktopTailscaleStatus() {
   return nativeHost?.tailscaleStatus;
+}
+
+export function desktopTailscaleToggle() {
+  return nativeHost?.tailscaleSetEnabled;
 }
 
 export type HostSettingsOptions = {
@@ -272,10 +289,36 @@ export async function serverResponse<K extends OperationId>(
   return response;
 }
 
-export async function enrollServer(code: string, name: string) {
+export async function enrollServer(code: string, name: string, verification?: OwnerVerification) {
   if (!nativeHost || isManagedServer()) throw new ClientError("configuration");
-  await serverClient().enroll(code, name, nativeHost.platform);
+  await serverClient().enroll(code, name, nativeHost.platform, verification);
   window.dispatchEvent(new Event(SERVER_CHANGED_EVENT));
+}
+
+export async function enrollAndroidQr(
+  origin: string,
+  name: string,
+  code: string,
+  verification: OwnerVerification,
+) {
+  if (nativeHost?.platform !== "android") throw new ClientError("configuration");
+  const profile = canonical({ id: newUuid(), name, origin });
+  const profiles = serverProfiles();
+  const existing = profiles.find((item) => item.origin === profile.origin);
+  if (!existing && profiles.length >= 16) throw new ClientError("configuration");
+  if (selected?.origin === profile.origin) {
+    await enrollServer(code, "Orion Android", verification);
+    return;
+  }
+  const target = new OrionClient({
+    origin: profile.origin,
+    mode: "native",
+    fetch: nativeHost.fetch,
+    tokens: nativeHost.tokens,
+  });
+  await target.enroll(code, "Orion Android", "android", verification);
+  const saved = serverProfiles().find((item) => item.origin === profile.origin);
+  activateServer(saved ?? saveServerProfile(profile.name, profile.origin));
 }
 
 export async function logoutServer() {

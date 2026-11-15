@@ -45,11 +45,7 @@ class ManagedAccess:
                 return
             scope = {
                 **scope,
-                **(
-                    {"state": {**scope.get("state", {}), "desktop_authenticated": True}}
-                    if self.remote_enabled
-                    else {}
-                ),
+                "state": {**scope.get("state", {}), "desktop_authenticated": True},
                 "headers": [
                     (name, value)
                     for name, value in scope["headers"]
@@ -90,7 +86,7 @@ def serve_managed() -> None:
     remote = RemoteAccessConfig(False, ORION_HOST)
     frontend = None
     if os.getenv("ORION_DESKTOP_HOST_MODE") == "1":
-        remote = RemoteAccessConfig.from_environment()
+        remote = RemoteAccessConfig.from_environment(owner_credentials=True)
         if (
             not remote.enabled
             or remote.bind_host != ORION_HOST
