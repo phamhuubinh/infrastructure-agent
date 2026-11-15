@@ -4,6 +4,9 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "orion_host",
             "orion_stop_host",
+            "orion_host_settings",
+            "orion_tailscale_status",
+            "orion_save_host_settings",
             "orion_prepare",
             "orion_start",
             "orion_read",

@@ -40,3 +40,25 @@
 - Đóng cửa sổ giữ host chạy, mở shortcut hiện lại cửa sổ. Settings hiển thị origin và có Stop, tạo mã enrollment, liệt kê/thu hồi native sessions. Web bundle là resource NSIS.
 - Backend 76 test đạt, sau đó bài Host Mode bổ sung enroll/refresh/logout cũng đạt. Windows cargo check và UI TypeScript đạt. Log backend/Rust tại release-work/desktop-host-backend.log và release-work/desktop-host-rust.log.
 - Bản đang cài vẫn là 0.1.4. Còn kiểm thử native host lifecycle và HTTPS qua proxy thật, cấu hình bật/tắt và autostart trong UI, tunnel status, đóng gói worker xác minh, và nghiệm thu trước nâng cấp.
+
+### Windows Host Settings và gói Worker 0.1.5
+
+- Host Mode lưu cấu hình theo tài khoản Windows, tùy chọn chạy khi đăng nhập và áp dụng bằng khởi động lại ứng dụng. Backend vẫn do một tiến trình Desktop quản lý và dùng thư mục dữ liệu hiện có.
+- Thêm phân phối Worker local qua route owner, xác minh hash trước khi gửi. Công cụ staging yêu cầu cùng phiên bản và commit nguồn sạch.
+- Tailscale Serve phù hợp với truy cập cá nhân qua tailnet. Máy hiện chưa có Tailscale hoặc cloudflared được kết nối. Serve trên Windows cần phiên Administrator và tailnet bật HTTPS. Cloudflare published application cần tài khoản và domain. Chưa xác minh truy cập từ ngoài máy.
+
+- Checkpoint 26cdc21 đồng bộ phiên bản Worker và Desktop 0.1.5. Backend 21 test của nhóm artifact/managed/local commands đạt. Edge qua TLS loopback xác minh login, cookie Secure/HttpOnly/Strict, Origin, session dùng chung, native enroll/refresh/revoke, logout trả 204 và tài nguyên đã được bảo vệ lại. Harness phải reload để xác nhận màn hình đăng nhập. Log release-work/desktop-host-qa/loopback-https-probe.log.
+- Build native 0.1.5 đạt. Gói sidecar và Worker Windows được build lại từ cùng commit sau khi phát hiện Worker có version riêng. Chưa có bản Linux cùng commit. Windows hiện chưa có đăng nhập tailnet hay Cloudflare Tunnel; nghiệm thu Internet và Android từ thiết bị ngoài máy còn mở.
+
+### 2026-11-15 · Windows 0.1.5 tại chỗ
+
+- NSIS SHA-256 56D739B4DCA8EC705C33286F4E0A6A93290E8965C186E4B849162CEA61C483D1. Cài đè 0.1.4, hash SQLite không đổi trong quá trình cài. Sao lưu bản cài, registry uninstall và hồ sơ tại F:/Orion-recovery/desktop-before-0.1.5-20261114-190731.
+- Trên bản cài, Host Mode kiểm thử bằng cấu hình tiến trình: health hoạt động sau khi đóng cửa sổ, chạy lại mở ứng dụng, Stop Host thoát. Shortcut Start Menu/Desktop không ghi nhận Windows Terminal/OpenConsole. Chưa thử tự chạy sau khi đăng nhập Windows.
+- Frozen host phục vụ web shell, bảo vệ tài nguyên cần đăng nhập, công bố local:windows và tải Worker Windows 0.1.5 với SHA-256 khớp. Worker portable qua pairing/command/cancel/Exit/forget/reconnect. DeepSeek chạy PowerShell local có xác nhận sau nâng cấp. Log tại release-work/desktop-host-015-matched.
+- Chưa có endpoint HTTPS ngoài máy: Tailscale/cloudflared chưa được cấu hình, phiên Windows không có quyền Administrator cho Serve và ADB không thấy thiết bị. Có kết quả TLS loopback ở bước trước. Bản Linux portable cùng phiên bản chưa đóng gói.
+
+### 2026-11-15 · Tailscale Serve
+
+- Settings Windows lấy upstream từ readiness của ManagedBackend, đối chiếu hostname, cổng HTTPS và root proxy từ Tailscale CLI, phân biệt cấu hình Funnel và kiểm tra JSON health qua TLS. Đo trên Orion 0.1.5 bản đã cài với Host Mode tắt: OrionBackend lắng nghe 127.0.0.1:63440 trong phiên thử. Cổng đó chỉ là quan sát của phiên.
+- Windows Rust: 1 test phân biệt upstream chính xác, upstream sai và Funnel. TypeScript và 13 test UI đạt. Log release-work/tailscale/native-test.log và ui-test.log.
+- Winget tải MSI Tailscale 1.104.7 từ nhà phát hành, xác minh checksum và Authenticode hợp lệ. Máy chưa có Tailscale, phiên không elevated. Đã chuyển bước UAC và đăng nhập tailnet cho chủ máy. Chưa chạy Serve thật, chưa bật Funnel, chưa đóng gói NSIS hay thay bản cài 0.1.5.

@@ -80,6 +80,39 @@ describe("Endpoints", () => {
     expect(screen.queryByLabelText("Attach document")).toBeNull();
   });
 
+  it("downloads a locally packaged worker through the authenticated API", async () => {
+    const filename = "OrionRemote-0.1.3-windows-x64.zip";
+    mocks.json.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("artifacts")
+          ? {
+              available: true,
+              version: "0.1.3",
+              artifacts: [
+                { filename, platform: "windows-x64", local: true, sha256: "1".repeat(64) },
+              ],
+            }
+          : [device],
+      ),
+    );
+    const response = new Response("archive");
+    mocks.fetch.mockResolvedValue(response);
+    const objectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:worker");
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<EndpointsPage />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Download Windows portable worker" }),
+      );
+      await waitFor(() => expect(click).toHaveBeenCalledOnce());
+      expect(mocks.fetch).toHaveBeenCalledWith(`/api/endpoints/artifacts/download/${filename}`);
+      expect(click.mock.contexts[0]).toMatchObject({ download: filename, href: "blob:worker" });
+    } finally {
+      objectURL.mockRestore();
+      click.mockRestore();
+    }
+  });
+
   it("shows unavailable development artifacts and only calls operations for the selected endpoint", async () => {
     mocks.json.mockImplementation((url: string) =>
       Promise.resolve(

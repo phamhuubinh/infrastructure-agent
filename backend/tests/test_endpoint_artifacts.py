@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
 import httpx
 import pytest
+from conftest import ScriptedBackend
+from fastapi.testclient import TestClient
 
 from orion._version import __version__
+from orion.access.remote import RemoteAccessConfig, hash_password
+from orion.api.app import create_app
 from orion.endpoints import artifacts
 
 
@@ -64,3 +69,59 @@ def test_source_build_has_no_fabricated_download(
     result = asyncio.run(artifacts.compatible_artifacts())
     assert not result["available"] and not result["artifacts"]
     assert result["reason"] == "artifact unavailable for this build"
+
+
+def test_frozen_artifact_download_checks_access_build_and_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    installation = tmp_path / "installation"
+    directory = installation / "worker-artifacts"
+    directory.mkdir(parents=True)
+    filename = f"OrionRemote-{__version__}-windows-x64.zip"
+    content = b"archive fixture payload"
+    sha = "a" * 40
+    build = {"version": __version__, "source_sha": sha}
+    build_path = installation / "orion-build.json"
+    build_path.write_text(json.dumps(build))
+    (directory / "worker-artifacts.json").write_text(
+        json.dumps(
+            {
+                **build,
+                "artifacts": [
+                    {
+                        "platform": "windows-x64",
+                        "filename": filename,
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                    }
+                ],
+            }
+        )
+    )
+    archive = directory / filename
+    archive.write_bytes(content)
+    monkeypatch.setattr(artifacts.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(artifacts.sys, "executable", str(installation / "OrionBackend.exe"))
+    monkeypatch.setenv("ORION_ENDPOINTS", "1")
+    origin = "https://127.0.0.1:61888"
+    remote = RemoteAccessConfig(True, "127.0.0.1", origin, hash_password("password"))
+    app = create_app(tmp_path / "orion.db", ScriptedBackend([]), remote_config=remote)
+    url = f"{artifacts.LOCAL_ROUTE}/{filename}"
+    with TestClient(app, base_url=origin) as client:
+        assert client.get(url).status_code == 401
+        assert (
+            client.post(
+                "/api/auth/login", json={"password": "password"}, headers={"Origin": origin}
+            ).status_code
+            == 200
+        )
+        item = client.get("/api/endpoints/artifacts").json()["artifacts"][0]
+        assert item["local"] and item["url"] == url
+        response = client.get(url)
+        assert response.status_code == 200 and response.content == content
+        assert response.headers["content-disposition"] == f'attachment; filename="{filename}"'
+        assert client.get(artifacts.LOCAL_ROUTE + "/server.db").status_code == 404
+        archive.write_bytes(b"tampered")
+        assert client.get(url).status_code == 404
+        archive.write_bytes(content)
+        build_path.write_text(json.dumps({**build, "source_sha": "b" * 40}))
+        assert client.get(url).status_code == 404

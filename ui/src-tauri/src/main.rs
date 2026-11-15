@@ -7,6 +7,12 @@ use orion_native::{managed, transport, vault};
 mod app;
 
 #[cfg(windows)]
+mod host_settings;
+
+#[cfg(windows)]
+mod tailscale;
+
+#[cfg(windows)]
 fn main() {
     app::run();
 }

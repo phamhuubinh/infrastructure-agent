@@ -8,6 +8,11 @@ export type NativeHost = {
   fetch: typeof fetch;
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
+  tailscaleStatus?: () => Promise<TailscaleStatus>;
+  hostSettings?: {
+    load: () => Promise<HostSettingsOptions>;
+    save: (settings: HostSettingsOptions & { passwordHash: string }) => Promise<void>;
+  };
   hostOrigin?: string;
   stopHost?: () => Promise<void>;
   managedError?: string;
@@ -65,6 +70,27 @@ export function activeServer(): ServerProfile {
     selected ??
     managedServer ?? { id: "browser", name: "Server hiện tại", origin: window.location.origin }
   );
+}
+
+export type TailscaleStatus = {
+  state: string;
+  backend: string | null;
+  url: string | null;
+  reachable: boolean;
+};
+
+export function desktopTailscaleStatus() {
+  return nativeHost?.tailscaleStatus;
+}
+
+export type HostSettingsOptions = {
+  enabled: boolean;
+  autostart: boolean;
+  origin: string;
+};
+
+export function desktopHostSettings() {
+  return nativeHost?.hostSettings;
 }
 
 export function activeHostOrigin() {
