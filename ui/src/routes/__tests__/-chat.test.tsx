@@ -555,6 +555,8 @@ describe("M1 Chat integration", () => {
             Start response
           </button>
           <button onClick={appendAcceptedAnswer}>Append response</button>
+          <button onClick={chat.startNewChat}>Leave conversation</button>
+          <button onClick={() => void chat.switchSession("chat-1")}>Reopen conversation</button>
           <ChatPage />
         </>
       );
@@ -594,6 +596,13 @@ describe("M1 Chat integration", () => {
     fireEvent.scroll(scrollArea);
     fireEvent.click(screen.getByRole("button", { name: "Append response" }));
     expect(scrollArea.scrollTop).toBe(1000);
+
+    scrollArea.scrollTop = 325;
+    fireEvent.scroll(scrollArea);
+    fireEvent.click(screen.getByRole("button", { name: "Leave conversation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reopen conversation" }));
+    await screen.findByText("Earlier answer");
+    expect(screen.getByTestId("conversation-scroll-area").scrollTop).toBe(325);
   });
 
   it("presents calculator tool started/completed activity after the canonical timeline reload", async () => {

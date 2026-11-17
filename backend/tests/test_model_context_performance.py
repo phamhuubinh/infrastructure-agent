@@ -39,7 +39,7 @@ from orion.tool_runtime.internet import internet_fetch_definition, internet_sear
 EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 8_464
 # Tool-result byte snapshots include provider-neutral grounding/freshness instructions;
 # these are measurements, not increased runtime/benchmark budget limits.
-EXPECTED_SIMPLE_PROXY_BYTES = 14_505
+MAX_SIMPLE_PROXY_BYTES = 12_200
 SEMANTIC_CONTRACT_GROWTH_BYTES = 2_845
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
@@ -166,7 +166,7 @@ def test_provider_tool_schema_size_and_simple_context_regressions(store) -> None
     session_id = store.create_session()
     store.append_timeline(session_id, None, "user_message", {"content": "Hello"})
     simple_proxy = _provider_proxy(ContextBuilder(store).build(session_id))
-    assert simple_proxy == EXPECTED_SIMPLE_PROXY_BYTES
+    assert simple_proxy <= MAX_SIMPLE_PROXY_BYTES
 
 
 def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store) -> None:  # type: ignore[no-untyped-def]
@@ -180,7 +180,7 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 21_394
+    assert resumed_proxy <= 19_000
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
     assert (
         resumed_proxy - SEMANTIC_CONTRACT_GROWTH_BYTES
@@ -249,7 +249,7 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
     assert _messages_bytes(current_messages) == 11_998
-    assert _provider_proxy(context) == 26_988
+    assert _provider_proxy(context) <= 24_600
 
 
 @pytest.mark.parametrize("scenario", ["retry_then_success", "success_then_blocked"])
@@ -920,7 +920,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 26_104
+    assert history_proxy <= 23_700
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     # The fixed semantic contract remains explicit without increasing history budget.
     assert history_proxy - SEMANTIC_CONTRACT_GROWTH_BYTES <= 28_334

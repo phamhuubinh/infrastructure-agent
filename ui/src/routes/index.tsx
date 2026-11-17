@@ -7,7 +7,7 @@ import {
   pendingObservation,
   type RequestIntent,
 } from "@/lib/requests";
-import { isMobileHost, serverContext } from "@/lib/server-profiles";
+import { activeServer, isMobileHost, serverContext } from "@/lib/server-profiles";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
@@ -144,9 +144,13 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [selectedSourceRefId, setSelectedSourceRefId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const followMessagesRef = useRef(true);
-  const lastScrollTopRef = useRef(0);
-  const lastDisplayedSessionIdRef = useRef<string | null>(null);
+  const readingPosition = useRef<{
+    key: string | null;
+    tail?: Message;
+    count: number;
+    nearEnd: boolean;
+    top?: number;
+  }>({ key: null, count: 0, nearEnd: true });
   const loadedInitialScope = useRef<string | null>(null);
   const session = chat.sessions.find(
     (item) =>
@@ -195,16 +199,51 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const displayedSessionId = displayedSession?.id ?? null;
   const displayedMessages = displayedSession?.messages;
 
-  useEffect(() => {
-    const scrollArea = scrollAreaRef.current;
-    if (!scrollArea) return;
-    if (lastDisplayedSessionIdRef.current !== displayedSessionId) {
-      lastDisplayedSessionIdRef.current = displayedSessionId;
-      followMessagesRef.current = true;
+  const scrollKey = displayedSessionId
+    ? `orion-chat-scroll:${activeServer().id}:${displayedSessionId}`
+    : null;
+
+  useLayoutEffect(() => {
+    const element = scrollAreaRef.current;
+    if (!element) return;
+    const previous = readingPosition.current;
+    const tail = displayedMessages?.at(-1);
+    const count = displayedMessages?.length ?? 0;
+    if (tail && (previous.key !== scrollKey || previous.count === 0)) {
+      restoreConversationScroll(element, scrollKey);
+    } else if (tail && previous.nearEnd) {
+      const appended = count > previous.count && tail.itemId !== previous.tail?.itemId;
+      const streaming =
+        tail.itemId === previous.tail?.itemId &&
+        tail.content.length > previous.tail.content.length &&
+        tail.content.startsWith(previous.tail.content);
+      if (appended || streaming) element.scrollTop = element.scrollHeight;
     }
-    if (followMessagesRef.current) scrollArea.scrollTop = scrollArea.scrollHeight;
-    lastScrollTopRef.current = scrollArea.scrollTop;
-  }, [displayedSessionId, displayedMessages]);
+    const nearEnd = conversationNearEnd(element);
+    const follow = nearEnd && (previous.key !== scrollKey || previous.nearEnd);
+    readingPosition.current = {
+      key: scrollKey,
+      tail,
+      count,
+      nearEnd: follow,
+      top: element.scrollTop,
+    };
+    setShowScrollToBottom(!nearEnd);
+  }, [scrollKey, displayedMessages]);
+
+  useEffect(() => {
+    const element = scrollAreaRef.current;
+    const content = element?.firstElementChild;
+    if (!element || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const nearEnd = conversationNearEnd(element);
+      if (!nearEnd) readingPosition.current.nearEnd = false;
+      setShowScrollToBottom(!nearEnd);
+    });
+    observer.observe(element);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollKey]);
 
   useEffect(
     () =>
@@ -241,23 +280,22 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const handleConversationScroll = useCallback(() => {
     const element = scrollAreaRef.current;
     if (!element) return;
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    const awayFromBottom = distanceFromBottom > 140;
-    if (distanceFromBottom <= 2) followMessagesRef.current = true;
-    else if (element.scrollTop < lastScrollTopRef.current) followMessagesRef.current = false;
-    lastScrollTopRef.current = element.scrollTop;
-    setShowScrollToBottom(awayFromBottom);
-  }, []);
+    const nearEnd = conversationNearEnd(element);
+    const position = readingPosition.current;
+    const movedUp = element.scrollTop < (position.top ?? 0);
+    position.nearEnd = nearEnd && !movedUp;
+    position.top = element.scrollTop;
+    setShowScrollToBottom(!nearEnd);
+    if (scrollKey && readingPosition.current.count) saveConversationScroll(element, scrollKey);
+  }, [scrollKey]);
 
   return (
     <>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col relative">
         <div
+          key={scrollKey}
           ref={scrollAreaRef}
           onScroll={handleConversationScroll}
-          onWheel={(event) => {
-            if (event.deltaY < 0) followMessagesRef.current = false;
-          }}
           data-testid="conversation-scroll-area"
           className="min-h-0 flex-1 overflow-y-auto"
         >
@@ -281,7 +319,6 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
               variant="outline"
               size="icon"
               onClick={() => {
-                followMessagesRef.current = true;
                 scrollAreaRef.current?.scrollTo({
                   top: scrollAreaRef.current.scrollHeight,
                   behavior: "smooth",
@@ -406,6 +443,49 @@ function ThinkingDots() {
   );
 }
 
+function conversationNearEnd(element: HTMLElement) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 140;
+}
+
+function saveConversationScroll(element: HTMLElement, key: string) {
+  const top = element.getBoundingClientRect().top;
+  const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
+    (item) => item.getBoundingClientRect().bottom > top,
+  );
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        top: element.scrollTop,
+        itemId: anchor?.dataset.chatItem,
+        offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
+      }),
+    );
+  } catch {
+    // Storage can be unavailable in a restricted browser profile.
+  }
+}
+
+function restoreConversationScroll(element: HTMLElement, key: string | null) {
+  if (!key) return;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(key) ?? "null");
+    if (!saved || !Number.isFinite(saved.top)) return;
+    const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
+      (item) => item.dataset.chatItem === saved.itemId,
+    );
+    element.scrollTop =
+      anchor && Number.isFinite(saved.offset)
+        ? element.scrollTop +
+          anchor.getBoundingClientRect().top -
+          element.getBoundingClientRect().top -
+          saved.offset
+        : saved.top;
+  } catch {
+    // Ignore malformed or inaccessible local state.
+  }
+}
+
 function Conversation({
   messages,
   generating,
@@ -420,7 +500,7 @@ function Conversation({
   return (
     <div className="space-y-8">
       {messages.map((message) => (
-        <div key={message.itemId}>
+        <div key={message.itemId} data-chat-item={message.itemId}>
           {message.role === "user" ? (
             <UserMessage content={message.content} askedAt={message.askedAt}>
               {message.content}
