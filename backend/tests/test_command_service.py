@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 import uuid
 
@@ -102,6 +103,45 @@ async def test_handle_before_dispatch_duplicate_and_safe_metadata(store):
             is False
         )
     finally:
+        await service.close()
+        await transport.executor.close()
+
+
+@pytest.mark.anyio
+async def test_model_status_waits_for_monitor_without_replaying_command(store):
+    allow_status = asyncio.Event()
+
+    class DelayedStatus(Transport):
+        async def dispatch_command(self, target, operation, arguments, cancellation=None):
+            if operation == "command.status":
+                await allow_status.wait()
+            return await super().dispatch_command(target, operation, arguments, cancellation)
+
+    transport = DelayedStatus(store)
+    service = CommandService(store, transport)
+    owner = call(store, script=f'"{sys.executable}" -c "import time; time.sleep(0.5)"')
+    try:
+        initial = await service.run(owner)
+        assert initial.state in {"created", "running"}
+        observer = asyncio.create_task(
+            service.status(
+                owner.runtime_scope, TARGET, initial.command_id, wait_for_completion=True
+            )
+        )
+        await asyncio.sleep(0)
+        assert not observer.done()
+        observer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await observer
+        assert not service._monitors[initial.command_id].done()
+        allow_status.set()
+        final = await service.status(
+            owner.runtime_scope, TARGET, initial.command_id, wait_for_completion=True
+        )
+        assert final.state == "succeeded"
+        assert len([op for op, _ in transport.calls if op == "command.run"]) == 1
+    finally:
+        allow_status.set()
         await service.close()
         await transport.executor.close()
 

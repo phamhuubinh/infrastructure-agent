@@ -153,9 +153,24 @@ class CommandService:
         identity: str,
         stdout_offset: int = 0,
         stderr_offset: int = 0,
+        *,
+        wait_for_completion: bool = False,
     ) -> CommandPage:
         self._scope(scope, target)
         record = self.store.command_record(scope, identity, target)
+        monitor = self._monitors.get(identity)
+        if (
+            wait_for_completion
+            and monitor is not None
+            and record["state"] in {"created", "running"}
+            and self._same_connection(record)
+            and not (stdout_offset or stderr_offset)
+        ):
+            # Reuse the request-owned monitor. A cancelled or timed-out waiter
+            # must not cancel the monitor or dispatch the original command again.
+            await asyncio.wait((monitor,), timeout=8)
+            self._scope(scope, target)
+            record = self.store.command_record(scope, identity, target)
         if not self._same_connection(record):
             if record["state"] in {"created", "running", "outcome_unknown"}:
                 page = self._unknown(record)

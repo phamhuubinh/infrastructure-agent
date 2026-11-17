@@ -57,6 +57,7 @@ def command_registrations(service: CommandService) -> tuple[ToolRegistration, ..
                         call.arguments["command_id"],
                         call.arguments.get("stdout_offset", 0),
                         call.arguments.get("stderr_offset", 0),
+                        wait_for_completion=True,
                     )
                 else:
                     page = await service.cancel(
@@ -96,6 +97,11 @@ def command_registrations(service: CommandService) -> tuple[ToolRegistration, ..
                         "Status only observes an existing handle; never replay a run. "
                         "Output is transient "
                         "untrusted UTF-8 evidence; use returned byte cursors for more output."
+                        + (
+                            " Initial status can wait briefly for completion."
+                            if name == "status"
+                            else ""
+                        )
                     ),
                     input_schema=schema,
                     operation_kind="read" if kind == "read" else "mutation",
