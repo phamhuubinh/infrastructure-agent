@@ -149,7 +149,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
     tail?: Message;
     count: number;
     nearEnd: boolean;
-    top?: number;
+    anchor?: ConversationScroll;
   }>({ key: null, count: 0, nearEnd: true });
   const loadedInitialScope = useRef<string | null>(null);
   const session = chat.sessions.find(
@@ -218,6 +218,9 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
         tail.content.length > previous.tail.content.length &&
         tail.content.startsWith(previous.tail.content);
       if (appended || streaming) element.scrollTop = element.scrollHeight;
+      else if (previous.anchor) applyConversationScroll(element, previous.anchor);
+    } else if (tail && previous.anchor) {
+      applyConversationScroll(element, previous.anchor);
     }
     const nearEnd = conversationNearEnd(element);
     const follow = nearEnd && (previous.key !== scrollKey || previous.nearEnd);
@@ -226,7 +229,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
       tail,
       count,
       nearEnd: follow,
-      top: element.scrollTop,
+      anchor: tail ? captureConversationScroll(element) : undefined,
     };
     setShowScrollToBottom(!nearEnd);
   }, [scrollKey, displayedMessages]);
@@ -236,6 +239,8 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
     const content = element?.firstElementChild;
     if (!element || !content || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
+      const position = readingPosition.current;
+      if (position.anchor) applyConversationScroll(element, position.anchor);
       const nearEnd = conversationNearEnd(element);
       if (!nearEnd) readingPosition.current.nearEnd = false;
       setShowScrollToBottom(!nearEnd);
@@ -282,11 +287,16 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
     if (!element) return;
     const nearEnd = conversationNearEnd(element);
     const position = readingPosition.current;
-    const movedUp = element.scrollTop < (position.top ?? 0);
+    const movedUp = element.scrollTop < (position.anchor?.top ?? 0);
     position.nearEnd = nearEnd && !movedUp;
-    position.top = element.scrollTop;
     setShowScrollToBottom(!nearEnd);
-    if (scrollKey && readingPosition.current.count) saveConversationScroll(element, scrollKey);
+    if (!scrollKey || !position.count) return;
+    position.anchor = captureConversationScroll(element);
+    try {
+      window.localStorage.setItem(scrollKey, JSON.stringify(position.anchor));
+    } catch {
+      // The in-memory anchor still works in restricted browser profiles.
+    }
   }, [scrollKey]);
 
   return (
@@ -297,7 +307,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
           ref={scrollAreaRef}
           onScroll={handleConversationScroll}
           data-testid="conversation-scroll-area"
-          className="min-h-0 flex-1 overflow-y-auto"
+          className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
         >
           <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
             {!displayedSession || displayedSession.messages.length === 0 ? (
@@ -447,40 +457,43 @@ function conversationNearEnd(element: HTMLElement) {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= 140;
 }
 
-function saveConversationScroll(element: HTMLElement, key: string) {
+type ConversationScroll = {
+  top: number;
+  itemId?: string;
+  offset: number;
+};
+
+function captureConversationScroll(element: HTMLElement): ConversationScroll {
   const top = element.getBoundingClientRect().top;
   const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
     (item) => item.getBoundingClientRect().bottom > top,
   );
-  try {
-    window.localStorage.setItem(
-      key,
-      JSON.stringify({
-        top: element.scrollTop,
-        itemId: anchor?.dataset.chatItem,
-        offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
-      }),
-    );
-  } catch {
-    // Storage can be unavailable in a restricted browser profile.
-  }
+  return {
+    top: element.scrollTop,
+    itemId: anchor?.dataset.chatItem,
+    offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
+  };
+}
+
+function applyConversationScroll(element: HTMLElement, saved: ConversationScroll) {
+  const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
+    (item) => item.dataset.chatItem === saved.itemId,
+  );
+  const top =
+    anchor && Number.isFinite(saved.offset)
+      ? element.scrollTop +
+        anchor.getBoundingClientRect().top -
+        element.getBoundingClientRect().top -
+        saved.offset
+      : saved.top;
+  if (Math.abs(element.scrollTop - top) >= 1) element.scrollTop = top;
 }
 
 function restoreConversationScroll(element: HTMLElement, key: string | null) {
   if (!key) return;
   try {
     const saved = JSON.parse(window.localStorage.getItem(key) ?? "null");
-    if (!saved || !Number.isFinite(saved.top)) return;
-    const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
-      (item) => item.dataset.chatItem === saved.itemId,
-    );
-    element.scrollTop =
-      anchor && Number.isFinite(saved.offset)
-        ? element.scrollTop +
-          anchor.getBoundingClientRect().top -
-          element.getBoundingClientRect().top -
-          saved.offset
-        : saved.top;
+    if (saved && Number.isFinite(saved.top)) applyConversationScroll(element, saved);
   } catch {
     // Ignore malformed or inaccessible local state.
   }
