@@ -6,6 +6,7 @@ import asyncio
 import json
 import mimetypes
 import sqlite3
+import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,13 +35,14 @@ from orion.api.mcp import MCP_OWNER_ROUTES, install_mcp_routes
 from orion.api.native_auth import (
     NATIVE_OWNER_ROUTES,
     NATIVE_PUBLIC_ROUTES,
+    _credentials,
     install_native_auth_routes,
 )
 from orion.api.native_bearer import NativeBearerMiddleware
 from orion.api.owner_auth import OWNER_DESKTOP_ROUTES, install_owner_auth_routes
 from orion.api.requests import REQUEST_OWNER_ROUTES, install_request_routes
 from orion.api.scheduler import install_scheduler_routes
-from orion.api.schema import annotate_access
+from orion.api.schema import annotate_access, request_body_schema
 from orion.api.skills import SKILL_OWNER_ROUTES, install_skill_routes
 from orion.api.system import SYSTEM_OWNER_ROUTES, SYSTEM_PUBLIC_ROUTES, install_system_routes
 from orion.bootstrap import (
@@ -95,11 +97,14 @@ PUBLIC_API_ROUTES = (
         ("GET", "/api/auth/session"),
     }
 )
+DESKTOP_MODEL_ROUTES = {("POST", "/api/models/{model_config_id}/credential")}
+DESKTOP_ROUTES = OWNER_DESKTOP_ROUTES | DESKTOP_MODEL_ROUTES
+
 PROTECTED_API_ROUTES = (
     ENDPOINT_OWNER_ROUTES
     | MCP_OWNER_ROUTES
     | NATIVE_OWNER_ROUTES
-    | OWNER_DESKTOP_ROUTES
+    | DESKTOP_ROUTES
     | REQUEST_OWNER_ROUTES
     | COMMAND_OWNER_ROUTES
     | SKILL_OWNER_ROUTES
@@ -211,7 +216,7 @@ class RemoteAccessMiddleware:
                 scope, receive, send_remote
             )
             return
-        if classification in OWNER_DESKTOP_ROUTES and not state.get("desktop_authenticated"):
+        if classification in DESKTOP_ROUTES and not state.get("desktop_authenticated"):
             await Response(status_code=403)(scope, receive, send_remote)
             return
         if (
@@ -242,6 +247,10 @@ class RemoteAccessMiddleware:
                 return
 
         await self._app(scope, receive, send_remote)
+
+
+class _DesktopCredentialInput(StrictRequest):
+    api_key: SecretStr | None = Field(default=None, min_length=1, max_length=16_384)
 
 
 class ModelConfigInput(StrictRequest):
@@ -416,7 +425,7 @@ def create_app(
 
     def access_openapi() -> dict[str, object]:
         return annotate_access(
-            original_openapi(), PROTECTED_API_ROUTES, DEVICE_API_ROUTES, OWNER_DESKTOP_ROUTES
+            original_openapi(), PROTECTED_API_ROUTES, DEVICE_API_ROUTES, DESKTOP_ROUTES
         )
 
     app.openapi = access_openapi  # type: ignore[method-assign]
@@ -600,6 +609,39 @@ def _install_application_routes(
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:
         return [model_config_view(config) for config in store.model_configs()]
+
+    @app.post(
+        "/api/models/{model_config_id}/credential",
+        status_code=204,
+        openapi_extra=request_body_schema(_DesktopCredentialInput),
+    )
+    async def update_desktop_credential(model_config_id: str, request: Request) -> Response:
+        if (
+            owner is None
+            or sys.platform != "win32"
+            or not getattr(request.state, "desktop_authenticated", False)
+        ):
+            raise HTTPException(403, "Trusted Windows Orion Desktop is required.")
+        body = await _credentials(request, _DesktopCredentialInput, max_bytes=32_768)
+        service = assembled.model_configurations
+        if service is None:
+            raise HTTPException(503, "Protected credential storage is unavailable.")
+        profile = store.model_profile(model_config_id)
+        config = store.model_config(model_config_id)
+        if profile is None or config is None:
+            raise HTTPException(404, "Typed model profile not found.")
+        try:
+            updated = await asyncio.to_thread(
+                service.replace_profile_credential,
+                profile,
+                ReasoningMode(str(config["reasoning_mode"])),
+                body.api_key,
+            )
+        except ModelBackendError as error:
+            raise HTTPException(400, str(error)) from None
+        if not updated:
+            raise HTTPException(409, "Model configuration changed. Refresh Settings and try again.")
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/models", response_model=ModelConfigView, status_code=201)
     async def configure_model(config: ModelConfigInput) -> ModelConfigView:

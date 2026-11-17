@@ -90,3 +90,10 @@
 - NSIS preview 464ee75 kiểm tra archive 926 file OK, SHA-256 dfa20bce5ddfbe19e4b5089c3e2ea7b1ace375264a85d5eb1084f0068e9684cb. Sao lưu 930 file khi Host dừng. Cài đè 0.1.5 exit 0, EXE khớp payload NSIS, backend binary giữ nguyên. SQLite hash giữ nguyên qua cài, integrity_check và nội dung hàng chat/model/Owner khớp backup sau restart.
 - Nghiệm thu UI bản cài: Settings báo Online, Owner MFA. Bật từ Settings lưu autostart. Đóng cửa sổ giữ HTTPS 200, mở lại hiện cửa sổ. Tắt từ Settings khởi động lại chế độ local, HTTPS 502. Bật lại từ local tự khởi động Host Mode, HTTPS 200 và protected API 401. JSON Serve khớp trước và sau, tailnet-only; Orion không nhận mapping thủ công là của mình. Đã kiểm tra entry autostart; chưa reboot Windows.
 - Đang chờ Owner đăng nhập thật từ trình duyệt ẩn danh tại URL tailnet. Kiểm tra login readiness không nhập hay ghi nhận bí mật. Chưa thử UAC hay tạo mới Serve trên cổng trống, vì máy đang có mapping của người dùng. Không bật Funnel, không phát hành stable.
+
+### 2026-11-17 · DeepSeek credential DPAPI
+
+- Profile DeepSeek đang active trỏ tới api.deepseek.com với model deepseek-flash; tham chiếu env:ORION_PROVIDER_KEY. Windows User có biến này. Chỉ ghi nhận hiện diện.
+- Route cập nhật credential giới hạn Windows Desktop qua managed token. Nhập key từ HKCU Environment, mã hoá DPAPI, giải mã/so sánh rồi cập nhật credential_ref bằng CAS. Giữ biến User, model ID, endpoint, reasoning và các thuộc tính khác. Settings có nút nhập và ô API key mới cho hồ sơ typed.
+- Trên fixture chạy từ source, Windows trusted route trả 204, xác minh DPAPI đạt, và DeepSeek live streaming hoàn tất. EXE đang cài tái hiện request.failed trên fixture đã có credential DPAPI. Log cũ chỉ ghi lỗi chung. Thêm phân loại thiếu credential, HTTP, timeout, transport/stream, và loại/vị trí exception nội bộ. Đóng gói sidecar bằng Python 3.12 độc lập để kiểm tra đúng PHIÊN BẢN EXE trước khi cài.
+- Backend tập trung 73 pass, 1 skip. TypeScript/ESLint, 19 test bridge/SDK, OpenAPI và SDK validation đạt. Cần xác minh gói nội bộ và Desktop/Web sau cài đè.
