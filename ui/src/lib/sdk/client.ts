@@ -1,6 +1,7 @@
 import { operations, type OperationId, type Operations, type Schemas } from "./generated";
 
 export type TokenPair = Schemas["NativeTokenPair"];
+export type OwnerVerification = { password: string; totp_code: string };
 
 /** Native hosts implement this with their OS credential vault, scoped by server origin. */
 export interface SecureTokenStore {
@@ -171,11 +172,20 @@ export class OrionClient {
     return tokenPair(await jsonResponse(response));
   }
 
-  async enroll(code: string, name: string, platform: "windows" | "linux" | "android" | "ios") {
+  async enroll(
+    code: string,
+    name: string,
+    platform: "windows" | "linux" | "android" | "ios",
+    verification?: OwnerVerification,
+  ) {
     if (this.options.mode !== "native") throw new ClientError("configuration");
-    await this.forget();
-    const generation = this.generation;
-    const pair = await this.exchange("/api/auth/native/enroll", { code, name, platform });
+    const generation = ++this.generation;
+    const pair = await this.exchange("/api/auth/native/enroll", {
+      code,
+      name,
+      platform,
+      ...verification,
+    });
     if (generation !== this.generation) throw new ClientError("authentication");
     try {
       await this.save(pair, generation);

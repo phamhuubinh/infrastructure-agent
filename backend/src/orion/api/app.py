@@ -6,7 +6,8 @@ import asyncio
 import json
 import mimetypes
 import sqlite3
-from collections.abc import AsyncIterator
+import sys
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -21,6 +22,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from orion._version import __version__
 from orion.access import LocalAccessAdapter
+from orion.access.owner import OwnerAuth
 from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
 from orion.api.commands import COMMAND_OWNER_ROUTES, install_command_routes
 from orion.api.endpoints import (
@@ -33,12 +35,14 @@ from orion.api.mcp import MCP_OWNER_ROUTES, install_mcp_routes
 from orion.api.native_auth import (
     NATIVE_OWNER_ROUTES,
     NATIVE_PUBLIC_ROUTES,
+    _credentials,
     install_native_auth_routes,
 )
 from orion.api.native_bearer import NativeBearerMiddleware
+from orion.api.owner_auth import OWNER_DESKTOP_ROUTES, install_owner_auth_routes
 from orion.api.requests import REQUEST_OWNER_ROUTES, install_request_routes
 from orion.api.scheduler import install_scheduler_routes
-from orion.api.schema import annotate_access
+from orion.api.schema import annotate_access, request_body_schema
 from orion.api.skills import SKILL_OWNER_ROUTES, install_skill_routes
 from orion.api.system import SYSTEM_OWNER_ROUTES, SYSTEM_PUBLIC_ROUTES, install_system_routes
 from orion.bootstrap import (
@@ -93,10 +97,14 @@ PUBLIC_API_ROUTES = (
         ("GET", "/api/auth/session"),
     }
 )
+DESKTOP_MODEL_ROUTES = {("POST", "/api/models/{model_config_id}/credential")}
+DESKTOP_ROUTES = OWNER_DESKTOP_ROUTES | DESKTOP_MODEL_ROUTES
+
 PROTECTED_API_ROUTES = (
     ENDPOINT_OWNER_ROUTES
     | MCP_OWNER_ROUTES
     | NATIVE_OWNER_ROUTES
+    | DESKTOP_ROUTES
     | REQUEST_OWNER_ROUTES
     | COMMAND_OWNER_ROUTES
     | SKILL_OWNER_ROUTES
@@ -159,11 +167,13 @@ class RemoteAccessMiddleware:
         routes_app: FastAPI,
         sessions: BrowserSessions,
         public_origin: str,
+        owner_ready: Callable[[], bool] | None = None,
     ) -> None:
         self._app = app
         self._routes_app = routes_app
         self._sessions = sessions
         self._public_origin = public_origin
+        self._owner_ready = owner_ready
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -198,6 +208,18 @@ class RemoteAccessMiddleware:
                         classification = (method, route.path)
                         break
         if (
+            state.get("native_authenticated")
+            and self._owner_ready is not None
+            and not self._owner_ready()
+        ):
+            await Response(status_code=401, headers={"X-Orion-Auth-Expired": "1"})(
+                scope, receive, send_remote
+            )
+            return
+        if classification in DESKTOP_ROUTES and not state.get("desktop_authenticated"):
+            await Response(status_code=403)(scope, receive, send_remote)
+            return
+        if (
             classification not in PAIRING_API_ROUTES | DEVICE_API_ROUTES
             and not trusted_owner
             and not (
@@ -225,6 +247,10 @@ class RemoteAccessMiddleware:
                 return
 
         await self._app(scope, receive, send_remote)
+
+
+class _DesktopCredentialInput(StrictRequest):
+    api_key: SecretStr | None = Field(default=None, min_length=1, max_length=16_384)
 
 
 class ModelConfigInput(StrictRequest):
@@ -317,6 +343,20 @@ def create_app(
         else None
     )
 
+    owner: OwnerAuth | None = None
+    owner_mfa = managed_desktop and remote.enabled and remote.password_hash is None
+
+    def verify_owner(password: str, code: str) -> bool:
+        return owner is not None and owner.verify(password, code)
+
+    def owner_ready() -> bool:
+        return owner is not None and owner.configured
+
+    def install(app: FastAPI, running: OrionApplication) -> None:
+        nonlocal owner
+        owner = OwnerAuth(running.store) if managed_desktop else None
+        _install_application_routes(app, running, ui_directory, sessions, remote, owner, owner_mfa)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with application_context(
@@ -327,7 +367,7 @@ def create_app(
             managed_desktop=managed_desktop,
         ) as running:
             if assembled is None:
-                _install_application_routes(app, running, ui_directory, sessions, remote)
+                install(app, running)
             running.scheduler_engine.start()
             try:
                 yield
@@ -362,7 +402,9 @@ def create_app(
         )
 
     sessions = (
-        BrowserSessions(remote.password_hash) if remote.enabled and remote.password_hash else None
+        BrowserSessions(remote.password_hash, verify_owner=verify_owner if owner_mfa else None)
+        if remote.enabled
+        else None
     )
     app.state.browser_sessions = sessions
     if remote.enabled:
@@ -372,16 +414,19 @@ def create_app(
             routes_app=app,
             sessions=sessions,
             public_origin=remote.public_origin,
+            owner_ready=owner_ready if owner_mfa else None,
         )
     app.add_middleware(
         NativeBearerMiddleware, routes_app=app, protected_routes=PROTECTED_API_ROUTES
     )
     if assembled is not None:
-        _install_application_routes(app, assembled, ui_directory, sessions, remote)
+        install(app, assembled)
     original_openapi = app.openapi
 
     def access_openapi() -> dict[str, object]:
-        return annotate_access(original_openapi(), PROTECTED_API_ROUTES, DEVICE_API_ROUTES)
+        return annotate_access(
+            original_openapi(), PROTECTED_API_ROUTES, DEVICE_API_ROUTES, DESKTOP_ROUTES
+        )
 
     app.openapi = access_openapi  # type: ignore[method-assign]
     return app
@@ -393,6 +438,8 @@ def _install_application_routes(
     ui_directory: Path | None,
     sessions: BrowserSessions | None,
     remote: RemoteAccessConfig,
+    owner: OwnerAuth | None,
+    owner_mfa: bool,
 ) -> None:
     """Install boundary adapters only after the single canonical snapshot is ready."""
     store, runtime = assembled.store, assembled.runtime
@@ -418,13 +465,13 @@ def _install_application_routes(
     )
 
     install_mcp_routes(app, assembled.mcp)
-    install_native_auth_routes(app, assembled.native_auth, assembled.access)
-    install_request_routes(
-        app,
-        assembled.requests,
-        assembled.native_auth,
-        lambda session_id: _session_scope(store, assembled.access, session_id),
-        lambda request: (
+    install_owner_auth_routes(app, owner, sessions)
+    install_native_auth_routes(
+        app, assembled.native_auth, assembled.access, owner=owner if owner_mfa else None
+    )
+
+    def observer_active(request: Request) -> bool:
+        return (
             bool(getattr(request.state, "native_authenticated", False))
             or bool(getattr(request.state, "desktop_authenticated", False))
             or not remote.enabled
@@ -432,7 +479,14 @@ def _install_application_routes(
                 sessions is not None
                 and sessions.expiry(request.cookies.get(COOKIE_NAME)) is not None
             )
-        ),
+        )
+
+    install_request_routes(
+        app,
+        assembled.requests,
+        assembled.native_auth,
+        lambda session_id: _session_scope(store, assembled.access, session_id),
+        observer_active,
     )
 
     def model_config_view(config: dict[str, str | int | None]) -> ModelConfigView:
@@ -474,7 +528,10 @@ def _install_application_routes(
                     "application/json": {
                         "schema": {
                             "type": "object",
-                            "properties": {"password": {"type": "string", "format": "password"}},
+                            "properties": {
+                                "password": {"type": "string", "format": "password"},
+                                "code": {"type": "string", "format": "password"},
+                            },
                             "required": ["password"],
                             "additionalProperties": False,
                         }
@@ -488,7 +545,7 @@ def _install_application_routes(
             raise HTTPException(status_code=404, detail="Not found.")
         body = bytearray()
         async for chunk in request.stream():
-            if len(body) + len(chunk) > 2048:
+            if len(body) + len(chunk) > 8192:
                 raise HTTPException(status_code=400, detail="Invalid login request.")
             body.extend(chunk)
         try:
@@ -497,12 +554,17 @@ def _install_application_routes(
             raise HTTPException(status_code=400, detail="Invalid login request.") from None
         if (
             not isinstance(payload, dict)
-            or set(payload) != {"password"}
+            or "password" not in payload
+            or set(payload) - {"password", "code"}
+            or not isinstance(payload.get("code", ""), str)
+            or len(payload.get("code", "")) > 64
             or not isinstance(payload["password"], str)
             or not 1 <= len(payload["password"]) <= 1024
         ):
             raise HTTPException(status_code=400, detail="Invalid login request.")
-        result = await asyncio.to_thread(sessions.login, payload["password"])
+        result = await asyncio.to_thread(
+            sessions.login, payload["password"], payload.get("code", "")
+        )
         if result is None:
             raise HTTPException(status_code=401, detail="Invalid credentials.")
         token, expiry = result
@@ -526,7 +588,14 @@ def _install_application_routes(
         if sessions is None or getattr(request.state, "desktop_authenticated", False):
             return {"remote_access": False, "authenticated": True, "expires_at": None}
         expiry = sessions.expiry(request.cookies.get(COOKIE_NAME))
-        return {"remote_access": True, "authenticated": expiry is not None, "expires_at": expiry}
+        result: dict[str, object] = {
+            "remote_access": True,
+            "authenticated": expiry is not None,
+            "expires_at": expiry,
+        }
+        if owner_mfa:
+            result["mfa_required"] = True
+        return result
 
     @app.post("/api/auth/logout")
     async def logout(request: Request) -> Response:
@@ -540,6 +609,39 @@ def _install_application_routes(
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:
         return [model_config_view(config) for config in store.model_configs()]
+
+    @app.post(
+        "/api/models/{model_config_id}/credential",
+        status_code=204,
+        openapi_extra=request_body_schema(_DesktopCredentialInput),
+    )
+    async def update_desktop_credential(model_config_id: str, request: Request) -> Response:
+        if (
+            owner is None
+            or sys.platform != "win32"
+            or not getattr(request.state, "desktop_authenticated", False)
+        ):
+            raise HTTPException(403, "Trusted Windows Orion Desktop is required.")
+        body = await _credentials(request, _DesktopCredentialInput, max_bytes=32_768)
+        service = assembled.model_configurations
+        if service is None:
+            raise HTTPException(503, "Protected credential storage is unavailable.")
+        profile = store.model_profile(model_config_id)
+        config = store.model_config(model_config_id)
+        if profile is None or config is None:
+            raise HTTPException(404, "Typed model profile not found.")
+        try:
+            updated = await asyncio.to_thread(
+                service.replace_profile_credential,
+                profile,
+                ReasoningMode(str(config["reasoning_mode"])),
+                body.api_key,
+            )
+        except ModelBackendError as error:
+            raise HTTPException(400, str(error)) from None
+        if not updated:
+            raise HTTPException(409, "Model configuration changed. Refresh Settings and try again.")
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/models", response_model=ModelConfigView, status_code=201)
     async def configure_model(config: ModelConfigInput) -> ModelConfigView:
@@ -919,12 +1021,24 @@ def _install_application_routes(
         )
 
     @app.post("/api/sessions/{session_id}/messages/stream")
-    async def stream_message(session_id: str, message: SubmitMessage) -> StreamingResponse:
+    async def stream_message(
+        session_id: str, message: SubmitMessage, request: Request
+    ) -> StreamingResponse:
+        family = getattr(request.state, "native_session_id", None)
+
+        def active() -> bool:
+            return observer_active(request) and (
+                family is None
+                or assembled.native_auth.session_active(
+                    family, assembled.access.current_principal()
+                )
+            )
+
         _require_session(store, assembled.access, session_id)
         request_id = runtime.begin(session_id, message.content)
         task = asyncio.create_task(runtime.run(session_id, request_id))
         return StreamingResponse(
-            _sse_events(store, runtime, request_id, task), media_type="text/event-stream"
+            _sse_events(store, runtime, request_id, task, active), media_type="text/event-stream"
         )
 
     @app.get("/api/requests/{request_id}/events")
@@ -1062,11 +1176,15 @@ async def _file_chunks(path: Path) -> AsyncIterator[bytes]:
 
 
 async def _sse_events(
-    store: SQLiteStore, runtime: ChatRuntime, request_id: str, task: asyncio.Task[object]
+    store: SQLiteStore,
+    runtime: ChatRuntime,
+    request_id: str,
+    task: asyncio.Task[object],
+    active: Callable[[], bool],
 ) -> AsyncIterator[str]:
     cursor = 0
     try:
-        while True:
+        while active():
             events = store.events(request_id)
             for event in events[cursor:]:
                 yield f"data: {json.dumps(event)}\n\n"

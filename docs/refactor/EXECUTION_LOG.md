@@ -62,3 +62,43 @@
 - Settings Windows lấy upstream từ readiness của ManagedBackend, đối chiếu hostname, cổng HTTPS và root proxy từ Tailscale CLI, phân biệt cấu hình Funnel và kiểm tra JSON health qua TLS. Đo trên Orion 0.1.5 bản đã cài với Host Mode tắt: OrionBackend lắng nghe 127.0.0.1:63440 trong phiên thử. Cổng đó chỉ là quan sát của phiên.
 - Windows Rust: 1 test phân biệt upstream chính xác, upstream sai và Funnel. TypeScript và 13 test UI đạt. Log release-work/tailscale/native-test.log và ui-test.log.
 - Winget tải MSI Tailscale 1.104.7 từ nhà phát hành, xác minh checksum và Authenticode hợp lệ. Máy chưa có Tailscale, phiên không elevated. Đã chuyển bước UAC và đăng nhập tailnet cho chủ máy. Chưa chạy Serve thật, chưa bật Funnel, chưa đóng gói NSIS hay thay bản cài 0.1.5.
+
+### 2026-11-15 · Owner Auth và QR Android
+
+- Xác minh checkpoint 7a247af và sao lưu 25 file WIP ngoài repo, kiểm tra SHA-256 từng file.
+- Windows Host Mode dùng Owner với Argon2id, TOTP chống tái sử dụng và recovery codes dạng hash. Thiết lập, đổi mật khẩu, thay 2FA và thu hồi phiên qua kênh Desktop xác thực. Luồng browser giữ exact Origin và cookie Secure. Chặn phiên native cũ trước khi 2FA được xác minh.
+- QR Authenticator và QR ghép đôi Android có payload riêng. Mã enrollment hết hạn sau 5 phút, dùng một lần và yêu cầu mật khẩu cùng mã xác thực Owner khi redeem. Java scanner biên dịch được với Gradle x86_64 Debug. ADB chưa thấy thiết bị để thử camera, Keystore và reconnect.
+- Các suite backend tập trung Auth/API/SSE/endpoints đạt, hai fixture native opt-in bị skip. UI 134 test đạt, TypeScript, ESLint, mypy, Ruff và Vite production build đạt. OpenAPI và SDK đã regen.
+- Serve trỏ tới managed upstream và kiểm tra Owner trước khi kích hoạt trong Settings. CLI báo No serve config và phiên này không có quyền Administrator. Chưa bật Serve/Funnel hay nâng cấp bản cài Windows 0.1.5. Cần Windows build/smoke, Owner thao tác Authenticator và Android quét QR thật trước khi chốt nghiệm thu.
+
+- Kiểm thử bản d75b258: 103 backend pass, 2 native opt-in skip, 134 UI pass. Windows Cargo check và Rust test chọn upstream/nhận diện Funnel đạt. Sidecar frozen và Edge qua HTTPS loopback đạt đăng nhập MFA, Secure cookie, native enrollment và revoke. Dùng hồ sơ SQLite thử nghiệm tách riêng. Log release-work/owner-auth-d75b258/owner-edge-smoke.log.
+- Ứng viên NSIS Windows x64 chưa ký, SHA-256 61761ccbe6894c9e8b7a4926463985e6a717f33f85961aa7c903f000a0b63e50. Giải nén installer và đối chiếu 844 hash của sidecar, gồm Worker Windows cùng source SHA. Web shell khớp build Vite.
+- APK Android ARM64 debug, SHA-256 72969755c93d115e83c3aae181715d656c2190d0637e6101988dc6988341db96. Gradle assemble thành công, apksigner xác minh chữ ký v2, manifest có CAMERA và ABI arm64-v8a. Chưa có thiết bị ADB để nghiệm thu camera, Keystore và reconnect. Hai gói và checksums tại release-work/owner-auth-d75b258. Bản cài 0.1.5 vẫn nguyên, Serve/Funnel chưa cấu hình. Cần Owner thiết lập thật, quyền Administrator cho Serve, và kiểm thử Android trước khi chốt nâng cấp.
+
+### 2026-11-15 · Nghiệm thu preview trên Windows
+
+- Xác minh SHA-256 NSIS và APK của d75b258. Sao lưu 924 file của bản cài và profile khi Orion dừng, đối chiếu từng hash và SQLite integrity_check. Backup có ACL riêng trong LocalAppData/OrionRecovery; giữ thông tin rollback registry của bản cài nếu key tồn tại.
+- Diễn tập migration và phục hồi SQLite trên bản sao offline. Cài đè NSIS preview cùng phiên bản 0.1.5, exit 0. Hash SQLite giữ nguyên trước lần mở đầu. Orion.exe, sidecar và web shell khớp payload. Sau khi khởi động, bảng desktop_owner được tạo, SQLite qua integrity_check, và dòng trong sessions, timeline, model_configs, projects, request_events và document_ingestion_events khớp backup. Lịch sử chat hiển thị trên app đã cài.
+- Mở Cài đặt > Kết nối server > Tài khoản & Bảo mật. Bàn giao biểu mẫu cho chủ máy tự tạo mật khẩu, quét Authenticator và lưu mã khôi phục. Backend chỉ lắng nghe loopback, Serve/Funnel chưa có cấu hình. ADB chưa thấy thiết bị. Web/DeepSeek/Local System Tools qua Serve và Android thật vẫn chờ nghiệm thu.
+
+### 2026-11-15 · Remote Host từ Settings
+
+- Trên preview 942721e, Tailscale Serve 443 có mapping tailnet-only tới 127.0.0.1:61888. HTTPS health 200, protected sessions 401, auth/session xác nhận MFA. POST rỗng/lỗi cú pháp với Origin đúng trả 400 và thiếu Origin trả 403. Lỗi hiển thị cũ không phân biệt HTTP và lỗi vận chuyển. Chưa tái hiện nguyên nhân thời điểm báo lỗi.
+- Nút bật/tắt lưu Host Mode, origin và autostart sau khi Owner sẵn sàng. Cài Serve nền qua CLI và có UAC cho thao tác bị từ chối quyền. Mapping có trước không được nhận là của Orion. Khi tắt chỉ gỡ mapping Orion tạo nếu còn khớp. Funnel không tự bật.
+- TypeScript, ESLint và 14 test UI tập trung đạt. 3 Rust tests đạt, gồm probe HTTPS trực tiếp trên Serve đang chạy và guard mapping xung đột. NSIS preview build lại Desktop/web và tái sử dụng backend/Worker d75b258.
+
+- NSIS preview 464ee75 kiểm tra archive 926 file OK, SHA-256 dfa20bce5ddfbe19e4b5089c3e2ea7b1ace375264a85d5eb1084f0068e9684cb. Sao lưu 930 file khi Host dừng. Cài đè 0.1.5 exit 0, EXE khớp payload NSIS, backend binary giữ nguyên. SQLite hash giữ nguyên qua cài, integrity_check và nội dung hàng chat/model/Owner khớp backup sau restart.
+- Nghiệm thu UI bản cài: Settings báo Online, Owner MFA. Bật từ Settings lưu autostart. Đóng cửa sổ giữ HTTPS 200, mở lại hiện cửa sổ. Tắt từ Settings khởi động lại chế độ local, HTTPS 502. Bật lại từ local tự khởi động Host Mode, HTTPS 200 và protected API 401. JSON Serve khớp trước và sau, tailnet-only; Orion không nhận mapping thủ công là của mình. Đã kiểm tra entry autostart; chưa reboot Windows.
+- Đang chờ Owner đăng nhập thật từ trình duyệt ẩn danh tại URL tailnet. Kiểm tra login readiness không nhập hay ghi nhận bí mật. Chưa thử UAC hay tạo mới Serve trên cổng trống, vì máy đang có mapping của người dùng. Không bật Funnel, không phát hành stable.
+
+### 2026-11-17 · DeepSeek credential DPAPI
+
+- Profile DeepSeek đang active trỏ tới api.deepseek.com với model deepseek-flash; tham chiếu env:ORION_PROVIDER_KEY. Windows User có biến này. Chỉ ghi nhận hiện diện.
+- Route cập nhật credential giới hạn Windows Desktop qua managed token. Nhập key từ HKCU Environment, mã hoá DPAPI, giải mã/so sánh rồi cập nhật credential_ref bằng CAS. Giữ biến User, model ID, endpoint, reasoning và các thuộc tính khác. Settings có nút nhập và ô API key mới cho hồ sơ typed.
+- Trên fixture chạy từ source, Windows trusted route trả 204, xác minh DPAPI đạt, và DeepSeek live streaming hoàn tất. EXE đang cài tái hiện request.failed trên fixture đã có credential DPAPI. Log cũ chỉ ghi lỗi chung. Thêm phân loại thiếu credential, HTTP, timeout, transport/stream, và loại/vị trí exception nội bộ. Đóng gói sidecar bằng Python 3.12 độc lập để kiểm tra đúng PHIÊN BẢN EXE trước khi cài.
+- Backend tập trung 73 pass, 1 skip. TypeScript/ESLint, 19 test bridge/SDK, OpenAPI và SDK validation đạt. Cần xác minh gói nội bộ và Desktop/Web sau cài đè.
+
+- SHA Python DLL của sidecar cũ khớp Python bundled Codex. Sidecar mới build bằng CPython 3.12 độc lập; frozen fixture mới pass 204 import, DPAPI và DeepSeek chat streaming, khi biến key không có trong process test. Log release-work/deepseek-dpapi/frozen-deepseek.log. Fixture Web HTTPS loopback dùng Edge, MFA thử nghiệm và chat DeepSeek mới pass. Teardown Windows khoá SQLite tạm thời, dữ liệu fixture đã dọn sau khi process thoát.
+- NSIS preview 2427f8b, SHA-256 c091283d4cef47a1132f00c73ba018e2ff79ee5c1d976f89d733788728765b9c, archive 926 file OK. Backup 931 file với ACL riêng; cài đè và xác minh hash sidecar mới, SQLite không đổi qua installer.
+- Nhập key từ nút Settings trong app đã cài. Tham chiếu profile DeepSeek active đã đổi env sang secret; đối chiếu mọi field còn lại với backup. DPAPI giải mã và khớp giá trị User, giữ nguyên biến gốc. Owner và lịch sử cũ khớp backup. Hội thoại mới Desktop trả ORION-DESKTOP-DPAPI. HTTPS tailnet trả 200, mapping Serve không đổi, Funnel tắt. Web thật qua tailnet chờ Owner xác thực.
+- Cộng 25 test UI (19 bridge/SDK và 6 Settings) pass, 73 backend pass, 1 skip.

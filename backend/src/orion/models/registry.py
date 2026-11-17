@@ -138,12 +138,18 @@ class ProviderRegistry(ModelBackend):
         registration, _ = self.resolve(settings)
         if profile.credential_ref is None:
             if getattr(registration.backend, "requires_credential", False):
-                raise self._unsupported("The configured provider credential reference is required.")
+                raise ModelBackendError(
+                    "The configured provider credential reference is required.",
+                    kind=ModelBackendErrorKind.CREDENTIAL_UNAVAILABLE,
+                )
             return settings
         try:
             secret = credentials.resolve(profile.credential_ref)
         except CredentialResolutionError:
-            raise self._unsupported("The configured provider credential is unavailable.") from None
+            raise ModelBackendError(
+                "The configured provider credential is unavailable.",
+                kind=ModelBackendErrorKind.CREDENTIAL_UNAVAILABLE,
+            ) from None
         return settings.model_copy(update={"api_key": secret.get_secret_value()})
 
     async def stream(

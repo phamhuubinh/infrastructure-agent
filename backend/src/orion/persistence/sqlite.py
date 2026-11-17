@@ -1420,6 +1420,30 @@ class SQLiteStore(
             )
         return updated.rowcount == 1
 
+    def replace_model_profile_credential(self, expected: ModelProfile, reference: str) -> bool:
+        """Update the credential only while the inspected profile is still current."""
+        with self._lock, self._connection:
+            row = self._connection.execute(
+                "SELECT profile_json FROM model_configs WHERE model_config_id = ? "
+                "AND api_key IS NULL AND credential_ref IS NULL",
+                (expected.profile_id,),
+            ).fetchone()
+            if row is None or not row["profile_json"]:
+                return False
+            raw = row["profile_json"]
+            if ModelProfile.model_validate_json(raw) != expected:
+                return False
+            updated = self._connection.execute(
+                "UPDATE model_configs SET profile_json = ? WHERE model_config_id = ? "
+                "AND profile_json = ? AND api_key IS NULL AND credential_ref IS NULL",
+                (
+                    expected.model_copy(update={"credential_ref": reference}).model_dump_json(),
+                    expected.profile_id,
+                    raw,
+                ),
+            )
+        return updated.rowcount == 1
+
     def active_model_binding(self) -> tuple[dict[str, Any], ModelProfile | None] | None:
         """Read one atomic configuration snapshot for a runtime request."""
         with self._lock:

@@ -22,7 +22,8 @@
             "allow-orion-close",
             "allow-orion-vault-get",
             "allow-orion-vault-set",
-            "allow-orion-vault-clear"
+            "allow-orion-vault-clear",
+            "allow-orion-scan-qr"
           ]
         }
       ]

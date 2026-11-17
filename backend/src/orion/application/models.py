@@ -14,8 +14,12 @@ from orion.models.backend import (
     ModelSettings,
     ReasoningMode,
 )
-from orion.models.credential_store import StoredCredentialResolver
-from orion.models.credentials import CredentialResolver
+from orion.models.credential_store import (
+    DEEPSEEK_USER_REFERENCE,
+    StoredCredentialResolver,
+    read_deepseek_windows_user_key,
+)
+from orion.models.credentials import CredentialResolutionError, CredentialResolver
 from orion.models.registry import ProviderRegistry
 from orion.persistence.sqlite import SQLiteStore
 
@@ -115,6 +119,35 @@ class ModelConfigurationService(ModelSettingsResolver):
             raise ModelBackendError(
                 "Protected credential storage failed.", kind=ModelBackendErrorKind.UNSUPPORTED
             ) from None
+
+    def replace_profile_credential(
+        self, profile: ModelProfile, mode: ReasoningMode, value: SecretStr | None
+    ) -> bool:
+        if value is None:
+            if (
+                profile.provider_id != "deepseek"
+                or profile.credential_ref != DEEPSEEK_USER_REFERENCE
+            ):
+                raise ModelBackendError("This profile does not use the Windows User DeepSeek key.")
+            try:
+                value = read_deepseek_windows_user_key()
+            except CredentialResolutionError as error:
+                raise ModelBackendError(
+                    str(error), kind=ModelBackendErrorKind.CREDENTIAL_UNAVAILABLE
+                ) from None
+        reference = self.store_credential(value)
+        try:
+            self.validate_profile(profile.model_copy(update={"credential_ref": reference}), mode)
+            if self._store.replace_model_profile_credential(profile, reference):
+                return True
+        except sqlite3.Error:
+            # The commit result may be uncertain. Keep the credential available for rollback.
+            raise ModelBackendError("Credential update could not be committed.") from None
+        except ModelBackendError:
+            self.delete_credential(reference)
+            raise
+        self.delete_credential(reference)
+        return False
 
     def migrate_legacy_credentials(self) -> CredentialMigrationResult:
         """Verify the protected copy before a compare-and-swap SQLite update.

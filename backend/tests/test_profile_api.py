@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import sys
+
 import httpx
 import pytest
 from conftest import ScriptedBackend
+from pydantic import SecretStr
 
 from orion.api.app import create_app
 from orion.bootstrap import build_application
+from orion.cli.managed import ManagedAccess
 from orion.contracts import AssistantMessage, ModelTurn
 from orion.contracts.profiles import ModelCapabilities, ModelProfile
 from orion.models.registry import AdapterRegistration, ProviderRegistry
@@ -36,6 +40,48 @@ def body(value, **changes):
         "profile": value.model_dump(mode="json"),
         **changes,
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows current-user DPAPI")
+async def test_desktop_import_and_rotation_preserve_profile(tmp_path, monkeypatch):
+    monkeypatch.delenv("ORION_PROVIDER_KEY", raising=False)
+    monkeypatch.setattr(
+        "orion.application.models.read_deepseek_windows_user_key",
+        lambda: SecretStr("fixture-provider-credential"),
+    )
+    app = create_app(tmp_path / "profiles.db", managed_desktop=True)
+    store = app.state.application.store
+    original = profile(
+        provider_id="deepseek",
+        endpoint="https://api.deepseek.com",
+        credential_ref="env:ORION_PROVIDER_KEY",
+        capabilities=ModelCapabilities(streaming=True),
+    )
+    store.create_model_config(
+        original.provider_id, original.endpoint, original.model_id, None, profile=original
+    )
+    guard = ManagedAccess(app, token=b"fixture-desktop-only", remote_enabled=True)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=guard), base_url="http://127.0.0.1"
+        ) as client:
+            path = f"/api/models/{original.profile_id}/credential"
+            assert (await client.post(path, json={})).status_code == 403
+            headers = {"X-Orion-Managed-Token": "fixture-desktop-only"}
+            imported = await client.post(path, json={}, headers=headers)
+            assert imported.status_code == 204 and not imported.content
+            first = store.model_profile(original.profile_id)
+            assert first.credential_ref.startswith("secret:")
+            assert first.model_copy(update={"credential_ref": original.credential_ref}) == original
+            rotated = await client.post(path, json={"api_key": "fixture-rotated"}, headers=headers)
+            assert rotated.status_code == 204 and not rotated.content
+            second = store.model_profile(original.profile_id)
+            assert second.credential_ref != first.credential_ref
+            assert not store.replace_model_profile_credential(first, first.credential_ref)
+            assert store.model_profile(original.profile_id) == second
+    finally:
+        store.close()
 
 
 @pytest.mark.anyio

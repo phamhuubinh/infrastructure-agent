@@ -10,7 +10,7 @@ import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from contextvars import Token
 from dataclasses import dataclass
 from typing import Any, cast
@@ -1537,6 +1537,21 @@ class ChatRuntime:
             self._emit(request_id, "request.failed", {"message": str(error)})
             raise
         except Exception as error:
+            if self._application_log is not None:
+                frame = error.__traceback__
+                while frame is not None and frame.tb_next is not None:
+                    frame = frame.tb_next
+                with suppress(OSError):
+                    self._application_log.write(
+                        "request.internal_error",
+                        {
+                            "request_id": request_id,
+                            "exception_type": type(error).__name__,
+                            "module": frame.tb_frame.f_globals.get("__name__") if frame else None,
+                            "function": frame.tb_frame.f_code.co_name if frame else None,
+                            "line": frame.tb_lineno if frame else None,
+                        },
+                    )
             if terminal_final_started:
                 return self._complete_incomplete(
                     session_id,

@@ -21,6 +21,7 @@ def annotate_access(
     schema: dict[str, Any],
     owner_routes: set[tuple[str, str]],
     worker_routes: set[tuple[str, str]],
+    desktop_routes: set[tuple[str, str]],
 ) -> dict[str, Any]:
     schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
     schemes.update(
@@ -31,6 +32,7 @@ def annotate_access(
                 "bearerFormat": "opaque owner access",
             },
             "BrowserOwner": {"type": "apiKey", "in": "cookie", "name": COOKIE_NAME},
+            "ManagedDesktop": {"type": "apiKey", "in": "header", "name": "X-Orion-Managed-Token"},
             "Worker": {
                 "type": "http",
                 "scheme": "bearer",
@@ -51,7 +53,10 @@ def annotate_access(
             }:
                 continue
             identity = method.upper(), path
-            if identity in owner_routes:
+            if identity in desktop_routes:
+                operation["security"] = [{"ManagedDesktop": []}]
+                operation["x-orion-auth"] = "owner"
+            elif identity in owner_routes:
                 operation["security"] = [{"NativeOwner": []}, {"BrowserOwner": []}]
                 operation["x-orion-auth"] = "owner"
                 operation["x-orion-local-loopback-owner"] = True

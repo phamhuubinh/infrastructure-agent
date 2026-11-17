@@ -29,14 +29,19 @@ export async function installTauriHost() {
   installNativeHost({
     platform,
     tokens,
+    scanConnectionQr: platform === "android" ? () => invoke("orion_scan_qr") : undefined,
     fetch: nativeFetch(false, platform !== "windows"),
     hostOrigin: hostOrigin ?? undefined,
     tailscaleStatus: platform === "windows" ? () => invoke("orion_tailscale_status") : undefined,
+    tailscaleSetEnabled:
+      platform === "windows"
+        ? (enabled) => invoke("orion_tailscale_set_enabled", { enabled })
+        : undefined,
     hostSettings:
       platform === "windows"
         ? {
             load: () => invoke("orion_host_settings"),
-            save: (settings: HostSettingsOptions & { passwordHash: string }) =>
+            save: (settings: HostSettingsOptions) =>
               invoke("orion_save_host_settings", { settings }),
           }
         : undefined,

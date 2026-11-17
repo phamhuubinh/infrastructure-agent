@@ -204,7 +204,8 @@ fn read_origin(reader: &mut impl BufRead) -> io::Result<String> {
     Ok(ready.origin)
 }
 
-fn create_job() -> io::Result<OwnedHandle> {
+#[doc(hidden)]
+pub fn create_job() -> io::Result<OwnedHandle> {
     let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
     if handle.is_null() {
         return Err(io::Error::last_os_error());

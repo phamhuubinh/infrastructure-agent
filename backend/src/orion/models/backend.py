@@ -112,6 +112,7 @@ class ModelBackendErrorKind(StrEnum):
     """Safe, provider-neutral categories for model backend failures."""
 
     CONNECTION = "connection"
+    CREDENTIAL_UNAVAILABLE = "credential_unavailable"
     EMPTY_TURN = "empty_turn"
     INCOMPLETE_STREAM = "incomplete_stream"
     MALFORMED_STREAM = "malformed_stream"

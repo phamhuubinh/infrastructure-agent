@@ -6,6 +6,7 @@ fn main() {
             "orion_stop_host",
             "orion_host_settings",
             "orion_tailscale_status",
+            "orion_tailscale_set_enabled",
             "orion_save_host_settings",
             "orion_prepare",
             "orion_start",
@@ -16,6 +17,7 @@ fn main() {
             "orion_vault_get",
             "orion_vault_set",
             "orion_vault_clear",
+            "orion_scan_qr",
         ]),
     ))
     .expect("build Orion native context");

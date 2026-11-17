@@ -26,6 +26,26 @@ from pydantic import SecretStr
 from orion.models.credentials import CredentialResolutionError, EnvironmentCredentialResolver
 
 MAX_RECORD_BYTES = 131_072
+DEEPSEEK_USER_REFERENCE = "env:ORION_PROVIDER_KEY"
+
+
+def read_deepseek_windows_user_key() -> SecretStr:
+    """Read the current Windows user's saved setting, independent of process inheritance."""
+    if sys.platform != "win32":
+        raise CredentialResolutionError("Windows user credential import is unavailable.")
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, kind = winreg.QueryValueEx(key, "ORION_PROVIDER_KEY")
+    except OSError:
+        raise CredentialResolutionError(
+            "Windows user provider credential is unavailable."
+        ) from None
+    if kind not in (winreg.REG_SZ, winreg.REG_EXPAND_SZ) or not isinstance(value, str):
+        raise CredentialResolutionError("Windows user provider credential is invalid.")
+    _valid_key(value)
+    return SecretStr(value)
 
 
 class _Blob(ctypes.Structure):

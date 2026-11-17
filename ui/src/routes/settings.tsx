@@ -10,7 +10,12 @@ import { Input } from "@/components/ui/input";
 import { apiErrorMessage, apiFetch, apiJson } from "@/lib/api";
 import { ServerConnections } from "@/components/ServerConnections";
 import { RuntimeResources } from "@/components/RuntimeResources";
-import { isNativeHost, serverRequest } from "@/lib/server-profiles";
+import {
+  desktopHostSettings,
+  isManagedServer,
+  isNativeHost,
+  serverRequest,
+} from "@/lib/server-profiles";
 import { newUuid } from "@/lib/uuid";
 import type { Schemas } from "@/lib/sdk/generated";
 
@@ -28,6 +33,7 @@ type ModelConnection = Schemas["ModelConfigView"];
 type Provider = Schemas["ModelProfile"]["provider_id"];
 
 export function SettingsPage() {
+  const trustedDesktop = Boolean(desktopHostSettings()) && isManagedServer();
   const [models, setModels] = useState<ModelConnection[]>([]);
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
@@ -147,6 +153,30 @@ export function SettingsPage() {
       await loadModels();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Không thể lưu model.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCredential(value?: string) {
+    if (!trustedDesktop || !editingModel?.profile) return;
+    setBusy(true);
+    setNotice("");
+    setError("");
+    setApiKey("");
+    try {
+      const path = `/api/models/${encodeURIComponent(editingModel.model_config_id)}/credential`;
+      const response = await apiFetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(value === undefined ? {} : { api_key: value }),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response));
+      resetModelForm();
+      setNotice("Đã xác minh và lưu API key trong kho mã hoá Windows.");
+      await loadModels();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Không thể lưu API key.");
     } finally {
       setBusy(false);
     }
@@ -405,6 +435,34 @@ export function SettingsPage() {
                           autoComplete="off"
                         />
                       )}
+                    {trustedDesktop && editingModel?.profile && (
+                      <div className="space-y-2 sm:col-span-2">
+                        <label>
+                          API key mới
+                          <Input
+                            type="password"
+                            value={apiKey}
+                            maxLength={16384}
+                            onChange={(event) => setApiKey(event.target.value)}
+                            autoComplete="off"
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            disabled={busy || !apiKey}
+                            onClick={() => void saveCredential(apiKey)}
+                          >
+                            Lưu API key
+                          </Button>
+                          {editingModel.profile.provider_id === "deepseek" &&
+                            editingModel.profile.credential_ref === "env:ORION_PROVIDER_KEY" && (
+                              <Button disabled={busy} onClick={() => void saveCredential()}>
+                                Nhập API key DeepSeek từ Windows
+                              </Button>
+                            )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 flex justify-end gap-2">

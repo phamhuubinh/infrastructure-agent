@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Use the private Windows build for personal operation and validate against the owner's configured model and managed devices. Track live provider, public upgrade, iOS and signing evidence under the full-scope gates.",
+  "next_action": "DeepSeek credential migration and fresh chat passed on the installed Windows Desktop preview; an isolated authenticated Edge Web chat also passed. Await an authenticated session at the real private Serve URL for live Web acceptance. Funnel remains disabled.",
   "work_items": [
     {
       "id": "R00",

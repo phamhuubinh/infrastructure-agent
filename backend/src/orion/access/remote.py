@@ -33,7 +33,7 @@ class RemoteAccessConfig:
     password_hash: str | None = None
 
     @classmethod
-    def from_environment(cls) -> RemoteAccessConfig:
+    def from_environment(cls, *, owner_credentials: bool = False) -> RemoteAccessConfig:
         mode = os.getenv("ORION_REMOTE_ACCESS")
         bind = os.getenv("ORION_BIND_HOST", ORION_HOST)
         origin = os.getenv("ORION_PUBLIC_ORIGIN")
@@ -48,7 +48,7 @@ class RemoteAccessConfig:
             if not address.is_loopback or origin or password_hash:
                 raise ValueError("Remote access configuration is incomplete or disabled.")
             return cls(False, bind)
-        if not origin or not password_hash:
+        if not origin or (not owner_credentials and not password_hash):
             raise ValueError("Remote access requires a public origin and encoded password hash.")
         parsed = urlsplit(origin)
         if (
@@ -90,6 +90,9 @@ class RemoteAccessConfig:
         if parsed.scheme == "http":
             if not address.is_loopback or host_address is None or not host_address.is_loopback:
                 raise ValueError("Remote public origin must use HTTPS.")
+        if owner_credentials:
+            return cls(True, bind, origin)
+        assert password_hash is not None
         if not password_hash.startswith("$argon2id$"):
             raise ValueError("ORION_AUTH_PASSWORD_HASH must be an Argon2id encoded hash.")
         try:
@@ -110,34 +113,48 @@ def hash_password(password: str) -> str:
 class BrowserSessions:
     """Bounded process-local tokens; only SHA-256 digests are retained."""
 
-    def __init__(self, password_hash: str, *, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        password_hash: str | None,
+        *,
+        clock: Callable[[], float] = time.time,
+        verify_owner: Callable[[str, str], bool] | None = None,
+    ) -> None:
         self._password_hash = password_hash
+        self._verify_owner = verify_owner
         self._clock = clock
         self._tokens: dict[str, float] = {}
         self._failures: list[float] = []
         self._lock = threading.Lock()
+        self._login_lock = threading.Lock()
 
-    def login(self, password: str) -> tuple[str, float] | None:
-        with self._lock:
+    def login(self, password: str, code: str = "") -> tuple[str, float] | None:
+        with self._login_lock:
             now = self._clock()
             self._failures = [when for when in self._failures if now - when < 60]
             if len(self._failures) >= 10:
                 return None
-            try:
-                verified = bool(_HASHER.verify(self._password_hash, password))
-            except (VerifyMismatchError, VerificationError, InvalidHashError):
-                verified = False
+            if self._verify_owner is not None:
+                verified = self._verify_owner(password, code)
+            else:
+                try:
+                    verified = self._password_hash is not None and bool(
+                        _HASHER.verify(self._password_hash, password)
+                    )
+                except (VerifyMismatchError, VerificationError, InvalidHashError):
+                    verified = False
             if not verified:
                 self._failures.append(now)
                 return None
             self._failures.clear()
-            self._prune(now)
-            if len(self._tokens) >= MAX_SESSIONS:
-                self._tokens.pop(min(self._tokens, key=self._tokens.get))  # type: ignore[arg-type]
-            token = secrets.token_urlsafe(32)
-            expiry = now + SESSION_SECONDS
-            self._tokens[self._digest(token)] = expiry
-            return token, expiry
+            with self._lock:
+                self._prune(now)
+                if len(self._tokens) >= MAX_SESSIONS:
+                    self._tokens.pop(min(self._tokens, key=self._tokens.get))  # type: ignore[arg-type]
+                token = secrets.token_urlsafe(32)
+                expiry = now + SESSION_SECONDS
+                self._tokens[self._digest(token)] = expiry
+                return token, expiry
 
     def expiry(self, token: str | None) -> float | None:
         if not token:
@@ -158,6 +175,10 @@ class BrowserSessions:
                     if hmac.compare_digest(digest, candidate):
                         del self._tokens[digest]
                         break
+
+    def revoke_all(self) -> None:
+        with self._login_lock, self._lock:
+            self._tokens.clear()
 
     def _prune(self, now: float) -> None:
         self._tokens = {digest: expiry for digest, expiry in self._tokens.items() if expiry > now}

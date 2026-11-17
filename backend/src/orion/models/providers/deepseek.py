@@ -297,14 +297,18 @@ class DeepSeekBackend(ChatCompletionsDecoder, ModelBackend):
             raise
         except httpx.HTTPError as error:
             kind = ModelBackendErrorKind.CONNECTION
+            message = "DeepSeek connection failed."
             if isinstance(error, httpx.TimeoutException):
                 kind = ModelBackendErrorKind.TIMEOUT
+                message = "DeepSeek request timed out."
             elif isinstance(error, httpx.HTTPStatusError):
                 kind = ModelBackendErrorKind.UPSTREAM_HTTP
+                message = f"DeepSeek returned HTTP {error.response.status_code}."
             elif isinstance(error, httpx.ProtocolError):
                 kind = ModelBackendErrorKind.PROTOCOL
+                message = "DeepSeek stream transport failed."
             raise ModelBackendError(
-                "DeepSeek provider transport failed.",
+                message,
                 kind=kind,
                 retry_safe=(
                     not response_started
