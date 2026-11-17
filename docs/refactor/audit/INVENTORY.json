@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "61ba030fafec61f212fe259e796711c220afa150",
+  "source_commit": "9391a52098f95f570d23382cded71e678ae9e02d",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -782,33 +782,33 @@
     {
       "path": "backend/src/orion/application/command_tools.py",
       "kind": "text",
-      "bytes": 5168,
-      "sha256": "f046a5b27498843ae658269736a52161514404405920d5dee4043362bc0999e5",
+      "bytes": 5575,
+      "sha256": "4252f3296e72c18a163399a21e084bbc7ec42392648f95a1dec371d26dab4727",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Closed canonical run/status/cancel schemas, mutation/read metadata, safe errors and transient system_command sources; generic endpoint aliases are excluded.",
-      "replacement_or_callers": "ToolRunner, CommandService and first-turn runtime conformance.",
-      "verification": "R08 source/callers and regression review; R08_REPAIRED_CHECKS_2026-10-30.json and R08_UI_CHECKS_2026-10-30.json. Linux/live/packaged artifact gates remain explicit.",
-      "lines": 134,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 140,
       "python_syntax": "parsed"
     },
     {
       "path": "backend/src/orion/application/commands.py",
       "kind": "text",
-      "bytes": 11937,
-      "sha256": "039f9a4224a72a7d6d87e989ef1b5de7be9a419e1bd77976a08f13cc9c2e870d",
+      "bytes": 12895,
+      "sha256": "5db185193fe6ee9a1a7ab40996c99ffb360f51a54ed267cd5a5e6127767dd5fc",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Check existing call before capability preparation, then recheck actual scope/Stop and commit handle before dispatch; prevents duplicate SSH reconnect/replay.",
-      "replacement_or_callers": "R09 SSH CommandService/router/helper; R10 SkillService/ChatRuntime/SQLite/CLI; R11 MCP manager/owner API/CLI, tests and dated operation contracts as applicable.",
-      "verification": "R10_REPAIRED_CHECKS_2026-10-31.json; R10_WHEEL_CHECKS_2026-10-31.json; R09_QEMU_LINUX/SSH evidence; R11 current full/static and focused lifecycle regressions. Source/guest scope only; inspect each report source hash and failures, not native artifact/live acceptance.",
-      "lines": 267,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 282,
       "python_syntax": "parsed"
     },
     {
@@ -942,8 +942,8 @@
     {
       "path": "backend/src/orion/chat/context_builder.py",
       "kind": "text",
-      "bytes": 38430,
-      "sha256": "027ae6f5e3c518e56c7da73d2aaedc496e3f66de95a206277c8fd215cb94d624",
+      "bytes": 37067,
+      "sha256": "a50620240f2f993759847e3398293379dc9da86584638518d76ccf58b178f400",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -952,7 +952,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 856,
+      "lines": 834,
       "python_syntax": "parsed"
     },
     {
@@ -1022,8 +1022,8 @@
     {
       "path": "backend/src/orion/chat/runtime.py",
       "kind": "text",
-      "bytes": 107990,
-      "sha256": "6c19193dcfdad9edd0653f2ce62401d78b42fafa7376f5efb2f4c9a302ab5238",
+      "bytes": 106433,
+      "sha256": "f773d39d1be3248b700877b4b75ab6fe3a22b3637f403fe7ae527995278c26b1",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -1032,7 +1032,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 2220,
+      "lines": 2203,
       "python_syntax": "parsed"
     },
     {
@@ -3006,8 +3006,8 @@
     {
       "path": "backend/tests/test_chat_runtime.py",
       "kind": "text",
-      "bytes": 68890,
-      "sha256": "5cedfada2a128f026a51dcdbbed40819aaa4d274a7df77ac62302d2b90c774b7",
+      "bytes": 70691,
+      "sha256": "9071d32fe919ac3bd32f59096e29a455e769b4174e4b449481e7353bd97799f1",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -3016,7 +3016,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 1908,
+      "lines": 1907,
       "python_syntax": "parsed"
     },
     {
@@ -3150,17 +3150,17 @@
     {
       "path": "backend/tests/test_command_service.py",
       "kind": "text",
-      "bytes": 11918,
-      "sha256": "39804378aea3dca117d8ba8560e68be0d18021303bff537f9ffc06b5d1c6e53e",
+      "bytes": 13816,
+      "sha256": "0cc59371c339b2a36fc8f8af7d3c933efc4d7e19d00755fac0427c04aa2ca80a",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Covers commit-before-dispatch, exact scope, duplicate/no replay, lost ACK, Stop, connection replacement, unsupported/unowned request and malformed evidence; real manager protocol fixture blocks generic bypass.",
-      "replacement_or_callers": "CommandService, SQLite, Executor and EndpointManager wire contracts.",
-      "verification": "R08 source/callers and regression review; R08_REPAIRED_CHECKS_2026-10-30.json and R08_UI_CHECKS_2026-10-30.json. Linux/live/packaged artifact gates remain explicit.",
-      "lines": 308,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 348,
       "python_syntax": "parsed"
     },
     {
@@ -3662,16 +3662,16 @@
     {
       "path": "backend/tests/test_model_context_performance.py",
       "kind": "text",
-      "bytes": 41628,
-      "sha256": "43678e902135a45f444af87763a794243d86ca60971a8caa6b75b89bccd881a2",
+      "bytes": 41618,
+      "sha256": "05bfbf2dfd909ebca5054bb63b9a767cce38ddb4e39b698ee2814132d3a64a10",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Keep exact context budget assertions aligned with the reduced catalog.",
-      "replacement_or_callers": "Provider serialization and context budget fixtures.",
-      "verification": "Reviewed focused results and exact hosted CI logs.",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
       "lines": 1025,
       "python_syntax": "parsed"
     },
@@ -4270,17 +4270,17 @@
     {
       "path": "backend/tests/test_runtime_diagnostics.py",
       "kind": "text",
-      "bytes": 44055,
-      "sha256": "86e772db7901771dd7d26aecb8bda3e9a8fe8dfe0547deec21f94d8305073cd2",
+      "bytes": 45416,
+      "sha256": "e4eb164157484ae3c37fda15bb9c0ee7b75dc3d19e83057473ccb2661c8997ed",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "rewrite",
-      "reason": "Read entire diagnostics/timing/citation/privacy suite; added total-request LRU/omission eviction/invalid limits tests.68focusedtests pass. Replace monitoring fixtures/raw ReasoningDelta assumptions as native provider state moves behind adapter.",
-      "replacement_or_callers": "R01_RESUME_2026-10-29.md; actual canonical runtime/SDK/packaging callers read; replace under task dependency graph.",
-      "verification": "Complete semantic read. Full legacy baseline plus current R01_UI_PROTOCOL_CHECKS/R01_DIAGNOSTICS_CHECKS exact tests, no native/live/signing acceptance claimed.",
-      "lines": 1205,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 1208,
       "python_syntax": "parsed"
     },
     {
@@ -7358,8 +7358,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 24100,
-      "sha256": "e97b4414d692a2a86eb6833164769d8ec43383d3c20b9cc7743c94a4f2c3b426",
+      "bytes": 32727,
+      "sha256": "1c0ebd533f3361940d6463f84ec9e1f9ee116470ecc35dda037dfd75d13f2e73",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7368,7 +7368,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 131,
+      "lines": 169,
       "python_syntax": null
     },
     {
@@ -7470,8 +7470,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 47168,
-      "sha256": "30ad31055bd2498dba311cc82c87e468df74adc1cc86a0a036e63afc8c12e1bb",
+      "bytes": 48173,
+      "sha256": "84b5377c187d6b65db547df3fe2e6567803358b818489c6beb9aa98b8458daab",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7480,7 +7480,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 909,
+      "lines": 922,
       "python_syntax": null
     },
     {
@@ -9742,8 +9742,8 @@
     {
       "path": "ui/src/routes/__tests__/-chat.test.tsx",
       "kind": "text",
-      "bytes": 53293,
-      "sha256": "3e059a2b6705733010c1aa83d20dd0fd003bfb4ba1f849b377aeef9334a8d6ab",
+      "bytes": 53830,
+      "sha256": "321bf1a92f6ccea5b4209a4edeab7b9a17022c5aef287842a378bc29653b423d",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9752,7 +9752,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 1352,
+      "lines": 1361,
       "python_syntax": null
     },
     {
@@ -9838,8 +9838,8 @@
     {
       "path": "ui/src/routes/index.tsx",
       "kind": "text",
-      "bytes": 45615,
-      "sha256": "9cb6e74eb7cea312d7492f5d9b4a0472fa4fbbb036eb9e81f0cad99b22004508",
+      "bytes": 48998,
+      "sha256": "2842ac19bc955160c12becbfc2c32e88a28a70f72f81b6fe4545bd31169a7c9b",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9848,7 +9848,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 1276,
+      "lines": 1369,
       "python_syntax": null
     },
     {

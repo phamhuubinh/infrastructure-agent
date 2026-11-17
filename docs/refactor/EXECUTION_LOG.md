@@ -129,3 +129,41 @@
 | PowerShell rồi tính toán | 3 → 3 | 8.451 → 8.113 | 185 → 172 |
 
 - Trên bản đang cài, HTTPS Serve trả `200` cho health và `401` cho API danh sách Chat khi chưa đăng nhập. Chưa nghiệm thu lần đăng nhập Owner qua Serve cho mã nguồn mới. ADB chưa có thiết bị kết nối. Windows hiện tại không có WSL hay macOS/Xcode. Các cổng nghiệm thu nền tảng vẫn mở. Chưa build NSIS, cài đè, hay thay đổi Owner Auth, DPAPI, SQLite đang dùng, Serve hoặc Funnel.
+
+### 2026-11-18 · Cuộn Chat, token và nghiệm thu Windows
+
+- Checkpoint đầu phiên `55bbb49` trùng nhánh remote. Đã có NSIS unsigned 120.163.803 byte trong `release-work/sync-55bbb49` với SHA-256 `2A23DBB2B971805B73FA8C39E4DC52850C1ADB27805365F642B34E47F7286AB6`, kiểm tra 926 tệp và frozen smoke đạt. Thư mục đó chỉ có kịch bản nâng cấp, chưa có backup hay biên bản cài của ứng viên. Log thử Web thật bị dừng khi trình duyệt đóng. Giữ lại gói và backup của bản cài trước.
+- Windows Desktop đang chạy sinh đúng tiến trình OrionBackend sở hữu listener `127.0.0.1:61888`. Serve HTTPS cùng proxy đó trả health 200 và danh sách Chat 401 khi chưa xác thực. Nguồn Desktop mở sidecar bằng thư mục local app data `managed`, và backend chọn `orion.db` trong thư mục ấy. SQLite đọc bằng `mode=ro` trả `quick_check=ok`; cả ba giá trị xuất hiện trong timeline và sự kiện SSE lưu bền. Hash sidecar đang cài khác sidecar ứng viên `55bbb49`, và bundle Web đang cài chưa có header `If-None-Match` cho snapshot. Bản cài cũ giữ snapshot sidebar giữa các thao tác, còn mã mới tại checkpoint thêm ETag, polling 5 giây khi đang hiển thị, refresh khi focus/reconnect và áp dụng kết quả xóa lên dữ liệu hiện tại. Dùng lại bằng chứng ba Edge context và một SQLite fixture của checkpoint.
+- Chat lưu mốc tin nhắn và độ lệch trong localStorage theo client/server/hội thoại. Khôi phục khi timeline có dữ liệu, giữ mốc qua refresh và reflow. Chỉ theo đuôi khi có tin nhắn mới hoặc phần stream nối tiếp và người đọc đang gần cuối, đồng thời tôn trọng thao tác cuộn lên. Bài thử Windows Edge với bundle thật và SQLite tạm xác minh chat dài, focus refresh, hai vị trí riêng, đổi chiều rộng và reload. Bản nháp vẫn theo luồng cục bộ hiện có.
+- Số liệu bên dưới lấy từ SQLite đang dùng. Đếm `model.started` và đối chiếu với `model.completed`. Hai lượt lớn nhất là lượt đầu của hội thoại. Lượt 39.920 có một lượt trước đó. Kho dữ liệu cũ chỉ có tổng token, số lần gọi, thời lượng và timeline, nên không khôi phục được token theo thành phần hoặc payload từng lần gọi. Trace hiện có trên fixture DeepSeek tại `55bbb49` đo phần system từ 5.053 lên 7.182 byte sau bước công cụ, 4.159 byte schemas gửi lại mỗi lần, và phần tool content từ 410 lên 767 byte qua hai lần tiếp tục. Đây là byte JSON của fixture, còn token trong bảng là số do provider báo.
+
+| Lượt lịch sử | Input | Output | Lần gọi model | Vết công cụ |
+| --- | ---: | ---: | ---: | --- |
+| 39.920 | 39.920 | 1.098 | 3 | 1 run, 1 status |
+| 105.410 | 105.410 | 5.274 | 8 | 6 công cụ, 4 thất bại, 2 lần liệt kê endpoint |
+| 132.005 | 132.005 | 1.751 | 10 | 1 run, 8 status |
+
+- Rút gọn phần hướng dẫn hệ thống và nhắc model chọn cùng lúc các lệnh đọc độc lập có đầu vào đã biết. Giữ cấu trúc schema, bước phụ thuộc, kiểm tra scope và các giới hạn dựa trên evidence. Với trang đầu của `system.command.status`, chờ monitor đang có tối đa 8 giây rồi lấy trạng thái bằng luồng hiện có. API trạng thái trực tiếp và truy xuất trang output theo byte offset vẫn trả theo luồng trước. Hủy chờ không hủy monitor và không chạy lại lệnh. Benchmark DeepSeek dùng hồ sơ hiện có ở chế độ chỉ đọc và SQLite tạm; so sánh prompt tại `55bbb49` với prompt mới, rồi tách riêng tác động của chế độ đợi trạng thái bằng một fixture chạy lệnh cố định 6 giây.
+
+| DeepSeek fixture | Model trước → sau | Input trước → sau | Output trước → sau |
+| --- | ---: | ---: | ---: |
+| Chuỗi chính xác | 1 → 1 | 2.230 → 1.863 | 21 → 9 |
+| PowerShell cố định | 2 → 2 | 5.124 → 4.396 | 144 → 171 |
+| RAG SQLite | 2 → 2 | 5.601 → 4.881 | 169 → 171 |
+| PowerShell rồi calculator | 3 → 3 | 8.152 → 7.040 | 202 → 209 |
+| Trạng thái lệnh, trả ngay so với đợi | 8 → 3 | 25.777 → 6.511 | 1.054 → 473 |
+
+- Bốn kịch bản prompt đạt tiêu chí fixture và giảm 12,9–16,5% input. Kịch bản trạng thái giảm 74,7% input, trả đúng stdout và có đúng một lần chạy lệnh ở hai chế độ. Input từng lần trạng thái trước là `1612, 2231, 2693, 3153, 3614, 4094, 4128, 4252`, sau là `1612, 2222, 2677`. Mỗi kịch bản là một cặp đo. Ba yêu cầu thật không được chạy lại vì có lịch sử thao tác trên máy và thiếu payload/token từng bước. Log đo `release-work/orion-followup/benchmark-final.log` và `benchmark-command.log`.
+- Mã backend và Worker đóng gói từ `fdfcb15`. UI cuối tại `9391a52`. 132 test runtime/context/diagnostics, 26 test command/local/SSH, 20 test Chat UI, TypeScript, ESLint và Ruff tập trung đạt. Vite build đạt, còn cảnh báo chunk vượt 500 kB. Frozen sidecar qua smoke với port và SQLite tạm, không đụng Host đang chạy. Log trong `release-work/orion-followup` và `release-work/acceptance-fdfcb15`. Mypy toàn backend báo 4 lỗi kiểu hiện hữu trong `endpoints/artifacts.py`, tệp này khớp `55bbb49`.
+
+- NSIS x64 debug preview chưa ký `release-work/acceptance-fdfcb15/Orion_0.1.5_x64_fdfcb15-preview-setup.exe`, 120.184.178 byte, SHA-256 `9B56E4FFDFB7606EE4F3FF437C91CBC647F61702D4666BDA5442C82DE9A2E24C`. 7-Zip kiểm tra 926 tệp. Giải nén và đối chiếu 844 hash sidecar/Worker với manifest và 72 hash web với build Vite. Đổi PATH của lần đóng gói lại để Tauri tìm thấy windres. Ứng viên đã sẵn sàng để nâng cấp theo checklist.
+
+#### PENDING_MANUAL · Nâng cấp tại chỗ và kiểm tra thiết bị
+
+1. Dùng cùng tài khoản Windows hiện tại. Chờ yêu cầu đang chạy hoàn tất. Ghi lại mapping Serve và xác nhận Funnel tắt, sau đó dừng Host sạch từ Orion. Xác nhận hai tiến trình Orion và OrionBackend đã thoát. Chỉ đóng cửa sổ sẽ để Host chạy nền.
+2. Sao lưu riêng tư cả profile `%LOCALAPPDATA%\io.orion.desktop\managed`, bộ cài/ứng dụng cũ tại `%LOCALAPPDATA%\Orion`, cấu hình Host và mục autostart HKCU. Giữ cùng Windows account/máy để DPAPI còn giải mã được. Kiểm tra hash tệp, SQLite integrity, Owner record, tham chiếu model và ba lượt token trên bản sao. Lưu JSON Serve riêng cùng backup.
+3. Kiểm SHA-256 ứng viên, cài đè NSIS theo cùng phạm vi và thư mục hiện tại. Đối chiếu hash SQLite trước lần mở đầu và hash backend mới với manifest. Mở Orion, xác nhận history, Projects, hồ sơ model và trạng thái Host. Đối chiếu Serve, giữ Funnel tắt. Chủ máy tự xác thực Owner và tự kiểm tra chat DeepSeek qua Desktop và Web tailnet.
+4. Kiểm thử tạo, đổi tên, xóa một chat thử và dừng một request thử giữa các client trỏ đúng cùng URL Host. Thử reconnect, chat dài và vị trí cuộn riêng trên từng nền tảng. Android và iOS cần thiết bị thích hợp và Owner enrollment. Trên Linux, repo cung cấp headless và Web; launcher Tauri desktop hiện triển khai Windows, nên Linux native GUI còn thiếu.
+5. Nếu phải rollback, dừng Host sạch và giữ thêm snapshot hậu kiểm trước khi hoàn nguyên. Khôi phục bộ ứng dụng và cấu hình cũ từ backup. Ưu tiên giữ SQLite hiện tại nếu bản cũ tương thích, và chỉ phục hồi snapshot trước nâng cấp khi cần phục hồi dữ liệu/schema. Việc thay snapshot có thể làm mất chat tạo sau nâng cấp, nên giữ snapshot hậu kiểm và xác nhận trước khi thực hiện. Kiểm tra lại health, SQLite và Serve trước khi thử tiếp.
+
+- `PENDING_MANUAL` cho nâng cấp Windows và smoke Desktop bản cài, đăng nhập Web thật qua Serve, Android, iOS và Web trên Linux. Giữ Host đang chạy, Owner, credential, Serve và Funnel trong trạng thái trước phiên.
