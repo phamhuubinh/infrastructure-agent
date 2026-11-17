@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "64f9d2e0e6f1e92a70f8e3fc75e630e8d3d1d917",
+  "source_commit": "2427f8bada8327d96aa5806ed3f31896e19f2b60",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -7358,8 +7358,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 18604,
-      "sha256": "86a8af2ec8c5f4f4f482e6c93fc3e1163d4094263d4e1e62d6707cd2c6b3b8ae",
+      "bytes": 19853,
+      "sha256": "6ffab6eaa6e519ae669c71e0c499148a5a3c4c908d14e192cdd38566cbee8e96",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7368,7 +7368,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 99,
+      "lines": 104,
       "python_syntax": null
     },
     {
@@ -7470,8 +7470,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 47184,
-      "sha256": "c525dd637a74e4e54170f6f6f31f9d687ef371c8401a00c328cbe8c1ff561312",
+      "bytes": 47213,
+      "sha256": "ee4e5b8a95808fed1c1fe9b7b9619feffff86e2ab0994103ae30306e50f1503e",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",

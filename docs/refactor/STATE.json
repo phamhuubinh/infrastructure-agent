@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "Verify DeepSeek with the packaged Windows sidecar, back up and upgrade the installed preview, import the Windows User key from trusted Desktop Settings, and test Desktop and Web chat. Keep private Serve and Owner Auth unchanged.",
+  "next_action": "DeepSeek credential migration and fresh chat passed on the installed Windows Desktop preview; an isolated authenticated Edge Web chat also passed. Await an authenticated session at the real private Serve URL for live Web acceptance. Funnel remains disabled.",
   "work_items": [
     {
       "id": "R00",
