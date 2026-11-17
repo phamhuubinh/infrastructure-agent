@@ -102,3 +102,30 @@
 - NSIS preview 2427f8b, SHA-256 c091283d4cef47a1132f00c73ba018e2ff79ee5c1d976f89d733788728765b9c, archive 926 file OK. Backup 931 file với ACL riêng; cài đè và xác minh hash sidecar mới, SQLite không đổi qua installer.
 - Nhập key từ nút Settings trong app đã cài. Tham chiếu profile DeepSeek active đã đổi env sang secret; đối chiếu mọi field còn lại với backup. DPAPI giải mã và khớp giá trị User, giữ nguyên biến gốc. Owner và lịch sử cũ khớp backup. Hội thoại mới Desktop trả ORION-DESKTOP-DPAPI. HTTPS tailnet trả 200, mapping Serve không đổi, Funnel tắt. Web thật qua tailnet chờ Owner xác thực.
 - Cộng 25 test UI (19 bridge/SDK và 6 Settings) pass, 73 backend pass, 1 skip.
+
+### 2026-11-17 · Đồng bộ từ Orion Host và đo token DeepSeek
+
+- Phản hồi DELETE đến trễ từng ghi đè bản sao danh sách và lựa chọn Chat cũ. Store nay cập nhật theo trạng thái hiện tại sau khi Host xác nhận. Backend trả mã `active_request` và session tương ứng khi còn request đang chạy, giữ nguyên hàng dữ liệu. Xóa lặp sau khi client khác đã xóa được coi là hoàn tất. Bản nháp và thông báo lỗi gắn với hội thoại đang thao tác.
+- Sidebar Chat kiểm tra snapshot từ SQLite qua ETag trong bộ nhớ. Client đọc lại khi nhận focus, quay về tab hoặc khôi phục kết nối. Chat đang mở đọc timeline và trạng thái request đã được Host xác nhận, gồm xếp hàng, đang chạy, chờ phê duyệt và yêu cầu dừng. Projects, danh sách model, Commands và endpoints làm mới qua API hiện có. Tắt ASGI của Host tự nhả SQLite và khóa runtime của ứng dụng để có thể mở lại.
+- Kiểm thử tự động tập trung gồm 112 test backend và 46 test UI, TypeScript, Ruff, ESLint, OpenAPI và SDK. Bài tích hợp mở ba HTTP client trên cùng SQLite fixture, kiểm tra revision, tạo, đổi tên, xóa đồng thời với tạo mới, `409`, Projects và mở lại dữ liệu. Edge trên Windows dùng ba browser context độc lập vào web bundle thật với Host loopback và database tạm. Đã thấy rename sau reconnect, giữ bản nháp, cập nhật request/timeline/metrics và dừng request từ client khác, đồng bộ xóa và Project, rồi khởi động lại Host cùng database tạm.
+- DeepSeek thật đọc hồ sơ `deepseek-flash` hiện có ở chế độ chỉ đọc và dùng credential DPAPI của Host. Mỗi phản hồi Chat mới lưu thời lượng và token theo từng lần model báo usage, cùng tổng khi đủ dữ liệu. Diagnostics bổ sung kích thước theo vai trò và phần continuation. System prompt ngắn hơn và giữ nguyên tool schemas cùng các giới hạn thực thi. Benchmark dùng dữ liệu tổng hợp trong SQLite tạm, cùng profile và bộ công cụ trước/sau. Input lần gọi đầu giảm 107 token ở mỗi kịch bản. Tổng mỗi lượt thay đổi theo số lần model tự gọi.
+
+| Kịch bản DeepSeek | Lần gọi trước → sau | Input trước → sau | Output trước → sau |
+| --- | ---: | ---: | ---: |
+| Lời chào | 1 → 1 | 4.685 → 4.578 | 133 → 146 |
+| Giải thích TCP/UDP | 1 → 1 | 4.688 → 4.581 | 1.099 → 910 |
+| Đọc tài nguyên độc lập | 3 → 3 | 16.627 → 16.743 | 1.104 → 1.603 |
+| Tiếp tục sau mười lượt | 1 → 1 | 5.393 → 5.286 | 245 → 289 |
+| Một tác vụ đọc | 2 → 3 | 10.085 → 15.959 | 289 → 525 |
+| Nhiều bước phụ thuộc | 4 → 3 | 23.235 → 17.266 | 1.474 → 1.779 |
+
+- Đo thêm bốn kịch bản có tiêu chí đúng/sai từ cùng DeepSeek. Prompt trước lấy từ `61ba030`. PowerShell chạy một lệnh cố định không truy cập dữ liệu người dùng. RAG đọc tài liệu tổng hợp trong SQLite. Kịch bản nhiều bước dùng kết quả PowerShell làm đầu vào cho calculator. Cả bốn đạt kiểm tra nội dung và công cụ mong đợi ở hai lần đo.
+
+| Kiểm tra có kết quả mong đợi | Số lần gọi trước → sau | Input trước → sau | Output trước → sau |
+| --- | ---: | ---: | ---: |
+| Trả đúng chuỗi | 1 → 1 | 2.337 → 2.230 | 91 → 56 |
+| PowerShell cố định | 2 → 2 | 5.314 → 5.137 | 116 → 166 |
+| RAG SQLite | 2 → 2 | 5.826 → 5.617 | 146 → 217 |
+| PowerShell rồi tính toán | 3 → 3 | 8.451 → 8.113 | 185 → 172 |
+
+- Trên bản đang cài, HTTPS Serve trả `200` cho health và `401` cho API danh sách Chat khi chưa đăng nhập. Chưa nghiệm thu lần đăng nhập Owner qua Serve cho mã nguồn mới. ADB chưa có thiết bị kết nối. Windows hiện tại không có WSL hay macOS/Xcode. Các cổng nghiệm thu nền tảng vẫn mở. Chưa build NSIS, cài đè, hay thay đổi Owner Auth, DPAPI, SQLite đang dùng, Serve hoặc Funnel.

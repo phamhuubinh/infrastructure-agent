@@ -67,6 +67,72 @@ describe("M1 Chat integration", () => {
     vi.mocked(isMobileHost).mockReturnValue(false);
   });
 
+  it("refreshes summaries on focus and preserves a concurrent create after a delayed delete", async () => {
+    let remote = [
+      { session_id: "old", title: "Original", project_id: null, mutation_mode: "read_only" },
+    ];
+    let finishDelete!: (response: Response) => void;
+    let seenRevision: string | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/sessions" && init?.method === "POST") {
+          remote = [
+            ...remote,
+            { session_id: "new", title: "New", project_id: null, mutation_mode: "read_only" },
+          ];
+          return jsonResponse(
+            { session_id: "new", project_id: null, mutation_mode: "read_only" },
+            201,
+          );
+        }
+        if (path === "/api/sessions") {
+          seenRevision = new Headers(init?.headers).get("If-None-Match");
+          const response = jsonResponse(remote);
+          response.headers.set("ETag", `"${remote[0].title}"`);
+          return response;
+        }
+        if (path === "/api/sessions/old" && init?.method === "DELETE") {
+          return new Promise<Response>((resolve) => {
+            finishDelete = resolve;
+          });
+        }
+        throw new Error(`Unexpected request ${path}`);
+      }),
+    );
+    function SessionList() {
+      const chat = useChat();
+      return (
+        <>
+          <output aria-label="Sessions">{chat.sessions.map((row) => row.title).join(",")}</output>
+          <output aria-label="Selection">{chat.currentSessionId}</output>
+          <button onClick={() => void chat.deleteSession("old")}>Delete old</button>
+          <button onClick={() => void chat.createSession()}>Create new</button>
+        </>
+      );
+    }
+    render(
+      <ChatProvider>
+        <SessionList />
+      </ChatProvider>,
+    );
+    await screen.findByText("Original");
+    remote = [{ ...remote[0], title: "Renamed remotely" }];
+    fireEvent.focus(window);
+    await screen.findByText("Renamed remotely");
+    expect(seenRevision).toBe('"Original"');
+    fireEvent.click(screen.getByRole("button", { name: "Delete old" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create new" }));
+    await waitFor(() => expect(screen.getByLabelText("Selection").textContent).toBe("new"));
+    remote = remote.filter((row) => row.session_id !== "old");
+    finishDelete(new Response(null, { status: 204 }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Sessions").textContent).not.toContain("Renamed remotely"),
+    );
+    expect(screen.getByLabelText("Sessions").textContent).not.toBe("");
+    expect(screen.getByLabelText("Selection").textContent).toBe("new");
+  });
+
   it("creates a draft session on mode change and requires a warning before auto", async () => {
     let savedMode = "read_only";
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
@@ -749,6 +815,66 @@ describe("M1 Chat integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await screen.findByText(/Model unavailable/);
+  });
+
+  it("keeps a new draft isolated from a late failure in the previous conversation", async () => {
+    let finishStream: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/models") return jsonResponse(configuredModels);
+        if (path === "/api/sessions" && !init?.method) {
+          return jsonResponse([
+            { session_id: "old", title: "Old", project_id: null, mutation_mode: "read_only" },
+          ]);
+        }
+        if (path === "/api/sessions/old")
+          return jsonResponse({ session_id: "old", project_id: null, mutation_mode: "read_only" });
+        if (path === "/api/sessions/old/timeline") return jsonResponse([]);
+        if (path === "/api/sessions/old/requests")
+          return jsonResponse({ request_id: "req-old", status: "running" }, 202);
+        if (path === "/api/requests/req-old/stream")
+          return new Promise<Response>((resolve) => {
+            finishStream = resolve;
+          });
+        throw new Error(`Unexpected request ${path}`);
+      }),
+    );
+    function Navigation() {
+      const chat = useChat();
+      return (
+        <>
+          <button onClick={() => void chat.switchSession("old")}>Open old</button>
+          <button onClick={chat.startNewChat}>New draft</button>
+        </>
+      );
+    }
+    render(
+      <ChatProvider>
+        <Navigation />
+        <ChatPage />
+      </ChatProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open old" }));
+    const input = await screen.findByRole<HTMLInputElement>("textbox", { name: "Chat input" });
+    fireEvent.change(input, { target: { value: "Run old request" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(finishStream).toBeDefined());
+
+    fireEvent.click(screen.getByRole("button", { name: "New draft" }));
+    fireEvent.change(input, { target: { value: "Draft stays here" } });
+    finishStream?.(
+      sseResponse([
+        { type: "request.failed", created_at: "now", payload: { message: "Old request failed" } },
+      ]),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Send message" }).disabled).toBe(
+        false,
+      ),
+    );
+    expect(screen.queryByText("Old request failed")).toBeNull();
+    expect(input.value).toBe("Draft stays here");
   });
 
   it("sends the canonical cancellation request after receiving the SSE request identifier", async () => {

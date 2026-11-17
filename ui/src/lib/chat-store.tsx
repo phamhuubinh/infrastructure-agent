@@ -2,25 +2,28 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   attachSessionDocument,
   deleteSessionDocument,
-  getSessionIdentity,
-  listSessions,
+  findSessionIdentity,
+  refreshSessionSummaries,
   deleteSession as deletePersistedSession,
   renameSession as renamePersistedSession,
   setSessionMutationMode as persistSessionMutationMode,
   type MutationMode,
+  type SessionIdentity,
   type DocumentRef,
   type DocumentStatus,
   apiJson,
   sessionDocumentStatus,
 } from "@/lib/api";
+import { useHostRefresh } from "./host-refresh";
 
 export type TimelineKind =
   | "user_message"
@@ -66,6 +69,7 @@ export type Message = {
   responseTimeMs?: number;
   inputTokens?: number;
   outputTokens?: number;
+  modelInvocations?: ModelInvocation[];
 };
 
 export type SessionDocument = {
@@ -99,6 +103,7 @@ export type Session = {
   activity: ToolActivity[];
   documents: SessionDocument[];
   sources: SourceReference[];
+  activeRequest?: SessionIdentity["active_request"];
 };
 
 export function sessionRoute(
@@ -108,6 +113,8 @@ export function sessionRoute(
     ? { to: "/" }
     : { to: "/projects/$projectId", params: { projectId: session.projectId } };
 }
+
+export type ModelInvocation = { elapsed_ms: number; input_tokens?: number; output_tokens?: number };
 
 type ChatContextValue = {
   sessions: Session[];
@@ -121,7 +128,7 @@ type ChatContextValue = {
   deleteSession: (sessionId: string) => Promise<void>;
   removeProjectSessions: (projectId: string) => void;
   switchSession: (id: string) => Promise<Session | null>;
-  loadSession: (id: string) => Promise<Session>;
+  loadSession: (id: string) => Promise<Session | null>;
   addOptimisticMessage: (sessionId: string, content: string) => void;
   reconcileAssistantMessage: (sessionId: string, item: TimelineItem) => void;
   recordEvent: (sessionId: string, event: RuntimeEvent) => void;
@@ -194,7 +201,18 @@ export function assistantMessageFromTimelineItem(item: TimelineItem): Message | 
     responseTimeMs: numeric("response_time_ms"),
     inputTokens: numeric("input_tokens"),
     outputTokens: numeric("output_tokens"),
+    modelInvocations: parseModelInvocations(metrics),
   };
+}
+
+function parseModelInvocations(metrics: unknown): ModelInvocation[] | undefined {
+  if (!metrics || typeof metrics !== "object" || !("model_invocations" in metrics)) return;
+  const records: unknown = metrics.model_invocations;
+  if (!Array.isArray(records)) return;
+  return records.filter((record: unknown): record is ModelInvocation => {
+    if (!record || typeof record !== "object" || !("elapsed_ms" in record)) return false;
+    return typeof record.elapsed_ms === "number" && Number.isFinite(record.elapsed_ms);
+  });
 }
 
 function attachmentCandidates(timeline: TimelineItem[]): SessionDocument[] {
@@ -459,60 +477,132 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const activeSession = useRef(currentSessionId);
+  useLayoutEffect(() => {
+    activeSession.current = currentSessionId;
+  }, [currentSessionId]);
   const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(new Set());
+  const listRevision = useRef(0);
+  const confirmedListRevision = useRef<{ local: number; host: string | null } | null>(null);
+  const selectionRevision = useRef(0);
+  const detailRevisions = useRef(new Map<string, number>());
+  const summaryMetadata = useRef(new Map<string, string>());
 
-  const loadSession = useCallback(async (id: string) => {
-    const [identity, timeline] = await Promise.all([
-      getSessionIdentity(id),
-      apiJson<TimelineItem[]>(`/api/sessions/${encodeURIComponent(id)}/timeline`),
-    ]);
-    const projectId = identity.project_id ?? null;
-    const documents = await reconcileSessionDocuments(id, timeline);
-    const session = sessionFromTimeline(
-      id,
-      timeline,
-      documents,
-      projectId,
-      identity.custom_title ?? null,
-      identity.mutation_mode,
-    );
-    setSessions((previous) => upsertSession(previous, session));
-    return session;
+  const invalidateDetail = useCallback((id: string) => {
+    const revision = (detailRevisions.current.get(id) ?? 0) + 1;
+    detailRevisions.current.set(id, revision);
+    return revision;
   }, []);
 
-  useEffect(() => {
-    let disposed = false;
-    void listSessions()
-      .then((summaries) => {
-        if (disposed) return;
-        setSessions(
-          summaries.map((summary) => ({
+  const loadSession = useCallback(
+    async (id: string) => {
+      const revision = invalidateDetail(id);
+      const identity = await findSessionIdentity(id);
+      if (!identity) {
+        if (detailRevisions.current.get(id) === revision) {
+          listRevision.current++;
+          setSessions((previous) => previous.filter((row) => row.id !== id));
+          setCurrentSessionId((current) => (current === id ? null : current));
+        }
+        return null;
+      }
+      const timeline = await apiJson<TimelineItem[]>(
+        `/api/sessions/${encodeURIComponent(id)}/timeline`,
+      );
+      const projectId = identity.project_id ?? null;
+      const documents = await reconcileSessionDocuments(id, timeline);
+      const session = sessionFromTimeline(
+        id,
+        timeline,
+        documents,
+        projectId,
+        identity.custom_title ?? null,
+        identity.mutation_mode,
+      );
+      session.activeRequest = identity.active_request ?? null;
+      if (detailRevisions.current.get(id) !== revision) return null;
+      setSessions((previous) => {
+        const old = previous.find((item) => item.id === id);
+        if (JSON.stringify(old) === JSON.stringify(session)) return previous;
+        if (old && JSON.stringify(old.messages) === JSON.stringify(session.messages)) {
+          return upsertSession(previous, { ...session, messages: old.messages });
+        }
+        return upsertSession(previous, session);
+      });
+      return session;
+    },
+    [invalidateDetail],
+  );
+
+  const refreshSessions = useCallback(
+    async (current: () => boolean) => {
+      const revision = listRevision.current;
+      try {
+        const confirmed = confirmedListRevision.current;
+        const snapshot = await refreshSessionSummaries(
+          confirmed?.local === revision ? confirmed.host : null,
+        );
+        if (!current() || revision !== listRevision.current || !snapshot) return;
+        const { summaries } = snapshot;
+        confirmedListRevision.current = { local: revision, host: snapshot.revision };
+        const previousRevisions = detailRevisions.current;
+        const ids = new Set(summaries.map((item) => item.session_id));
+        const nextMetadata = new Map<string, string>();
+        for (const summary of summaries) {
+          const id = summary.session_id;
+          const metadata = JSON.stringify([
+            summary.project_id,
+            summary.custom_title,
+            summary.mutation_mode,
+          ]);
+          const previous = summaryMetadata.current.get(id);
+          if (previous !== undefined && previous !== metadata) invalidateDetail(id);
+          nextMetadata.set(id, metadata);
+        }
+        summaryMetadata.current = nextMetadata;
+        // The sidebar endpoint returns the newest 100 rows. Absence in a full page
+        // may indicate eviction. The active session is checked by its own endpoint.
+        if (summaries.length < 100) {
+          for (const id of previousRevisions.keys()) {
+            if (id !== activeSession.current && !ids.has(id)) invalidateDetail(id);
+          }
+        }
+        const activeId = activeSession.current;
+        setSessions((previous) => {
+          const rows = summaries.map((summary) => ({
+            ...(previous.find((item) => item.id === summary.session_id) ?? {
+              timeline: [],
+              messages: [],
+              activity: [],
+              documents: [],
+              sources: [],
+            }),
             id: summary.session_id,
             projectId: summary.project_id,
             title: summary.title,
             customTitle: summary.custom_title ?? null,
             mutationMode: summary.mutation_mode,
-            timeline: [],
-            messages: [],
-            activity: [],
-            documents: [],
-            sources: [],
-          })),
-        );
-        setSessionsLoaded(true);
-      })
-      .catch(() => {
-        if (!disposed) {
-          setSessions([]);
-          setSessionsLoaded(true);
-        }
-      });
-    return () => {
-      disposed = true;
-    };
-  }, []);
+          }));
+          const active =
+            activeId && !ids.has(activeId) ? previous.find((item) => item.id === activeId) : null;
+          return active ? [...rows, active] : rows;
+        });
+      } finally {
+        if (current()) setSessionsLoaded(true);
+      }
+    },
+    [invalidateDetail],
+  );
+  useHostRefresh(refreshSessions);
+
+  const locallyGenerating = currentSessionId !== null && generatingSessions.has(currentSessionId);
+  const refreshCurrent = useCallback(async () => {
+    if (currentSessionId && !locallyGenerating) await loadSession(currentSessionId);
+  }, [currentSessionId, locallyGenerating, loadSession]);
+  useHostRefresh(refreshCurrent, 5000, false);
 
   const createSession = useCallback(async (projectId?: string) => {
+    const selected = ++selectionRevision.current;
     const data = await apiJson<{
       session_id: string;
       project_id: string | null;
@@ -528,54 +618,71 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       null,
       data.mutation_mode,
     );
-    setSessions((previous) => upsertSession(previous, session));
-    setCurrentSessionId(data.session_id);
+    listRevision.current++;
+    setSessions((previous) =>
+      previous.some((item) => item.id === session.id) ? previous : upsertSession(previous, session),
+    );
+    if (selectionRevision.current === selected) setCurrentSessionId(data.session_id);
     return data.session_id;
   }, []);
 
-  const setMutationMode = useCallback(async (sessionId: string, mode: MutationMode) => {
-    const updated = await persistSessionMutationMode(sessionId, mode);
-    setSessions((previous) =>
-      previous.map((session) =>
-        session.id === sessionId ? { ...session, mutationMode: updated.mutation_mode } : session,
-      ),
-    );
+  const setMutationMode = useCallback(
+    async (sessionId: string, mode: MutationMode) => {
+      const updated = await persistSessionMutationMode(sessionId, mode);
+      listRevision.current++;
+      invalidateDetail(sessionId);
+      setSessions((previous) =>
+        previous.map((session) =>
+          session.id === sessionId ? { ...session, mutationMode: updated.mutation_mode } : session,
+        ),
+      );
+    },
+    [invalidateDetail],
+  );
+
+  const startNewChat = useCallback(() => {
+    selectionRevision.current++;
+    setCurrentSessionId(null);
   }, []);
 
-  const startNewChat = useCallback(() => setCurrentSessionId(null), []);
-
-  const renameSession = useCallback(async (sessionId: string, title: string) => {
-    const updated = await renamePersistedSession(sessionId, title);
-    setSessions((previous) =>
-      previous.map((session) =>
-        session.id === sessionId
-          ? { ...session, title: updated.title, customTitle: updated.custom_title }
-          : session,
-      ),
-    );
-  }, []);
+  const renameSession = useCallback(
+    async (sessionId: string, title: string) => {
+      const updated = await renamePersistedSession(sessionId, title);
+      listRevision.current++;
+      invalidateDetail(sessionId);
+      setSessions((previous) =>
+        previous.map((session) =>
+          session.id === sessionId
+            ? { ...session, title: updated.title, customTitle: updated.custom_title }
+            : session,
+        ),
+      );
+    },
+    [invalidateDetail],
+  );
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
       const deleted = sessions.find((session) => session.id === sessionId);
       await deletePersistedSession(sessionId);
+      listRevision.current++;
+      invalidateDetail(sessionId);
       const remaining = sessions.filter((session) => session.id !== sessionId);
       const replacement =
         deleted?.projectId === null
           ? null
           : (remaining.find((session) => session.projectId === deleted?.projectId) ?? null);
-      setSessions(remaining);
+      setSessions((previous) => previous.filter((session) => session.id !== sessionId));
       setGeneratingSessions((previous) => {
         const next = new Set(previous);
         next.delete(sessionId);
         return next;
       });
-      if (currentSessionId === sessionId) {
-        setCurrentSessionId(replacement?.id ?? null);
-        if (replacement) void loadSession(replacement.id);
-      }
+      setCurrentSessionId((current) =>
+        current === sessionId ? (replacement?.id ?? null) : current,
+      );
     },
-    [currentSessionId, loadSession, sessions],
+    [invalidateDetail, sessions],
   );
 
   const removeProjectSessions = useCallback(
@@ -583,6 +690,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const removed = new Set(
         sessions.filter((session) => session.projectId === projectId).map((session) => session.id),
       );
+      listRevision.current++;
+      removed.forEach((id) => {
+        invalidateDetail(id);
+      });
       setSessions((previous) => previous.filter((session) => session.projectId !== projectId));
       setGeneratingSessions((previous) => {
         const next = new Set(previous);
@@ -591,14 +702,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       });
       setCurrentSessionId((current) => (current !== null && removed.has(current) ? null : current));
     },
-    [sessions],
+    [invalidateDetail, sessions],
   );
 
   const switchSession = useCallback(
     async (id: string) => {
+      const revision = ++selectionRevision.current;
       setCurrentSessionId(id);
       try {
-        return await loadSession(id);
+        const session = await loadSession(id);
+        return revision === selectionRevision.current ? session : null;
       } catch {
         // A later submission can surface a clear backend error to the user.
         return null;

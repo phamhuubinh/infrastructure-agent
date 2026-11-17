@@ -107,6 +107,11 @@ export type SessionIdentity = {
   project_id: string | null;
   custom_title: string | null;
   mutation_mode: MutationMode;
+  active_request?: {
+    request_id: string;
+    status: "queued" | "running";
+    awaiting_approval: boolean;
+  } | null;
 };
 
 export type MutationMode = "read_only" | "confirm" | "auto";
@@ -295,8 +300,28 @@ export async function getSessionIdentity(sessionId: string): Promise<SessionIden
   return apiJson<SessionIdentity>(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export async function findSessionIdentity(sessionId: string): Promise<SessionIdentity | null> {
+  const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  return (await response.json()) as SessionIdentity;
+}
+
 export async function listSessions(): Promise<SessionSummary[]> {
   return apiJson<SessionSummary[]>("/api/sessions");
+}
+
+export async function refreshSessionSummaries(revision: string | null) {
+  const response = await apiFetch(
+    "/api/sessions",
+    revision ? { headers: { "If-None-Match": revision } } : undefined,
+  );
+  if (response.status === 304) return null;
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  return {
+    summaries: (await response.json()) as SessionSummary[],
+    revision: response.headers.get("ETag"),
+  };
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<SessionTitle> {
@@ -311,6 +336,22 @@ export async function deleteSession(sessionId: string): Promise<void> {
   const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
     method: "DELETE",
   });
+  // Another client may have already removed the same conversation.
+  if (response.status === 404) return;
+  if (response.status === 409) {
+    const reason = await response.json().catch(() => null);
+    if (
+      reason?.detail?.code === "active_request" ||
+      (typeof reason?.detail === "string" && reason.detail.startsWith("The active request"))
+    ) {
+      throw new Error(
+        "Hội thoại còn yêu cầu đang chạy hoặc chờ xác nhận. Dừng yêu cầu và thử xóa lại sau khi Host xác nhận.",
+      );
+    }
+    throw new Error(
+      typeof reason?.detail === "string" ? reason.detail : "Host từ chối xóa hội thoại.",
+    );
+  }
   if (!response.ok) throw new Error(await apiErrorMessage(response));
 }
 

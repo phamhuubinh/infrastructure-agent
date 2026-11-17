@@ -62,26 +62,23 @@ async def test_live_benchmark_uses_persisted_profile_and_real_backend_boundary(
     store, monkeypatch
 ) -> None:  # type: ignore[no-untyped-def]
     from orion.benchmarks import model_context as benchmark
-    from orion.contracts import AssistantMessage, ModelTurn, ModelTurnCompleted
+    from orion.contracts import AssistantMessage, ModelTurn, ModelTurnCompleted, ModelUsage
+    from orion.models.registry import ProviderRegistry
 
     settings_seen = []
 
-    class Provider:
-        async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
-            settings_seen.append(settings)
-            yield ModelTurnCompleted(
-                turn=ModelTurn(assistant=AssistantMessage(content="Live provider fixture."))
-            )
+    async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
+        settings_seen.append(settings)
+        yield ModelTurnCompleted(
+            turn=ModelTurn(assistant=AssistantMessage(content="Live provider fixture.")),
+            usage=ModelUsage(input_tokens=41, output_tokens=9),
+        )
 
     profile = store.active_model_config()
     monkeypatch.setattr(
         benchmark.SQLiteStore, "read_active_model_binding", lambda path: (profile, None)
     )
-    monkeypatch.setattr(benchmark, "OpenAICompatibleBackend", Provider)
-    # Serializer remains real: patch only the factory by preserving the static method.
-    from orion.models.providers.openai_compatible import OpenAICompatibleBackend
-
-    Provider._provider_messages = staticmethod(OpenAICompatibleBackend._provider_messages)
+    monkeypatch.setattr(ProviderRegistry, "stream", stream)
     monkeypatch.delenv("ORION_MODEL_BASE_URL", raising=False)
     monkeypatch.delenv("ORION_MODEL_ID", raising=False)
 
@@ -90,6 +87,8 @@ async def test_live_benchmark_uses_persisted_profile_and_real_backend_boundary(
     assert report.mode == "live"
     assert len(settings_seen) == len(benchmark.benchmark_scenarios())
     assert all(settings.model_id == profile["model_id"] for settings in settings_seen)
+    assert all(item.input_tokens_by_call == (41,) for item in report.measurements)
+    assert all(item.output_tokens_by_call == (9,) for item in report.measurements)
 
 
 def test_readonly_profile_loading_never_creates_an_absent_database(tmp_path) -> None:  # type: ignore[no-untyped-def]

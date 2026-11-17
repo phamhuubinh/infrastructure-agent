@@ -1040,6 +1040,71 @@
         "title": "RequestView",
         "type": "object"
       },
+      "SessionDetailView": {
+        "properties": {
+          "active_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRequestView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "custom_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Title"
+          },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
+          "mutation_mode": {
+            "$ref": "#/components/schemas/MutationMode",
+            "default": "read_only"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "surface_kind": {
+            "default": "chat",
+            "title": "Surface Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionDetailView",
+        "type": "object"
+      },
       "SessionMutationModeUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -1051,6 +1116,29 @@
           "mutation_mode"
         ],
         "title": "SessionMutationModeUpdate",
+        "type": "object"
+      },
+      "SessionRequestView": {
+        "properties": {
+          "awaiting_approval": {
+            "title": "Awaiting Approval",
+            "type": "boolean"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "status",
+          "awaiting_approval"
+        ],
+        "title": "SessionRequestView",
         "type": "object"
       },
       "SessionSummaryView": {
@@ -5359,6 +5447,24 @@
     "/api/sessions": {
       "get": {
         "operationId": "list_sessions_api_sessions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5373,6 +5479,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "304": {
+            "description": "Session list unchanged"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -5473,7 +5592,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionView"
+                  "$ref": "#/components/schemas/SessionDetailView"
                 }
               }
             },

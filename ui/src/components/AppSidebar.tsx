@@ -1,3 +1,4 @@
+import { observeHostRefresh } from "@/lib/host-refresh";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   MessageSquare,
@@ -80,7 +81,9 @@ export function AppSidebar() {
 
   useEffect(() => {
     let disposed = false;
+    let revision = 0;
     const refreshProjects = (change?: ProjectListChange | null) => {
+      const requested = ++revision;
       if (change?.type === "updated") {
         setProjects((current) =>
           current.map((item) =>
@@ -90,17 +93,18 @@ export function AppSidebar() {
       } else if (change?.type === "deleted") {
         setProjects((current) => current.filter((item) => item.project_id !== change.projectId));
       }
-      void listProjects()
+      return listProjects()
         .then((loaded) => {
-          if (!disposed) setProjects(loaded);
+          if (!disposed && requested === revision) setProjects(loaded);
         })
         .catch(() => undefined);
     };
-    refreshProjects();
+    const stopPolling = observeHostRefresh(() => refreshProjects());
     const unsubscribe = onProjectListInvalidated(refreshProjects);
     return () => {
       disposed = true;
       unsubscribe();
+      stopPolling();
     };
   }, []);
 

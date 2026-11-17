@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useHostRefresh } from "@/lib/host-refresh";
 
 import { PageHeader } from "@/components/PageHeader";
 import { DeviceChat } from "@/components/chat/DeviceChat";
@@ -66,25 +67,26 @@ export function EndpointsPage() {
   const sequence = useRef(0);
   const inputPending = useRef(false);
   const sessionRef = useRef<{ endpoint: string; session: string } | null>(null);
+  const endpointRevision = useRef(0);
   const prefix = selected ? `/api/endpoints/${selected.endpoint_id}` : "";
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (current: () => boolean = () => true) => {
+    const revision = ++endpointRevision.current;
     try {
       const rows = await apiJson<Endpoint[]>("/api/endpoints");
+      if (!current() || revision !== endpointRevision.current) return;
       setDevices(rows);
       setSelected((current) =>
         current ? (rows.find((row) => row.endpoint_id === current.endpoint_id) ?? null) : null,
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không thể tải thiết bị.");
+      if (current() && revision === endpointRevision.current) {
+        setError(reason instanceof Error ? reason.message : "Không thể tải thiết bị.");
+      }
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-    const interval = window.setInterval(() => void load(), 5000);
-    return () => window.clearInterval(interval);
-  }, [load]);
+  useHostRefresh(load);
   useEffect(() => {
     void apiJson<Artifacts>("/api/endpoints/artifacts")
       .then(setArtifacts)

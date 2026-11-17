@@ -1,5 +1,6 @@
+import { useHostRefresh } from "@/lib/host-refresh";
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { BrainCircuit, Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -58,9 +59,15 @@ export function SettingsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void loadModels();
-  }, [loadModels]);
+  const refreshModels = useCallback(
+    async (current: () => boolean) => {
+      if (busy) return;
+      const configured = await apiJson<ModelConnection[]>("/api/models");
+      if (current()) setModels(configured);
+    },
+    [busy],
+  );
+  useHostRefresh(refreshModels, 10000, !busy && models.length === 0);
 
   function resetModelForm() {
     setBaseUrl("");

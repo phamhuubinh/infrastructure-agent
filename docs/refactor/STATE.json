@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "DeepSeek credential migration and fresh chat passed on the installed Windows Desktop preview; an isolated authenticated Edge Web chat also passed. Await an authenticated session at the real private Serve URL for live Web acceptance. Funnel remains disabled.",
+  "next_action": "Shared Host snapshots, cross-client Chat lifecycle and DeepSeek usage measurements passed focused checks. Continue shared-state coverage and authenticate on the real private Serve URL before installed Windows/native acceptance and any NSIS upgrade. Funnel remains disabled.",
   "work_items": [
     {
       "id": "R00",
@@ -670,7 +670,7 @@
       "status": "todo",
       "evidence": [],
       "blockers": [
-        "Pending live provider gates R22-R24, released desktop upgrade R25, iOS functional smoke R28 and signing R29."
+        "Pending live provider gates R23-R24, released desktop upgrade R25, iOS functional smoke R28 and signing R29."
       ]
     },
     {
@@ -679,11 +679,15 @@
       "depends_on": [
         "R04"
       ],
-      "status": "needs_external",
-      "evidence": [],
-      "blockers": [
-        "Presence-only assessment: current process has no DEEPSEEK_API_KEY/ORION_DEEPSEEK_API_KEY/DEEPSEEK_MODEL/ORION_DEEPSEEK_MODEL/ORION_MODEL_API_KEY/ORION_MODEL_ID. Provide an explicitly owner-configured live DeepSeek model/profile and credential reference. No external account or private user-store inventory performed; no live call/pass claimed."
-      ]
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "live_provider",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Installed DeepSeek DPAPI streaming and live deepseek-flash fixture tool loop passed with per-invocation usage. Deployed Web and native device acceptance remain separate."
+        }
+      ],
+      "blockers": []
     },
     {
       "id": "R23",

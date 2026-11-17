@@ -121,6 +121,7 @@ def model_input_snapshot(
     request_bytes: int,
     *,
     context_bytes: int | None = None,
+    continuation_message_bytes: int | None = None,
     tool_schema_bytes: int | None = None,
     current_evidence_bytes: int | None = None,
     current_visible_source_ids: Sequence[str] = (),
@@ -153,6 +154,15 @@ def model_input_snapshot(
     }
     if context_bytes is not None:
         snapshot["context_bytes"] = context_bytes
+    role_bytes: dict[str, int] = {}
+    for message in messages:
+        role = getattr(message, "role", None)
+        content = getattr(message, "content", None)
+        if isinstance(role, str) and isinstance(content, str):
+            role_bytes[role] = role_bytes.get(role, 0) + len(content.encode("utf-8"))
+    snapshot["content_bytes_by_role"] = role_bytes
+    if continuation_message_bytes is not None:
+        snapshot["continuation_message_bytes"] = continuation_message_bytes
     if tool_schema_bytes is not None:
         snapshot["tool_schema_bytes"] = tool_schema_bytes
     if current_evidence_bytes is not None:

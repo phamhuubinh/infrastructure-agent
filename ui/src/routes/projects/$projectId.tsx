@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { FileText, FolderKanban, Loader2, Plus, Save, Settings2, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChatPage } from "@/routes/index";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   type Project,
 } from "@/lib/api";
 import { useChat } from "@/lib/chat-store";
+import { useHostRefresh } from "@/lib/host-refresh";
 import { onProjectListInvalidated } from "@/lib/project-list";
 import { removeProject as removePersistedProject, saveProject } from "@/lib/project-mutations";
 import {
@@ -37,7 +38,8 @@ import {
 export const Route = createFileRoute("/projects/$projectId")({ component: ProjectWorkspaceRoute });
 
 function ProjectWorkspaceRoute() {
-  return <ProjectWorkspace projectId={Route.useParams().projectId} />;
+  const { projectId } = Route.useParams();
+  return <ProjectWorkspace key={projectId} projectId={projectId} />;
 }
 
 export function ProjectWorkspace({ projectId }: { projectId: string }) {
@@ -58,34 +60,33 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let disposed = false;
-    const version = projectUpdateVersion.current;
-    setLoading(true);
-    setError(null);
-    void Promise.all([getProject(projectId), projectDocuments(projectId)])
-      .then(([loadedProject, loadedDocuments]) => {
-        if (disposed) return;
+  const refreshProject = useCallback(
+    async (current: () => boolean) => {
+      const version = projectUpdateVersion.current;
+      try {
+        const [loadedProject, loadedDocuments] = await Promise.all([
+          getProject(projectId),
+          projectDocuments(projectId),
+        ]);
+        if (!current() || version !== projectUpdateVersion.current) return;
         setDocuments(loadedDocuments);
-        if (version === projectUpdateVersion.current) {
-          setProject(loadedProject);
+        setProject(loadedProject);
+        if (!detailsOpen) {
           setName(loadedProject.name);
           setDescription(loadedProject.description || "");
           setInstructions(loadedProject.instructions || "");
         }
-      })
-      .catch((reason: unknown) => {
-        if (!disposed) {
+      } catch (reason) {
+        if (current() && loading) {
           setError(reason instanceof Error ? reason.message : "Unable to load project.");
         }
-      })
-      .finally(() => {
-        if (!disposed) setLoading(false);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [projectId]);
+      } finally {
+        if (current()) setLoading(false);
+      }
+    },
+    [projectId, detailsOpen, loading],
+  );
+  useHostRefresh(refreshProject, 5000, loading);
 
   useEffect(
     () =>
@@ -93,8 +94,8 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         if (change?.type !== "updated" || change.project.project_id !== projectId) return;
         projectUpdateVersion.current += 1;
         setProject(change.project);
-        setName(change.project.name);
         if (!detailsOpen) {
+          setName(change.project.name);
           setDescription(change.project.description || "");
           setInstructions(change.project.instructions || "");
         }

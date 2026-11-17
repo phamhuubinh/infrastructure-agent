@@ -755,6 +755,7 @@ class ChatRuntime:
         budget: RequestBudget | None = None
         secret_token: Token[tuple[str, ...]] | None = None
         input_tokens = 0
+        model_invocations: list[dict[str, int]] = []
         output_tokens = 0
         has_complete_usage = True
         citation_correction_attempted = False
@@ -886,6 +887,12 @@ class ChatRuntime:
                         output_tokens += usage.output_tokens
                     self._ensure_not_cancelled(cancellation)
                     completed_elapsed_ms = self._elapsed_ms(model_started_at)
+                    invocation = {"elapsed_ms": completed_elapsed_ms}
+                    if usage is not None:
+                        invocation.update(
+                            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
+                        )
+                    model_invocations.append(invocation)
                     self._emit(
                         request_id,
                         "model.completed",
@@ -954,10 +961,11 @@ class ChatRuntime:
                                 ),
                                 observed_source_ref_ids,
                             )
-                        terminal_metrics: dict[str, int] = {
+                        terminal_metrics: dict[str, object] = {
+                            "model_invocations": model_invocations,
                             "response_time_ms": max(
                                 0, round((self._monotonic_clock() - started_at) * 1000)
-                            )
+                            ),
                         }
                         if has_complete_usage:
                             terminal_metrics["input_tokens"] = input_tokens
@@ -1030,12 +1038,13 @@ class ChatRuntime:
                                 citation_tool_progress_repair_available = False
                                 citation_tool_progress_repair_used = True
                             citation_correction_required = True
-                    metrics: dict[str, int] | None = None
+                    metrics: dict[str, object] | None = None
                     if not turn.tool_calls and not recovery_abandoned:
                         metrics = {
+                            "model_invocations": model_invocations,
                             "response_time_ms": max(
                                 0, round((self._monotonic_clock() - started_at) * 1000)
-                            )
+                            ),
                         }
                         if has_complete_usage:
                             metrics["input_tokens"] = input_tokens
@@ -1728,6 +1737,7 @@ class ChatRuntime:
                     tuple(source.source_ref_id for source in citation_sources),
                     _model_request_proxy_bytes(model_messages, model_tools),
                     context_bytes=_messages_bytes(model_messages),
+                    continuation_message_bytes=_messages_bytes(extra_messages),
                     tool_schema_bytes=_tool_definitions_bytes(model_tools),
                     current_evidence_bytes=sum(
                         len(message.content.encode("utf-8"))
@@ -1832,7 +1842,7 @@ class ChatRuntime:
         session_id: str,
         request_id: str,
         turn: ModelTurn,
-        metrics: dict[str, int] | None = None,
+        metrics: dict[str, object] | None = None,
         *,
         intermediate: bool = False,
     ) -> TimelineItem:
