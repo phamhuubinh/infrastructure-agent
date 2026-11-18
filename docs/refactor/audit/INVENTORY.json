@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "9391a52098f95f570d23382cded71e678ae9e02d",
+  "source_commit": "8eb4ad2f7e1b906ece80937f1fd4eed50881a419",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -7358,8 +7358,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 32727,
-      "sha256": "1c0ebd533f3361940d6463f84ec9e1f9ee116470ecc35dda037dfd75d13f2e73",
+      "bytes": 35883,
+      "sha256": "77f76f8e9704857f9522eb827e72145038011ff2acd611067f54bc111e16f3ba",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7368,7 +7368,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 169,
+      "lines": 178,
       "python_syntax": null
     },
     {
@@ -7470,8 +7470,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 48173,
-      "sha256": "84b5377c187d6b65db547df3fe2e6567803358b818489c6beb9aa98b8458daab",
+      "bytes": 48817,
+      "sha256": "08ab64833db527962aa70dd3b997feb82010b4af23757bab2f5d6ad1a7aa3c6d",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7480,7 +7480,23 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 922,
+      "lines": 929,
+      "python_syntax": null
+    },
+    {
+      "path": "docs/refactor/UPGRADE_8EB4AD2.md",
+      "kind": "text",
+      "bytes": 6092,
+      "sha256": "2edc164227a708d078de1be1318a5ce50d90548deab227b8601c1fc9a2b997d1",
+      "group": "documentation",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "reviewed",
+      "final_action": "keep",
+      "reason": "Record exact verified installer, private backup, maintenance commands, rollback and manual authentication gates.",
+      "replacement_or_callers": "Windows owner maintenance workflow and EXECUTION_LOG.md.",
+      "verification": "Checked against payload SHA, successful backup/isolated drill and prepared scripts.",
+      "lines": 44,
       "python_syntax": null
     },
     {
@@ -8378,6 +8394,54 @@
       "verification": "Complete semantic read; new UI regression recorded in R01_UI_BINARY_CHECKS_2026-10-29.json. No native/live/signing claim.",
       "lines": 86,
       "python_syntax": null
+    },
+    {
+      "path": "scripts/windows/upgrade-maintenance.ps1",
+      "kind": "text",
+      "bytes": 2497,
+      "sha256": "4358a74991c2b65cb8ca0b472e90012e80ce5f706415efa59947bd31fc0c1311",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "reviewed",
+      "final_action": "keep",
+      "reason": "Explicit maintenance switch and stopped Host checks before snapshot, NSIS and read-only acceptance.",
+      "replacement_or_callers": "Owner-run maintenance window; upgrade_readiness.py and upgrade_acceptance.py.",
+      "verification": "PowerShell parse and default refusal guard; real install remains PENDING_MANUAL.",
+      "lines": 39,
+      "python_syntax": null
+    },
+    {
+      "path": "scripts/windows/upgrade_acceptance.py",
+      "kind": "text",
+      "bytes": 4033,
+      "sha256": "c3d0372914a1a3b7f687ae50d6d03ed83da9cfb4df507b0ebff5a4f39474d26f",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "reviewed",
+      "final_action": "keep",
+      "reason": "Read-only candidate file/table/credential/Host/Serve comparisons before first launch.",
+      "replacement_or_callers": "upgrade-maintenance.ps1 and upgrade_readiness verification functions.",
+      "verification": "Isolated copied payload and snapshot pass; altered Chat rows detected without content disclosure.",
+      "lines": 97,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/windows/upgrade_readiness.py",
+      "kind": "text",
+      "bytes": 9823,
+      "sha256": "4c6b028d90873bdec6c60e3605a984e877339615639235876c7a009865f442d4",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "reviewed",
+      "final_action": "keep",
+      "reason": "Private WAL-consistent online snapshot with hashed files and row equality; isolated SQLite initialization and in-memory DPAPI comparison.",
+      "replacement_or_callers": "Windows maintenance workflow; ProtectedFileCredentialStore and SQLiteStore.",
+      "verification": "Actual snapshot/rollback drill, backup verification, Ruff and Python compile.",
+      "lines": 242,
+      "python_syntax": "parsed"
     },
     {
       "path": "scripts/worker/install.py",

@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "PENDING_MANUAL: verify and apply the Windows NSIS preview with a validated rollback backup. Check installed Desktop, authenticated tailnet Web, Linux Web, Android and iOS against the same Host. Keep Funnel disabled.",
+  "next_action": "PENDING_MANUAL: choose a maintenance window, stop Host cleanly, then run scripts/windows/upgrade-maintenance.ps1 -MaintenanceWindow. See docs/refactor/UPGRADE_8EB4AD2.md. Authenticate Owner personally for installed Desktop/tailnet Web and device checks. Keep Funnel disabled.",
   "work_items": [
     {
       "id": "R00",
@@ -760,6 +760,11 @@
           "kind": "windows_unsigned_preview_payload",
           "path": "docs/refactor/EXECUTION_LOG.md",
           "result": "Code 9391a52 with sidecar/Worker fdfcb15. NSIS SHA-256 9B56E4FFDFB7606EE4F3FF437C91CBC647F61702D4666BDA5442C82DE9A2E24C. Frozen smoke, archive integrity and extracted payload checks pass. Installed upgrade remains PENDING_MANUAL."
+        },
+        {
+          "kind": "online_backup_and_isolated_rollback_drill",
+          "path": "docs/refactor/UPGRADE_8EB4AD2.md",
+          "result": "Snapshot and restored SQLite table equality, integrity/foreign keys, Owner MFA state and DPAPI equality passed. NSIS payload verified against 8eb4ad2. Isolated acceptance passed and detected changed Chat data. Deployed upgrade remains PENDING_MANUAL."
         }
       ],
       "blockers": [
@@ -917,6 +922,8 @@
     "reviewed_files_at_checkpoint": 656,
     "inventory_files_at_checkpoint": 636,
     "next_task": "R21",
-    "code_checkpoint": "9391a52"
+    "code_checkpoint": "9391a52",
+    "upgrade_backup": "C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261118-073941",
+    "upgrade_runbook": "docs/refactor/UPGRADE_8EB4AD2.md"
   }
 }
