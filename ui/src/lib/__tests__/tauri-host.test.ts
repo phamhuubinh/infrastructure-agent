@@ -11,6 +11,28 @@ afterEach(() => {
   vi.resetModules();
 });
 
+it("passes conditional session refresh through managed IPC and closes bodyless 304", async () => {
+  const { installTauriHost } = await import("../tauri-host");
+  const { refreshSessionSummaries } = await import("../api");
+  invoke.mockResolvedValueOnce({ managedOrigin: origin });
+  invoke.mockResolvedValueOnce(undefined);
+  invoke.mockResolvedValueOnce({ status: 304, headers: [["etag", '"v1"']] });
+  invoke.mockResolvedValueOnce(undefined);
+  await installTauriHost();
+  expect(await refreshSessionSummaries('"v1"')).toBeNull();
+  expect(invoke.mock.calls[1][1].request).toMatchObject({
+    managed: true,
+    url: `${origin}/api/sessions`,
+    headers: [["if-none-match", '"v1"']],
+  });
+  expect(invoke.mock.calls.map(([name]) => name)).toEqual([
+    "orion_host",
+    "orion_prepare",
+    "orion_start",
+    "orion_close",
+  ]);
+});
+
 it.each(["android", "ios"])("installs a %s host in remote-only mode", async (platform) => {
   const { installTauriHost } = await import("../tauri-host");
   const { isMobileHost, hasManagedServer, hasActiveServer } = await import("../server-profiles");

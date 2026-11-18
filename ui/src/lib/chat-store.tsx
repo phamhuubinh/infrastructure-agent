@@ -447,7 +447,10 @@ export function sessionFromTimeline(
 }
 
 function upsertSession(sessions: Session[], next: Session): Session[] {
-  return [next, ...sessions.filter((session) => session.id !== next.id)];
+  // Host summaries own last_activity_at ordering. Reading replaces a row in place.
+  // A hydrated conversation may be older than the bounded sidebar snapshot.
+  if (!sessions.some((session) => session.id === next.id)) return [...sessions, next];
+  return sessions.map((session) => (session.id === next.id ? next : session));
 }
 
 async function reconcileSessionDocuments(
@@ -620,7 +623,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     );
     listRevision.current++;
     setSessions((previous) =>
-      previous.some((item) => item.id === session.id) ? previous : upsertSession(previous, session),
+      previous.some((item) => item.id === session.id) ? previous : [session, ...previous],
     );
     if (selectionRevision.current === selected) setCurrentSessionId(data.session_id);
     return data.session_id;

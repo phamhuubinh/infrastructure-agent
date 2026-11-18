@@ -66,6 +66,8 @@ function Harness({ sessionId = "session-1" }: { sessionId?: string }) {
       <span>{chat.sessions[0]?.messages.map((message) => message.content).join("|")}</span>
       <span data-testid="project-id">{chat.sessions[0]?.projectId || "none"}</span>
       <span data-testid="session-count">{chat.sessions.length}</span>
+      <span data-testid="session-order">{chat.sessions.map((item) => item.id).join(",")}</span>
+      <span data-testid="selected-session">{chat.currentSessionId}</span>
       <span data-testid="message-count">{chat.sessions[0]?.messages.length || 0}</span>
       <span data-testid="title">
         {chat.sessions.find((session) => session.id === sessionId)?.title}
@@ -121,6 +123,119 @@ describe("M1 session store", () => {
     window.localStorage.clear();
     vi.restoreAllMocks();
   });
+  it("keeps reads in place and uses changed Host activity order across two stores", async () => {
+    let revision = '"v1"';
+    const summary = (id: string, date: string) => ({
+      session_id: id,
+      project_id: null,
+      custom_title: null,
+      title: id,
+      created_at: date,
+      last_activity_at: date,
+      mutation_mode: "read_only",
+    });
+    let rows = [
+      summary("session-2", "2026-11-18T01:00:00Z"),
+      summary("session-1", "2026-11-17T01:00:00Z"),
+    ];
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/sessions") {
+        const etag = new Headers(init?.headers).get("if-none-match");
+        if (etag === revision) return new Response(null, { status: 304 });
+        return new Response(JSON.stringify(rows), { headers: { ETag: revision } });
+      }
+      if (path.endsWith("/timeline")) return jsonResponse([]);
+      if (path === "/api/sessions/session-1" || path === "/api/sessions/archive") {
+        return jsonResponse({
+          session_id: path.endsWith("archive") ? "archive" : "session-1",
+          project_id: null,
+          mutation_mode: "read_only",
+        });
+      }
+      throw new Error("unexpected route");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const first = render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+    const second = render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+    await waitFor(() => {
+      expect(first.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+        "session-2,session-1",
+      );
+      expect(second.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+        "session-2,session-1",
+      );
+    });
+    fireEvent.click(first.getAllByText("load")[0]);
+    await waitFor(() =>
+      expect(first.container.querySelector('[data-testid="selected-session"]')?.textContent).toBe(
+        "session-1",
+      ),
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/sessions/session-1/timeline", expect.anything()),
+    );
+    expect(first.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+      "session-2,session-1",
+    );
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([path, init]) =>
+            path === "/api/sessions" && new Headers(init?.headers).get("if-none-match") === '"v1"',
+        ),
+      ).toBe(true),
+    );
+    rows = [summary("web-new", "2026-11-18T02:00:00Z"), ...rows];
+    revision = '"v2"';
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => {
+      for (const view of [first, second]) {
+        expect(view.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+          "web-new,session-2,session-1",
+        );
+      }
+    });
+    rows = [
+      summary("session-1", "2026-11-18T03:00:00Z"),
+      ...rows.filter((r) => r.session_id !== "session-1"),
+    ];
+    revision = '"v3"';
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => {
+      for (const view of [first, second]) {
+        expect(view.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+          "session-1,web-new,session-2",
+        );
+      }
+    });
+    expect(first.container.querySelector('[data-testid="selected-session"]')?.textContent).toBe(
+      "session-1",
+    );
+    first.rerender(
+      <ChatProvider>
+        <Harness sessionId="archive" />
+      </ChatProvider>,
+    );
+    fireEvent.click(first.getAllByText("load")[0]);
+    await waitFor(() =>
+      expect(first.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+        "session-1,web-new,session-2,archive",
+      ),
+    );
+    expect(second.container.querySelector('[data-testid="session-order"]')?.textContent).toBe(
+      "session-1,web-new,session-2",
+    );
+  });
+
   it("creates sessions through the current API without browser session storage", async () => {
     const fetchMock = vi.fn((path: string, init?: RequestInit) => {
       if (path === "/api/sessions" && !init?.method) return Promise.resolve(jsonResponse([]));

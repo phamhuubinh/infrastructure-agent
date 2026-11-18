@@ -429,6 +429,7 @@ class ChatRuntime:
         skill_request_start: Callable[[str, RuntimeScope, str], None] | None = None,
         skill_context: Callable[[str, RuntimeScope], str] | None = None,
         skill_request_end: Callable[[str], None] | None = None,
+        model_tool_definitions: Callable[[RuntimeScope], tuple[ToolDefinition, ...]] | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -438,6 +439,9 @@ class ChatRuntime:
         self._skill_context = skill_context
         self._skill_request_end = skill_request_end
         self._registry = registry
+        self._model_tool_definitions = model_tool_definitions or (
+            lambda _scope: registry.model_definitions()
+        )
         self._access = access
         self._runner = ToolRunner(registry, blocked_tool_operation_kinds, mutation_authorization)
         self._infrastructure_targets = infrastructure_targets
@@ -1632,7 +1636,7 @@ class ChatRuntime:
                     and settings.profile.capabilities.tool_result_continuation
                 )
             )
-            else self._registry.model_definitions()
+            else self._model_tool_definitions(scope)
         )
         model_continuation_messages = (
             (ContextMessage(role="user", content=_MODEL_CONTINUATION_REQUEST),)

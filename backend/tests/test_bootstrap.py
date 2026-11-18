@@ -74,7 +74,9 @@ def test_registry_builder_rejects_duplicate_names_handler_keys_and_invalid_schem
 
 
 def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    app = build_application(tmp_path / "orion.db", ScriptedBackend([]))
+    app = build_application(
+        tmp_path / "orion.db", ScriptedBackend([]), endpoint_enabled=False
+    )
 
     assert [definition.name for definition in app.registry.definitions()] == [
         "calculator.evaluate",
@@ -310,3 +312,53 @@ async def test_local_principal_and_workspace_are_runtime_owned_not_model_argumen
     assert seen_call.runtime_scope.principal_id == "local"
     assert seen_call.runtime_scope.workspace_id == "local"
     assert "local" not in backend.calls[0][0][-1].content
+
+
+@pytest.mark.anyio
+async def test_unpaired_application_omits_only_unusable_endpoint_schemas_and_rechecks_pairing(
+    tmp_path,
+):
+    backend = ScriptedBackend(
+        [
+            ModelTurn(assistant=AssistantMessage(content="Hello")),
+            ModelTurn(assistant=AssistantMessage(content="Paired")),
+            ModelTurn(assistant=AssistantMessage(content="Revoked")),
+        ]
+    )
+    app = build_application(
+        tmp_path / "context.db",
+        backend,
+        endpoint_enabled=True,
+        managed_desktop=True,
+        seed_model_from_environment=False,
+    )
+    app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fixture", None)
+    session = app.store.create_session()
+    try:
+        await app.runtime.submit(session, "Hello")
+        before = {tool.name for tool in backend.calls[0][1]}
+        canonical = {tool.name for tool in app.registry.model_definitions()}
+        assert before == {
+            name
+            for name in canonical
+            if not name.startswith("endpoint.") or name == "endpoint.list"
+        }
+        assert {
+            "knowledge.search",
+            "knowledge.read",
+            "calculator.evaluate",
+            "system.command.run",
+        } <= before
+        paired = app.endpoints.store.pair(app.endpoints.store.token()["token"], "fixture")
+        await app.runtime.submit(session, "Hello again")
+        assert {tool.name for tool in backend.calls[1][1]} == canonical
+        # Offline paired targets remain discoverable and retain their schemas.
+        assert not app.endpoints.connections
+        app.endpoints.store.revoke(paired["endpoint_id"])
+        await app.runtime.submit(session, "Use RAG and tools for a complex investigation")
+        assert {tool.name for tool in backend.calls[2][1]} == before
+        assert {tool.name for tool in app.registry.model_definitions()} == canonical
+    finally:
+        await app.commands.close()
+        await app.endpoints.close()
+        app.store.close()

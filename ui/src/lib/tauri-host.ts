@@ -86,7 +86,7 @@ function nativeFetch(managed: boolean, mobile = false): typeof fetch {
         ? await invoke<ResponseHead>("orion_start_mobile", { id, body: mobileBody(body) })
         : await invoke<ResponseHead>("orion_start", body, { headers: { "x-orion-request": id } });
       signal.throwIfAborted();
-      if (head.status === 204 || head.status === 205) {
+      if (head.status === 204 || head.status === 205 || head.status === 304) {
         await close();
         return new Response(null, head);
       }

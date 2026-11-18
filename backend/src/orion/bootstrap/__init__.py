@@ -18,6 +18,7 @@ from orion.application.models import ModelConfigurationService
 from orion.application.requests import RequestService
 from orion.chat.diagnostics import BoundedModelInputDiagnostics
 from orion.chat.runtime import ChatRuntime
+from orion.contracts import RuntimeScope, ToolDefinition
 from orion.endpoints.manager import EndpointManager
 from orion.endpoints.persistence import EndpointStore
 from orion.endpoints.tools import endpoint_registrations
@@ -249,6 +250,22 @@ def build_application(
         model_configurations = ModelConfigurationService(
             store, configuration_registry, credentials_for_database(resolved_path)
         )
+
+        def model_tool_definitions(scope: RuntimeScope) -> tuple[ToolDefinition, ...]:
+            # An unpaired installation has no valid target for endpoint operations.
+            # Recheck each turn so pairing/revocation takes effect immediately.
+            # Keep discovery, RAG, commands and all other registered tools visible.
+            paired = any(
+                row["revoked_at"] is None
+                and (scope.endpoint_id is None or scope.endpoint_id == row["endpoint_id"])
+                for row in endpoints.store.list()
+            )
+            return tuple(
+                tool
+                for tool in registry.model_definitions()
+                if paired or not tool.name.startswith("endpoint.") or tool.name == "endpoint.list"
+            )
+
         runtime = ChatRuntime(
             store,
             selected_backend,
@@ -271,6 +288,7 @@ def build_application(
             skill_request_start=skills.begin_request,
             skill_context=skills.context,
             skill_request_end=skills.end_request,
+            model_tool_definitions=model_tool_definitions,
         )
         store.recover_interrupted_requests(ownership)
         return OrionApplication(
