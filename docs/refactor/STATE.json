@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "PENDING_MANUAL: choose a maintenance window, stop Host cleanly, then run scripts/windows/upgrade-maintenance.ps1 -MaintenanceWindow. See docs/refactor/UPGRADE_8EB4AD2.md. Authenticate Owner personally for installed Desktop/tailnet Web and device checks. Keep Funnel disabled.",
+  "next_action": "PENDING_MANUAL: during a maintenance window, stop Host cleanly and run scripts/windows/upgrade-maintenance.ps1 -MaintenanceWindow for 827e263. Then personally authenticate Owner and verify installed Desktop/Web sync, recent-session order and token usage. See EXECUTION_LOG.md. Keep Funnel disabled.",
   "work_items": [
     {
       "id": "R00",
@@ -690,6 +690,11 @@
           "kind": "live_provider_fixture_benchmark",
           "path": "docs/refactor/EXECUTION_LOG.md",
           "result": "2026-11-18 DeepSeek prompt fixtures saved 12.9-16.5% input. The owned command status fixture saved 74.7% input and reduced model calls from 8 to 3, with a single execution and correct output in both runs."
+        },
+        {
+          "kind": "full_application_live_token_benchmark",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Recreated the 9929-token greeting with 46 tools. Availability-based omission of 25 unpaired endpoint operations gives 5387 input tokens (45.7% lower), one invocation. Full-registry fixture RAG and dependent calculator checks pass before/after; history and continuation are absent in the measured greeting."
         }
       ],
       "blockers": []
@@ -765,6 +770,11 @@
           "kind": "online_backup_and_isolated_rollback_drill",
           "path": "docs/refactor/UPGRADE_8EB4AD2.md",
           "result": "Snapshot and restored SQLite table equality, integrity/foreign keys, Owner MFA state and DPAPI equality passed. NSIS payload verified against 8eb4ad2. Isolated acceptance passed and detected changed Chat data. Deployed upgrade remains PENDING_MANUAL."
+        },
+        {
+          "kind": "native_transport_and_independent_client_regression",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "827e263: 3 real-HTTP Rust transport tests; 31 UI tests including managed 304 and stable session order; two isolated Edge contexts (Web and JS managed IPC fixture) verify two-way create/delete, 200/304 and sidebar scroll/selection. Verified unsigned NSIS payload and frozen sidecar. Installed Owner-authenticated acceptance remains PENDING_MANUAL."
         }
       ],
       "blockers": [
@@ -922,8 +932,10 @@
     "reviewed_files_at_checkpoint": 656,
     "inventory_files_at_checkpoint": 636,
     "next_task": "R21",
-    "code_checkpoint": "9391a52",
-    "upgrade_backup": "C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261118-073941",
-    "upgrade_runbook": "docs/refactor/UPGRADE_8EB4AD2.md"
+    "code_checkpoint": "827e263",
+    "upgrade_backup": "C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261118-085955",
+    "upgrade_runbook": "docs/refactor/UPGRADE_8EB4AD2.md",
+    "upgrade_candidate": "release-work/acceptance-827e263/Orion_0.1.5_x64_827e263-preview-setup.exe",
+    "upgrade_sha256": "C4B18B60BF41405D181DDA731A986B7DC7A686A5F731CBACA130DFB60EE6F6B3"
   }
 }

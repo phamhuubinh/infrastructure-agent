@@ -1,5 +1,7 @@
 # Nâng cấp Windows từ checkpoint 8eb4ad2
 
+Ghi chú sau nghiệm thu fdfcb15. Kịch bản `upgrade-maintenance.ps1` hiện trỏ đến ứng viên sửa lỗi `827e263`. Thông tin bộ cài và benchmark mới nhất nằm ở mục “Lỗi nghiệm thu sau nâng cấp fdfcb15” trong `EXECUTION_LOG.md`. Các bước bảo trì và rollback bên dưới tiếp tục áp dụng.
+
 ## Bộ cài và backup đã xác minh
 
 Bộ cài cuối cùng là `F:/Orion/release-work/acceptance-fdfcb15/Orion_0.1.5_x64_fdfcb15-preview-setup.exe`, x64 debug preview chưa ký, 120.184.178 byte.

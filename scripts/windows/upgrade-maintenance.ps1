@@ -11,9 +11,9 @@ if (Get-NetTCPConnection -LocalPort 61888 -State Listen -ErrorAction SilentlyCon
     throw 'The Host port is still occupied.'
 }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$package = Join-Path $repo 'release-work/acceptance-fdfcb15'
-$setup = Join-Path $package 'Orion_0.1.5_x64_fdfcb15-preview-setup.exe'
-$expected = '9B56E4FFDFB7606EE4F3FF437C91CBC647F61702D4666BDA5442C82DE9A2E24C'
+$package = Join-Path $repo 'release-work/acceptance-827e263'
+$setup = Join-Path $package 'Orion_0.1.5_x64_827e263-preview-setup.exe'
+$expected = 'C4B18B60BF41405D181DDA731A986B7DC7A686A5F731CBACA130DFB60EE6F6B3'
 if ((Get-FileHash -LiteralPath $setup).Hash -ne $expected) { throw 'Installer checksum mismatch.' }
 $previousPath = $env:PYTHONPATH
 try {
