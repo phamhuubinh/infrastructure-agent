@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "PENDING_MANUAL: during a maintenance window, stop Host cleanly and run scripts/windows/upgrade-maintenance.ps1 -MaintenanceWindow for 827e263. Then personally authenticate Owner and verify installed Desktop/Web sync, recent-session order and token usage. See EXECUTION_LOG.md. Keep Funnel disabled.",
+  "next_action": "PENDING_MANUAL: maintenance-window install from 253dae0, Owner-authenticated desktop/Web/mobile acceptance, then outside-tailnet Funnel verification and private Serve rollback as documented.",
   "work_items": [
     {
       "id": "R00",
@@ -932,10 +932,10 @@
     "reviewed_files_at_checkpoint": 656,
     "inventory_files_at_checkpoint": 636,
     "next_task": "R21",
-    "code_checkpoint": "827e263",
-    "upgrade_backup": "C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261118-085955",
+    "code_checkpoint": "253dae0",
+    "upgrade_backup": "C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261123-055027",
     "upgrade_runbook": "docs/refactor/UPGRADE_8EB4AD2.md",
-    "upgrade_candidate": "release-work/acceptance-827e263/Orion_0.1.5_x64_827e263-preview-setup.exe",
-    "upgrade_sha256": "C4B18B60BF41405D181DDA731A986B7DC7A686A5F731CBACA130DFB60EE6F6B3"
+    "upgrade_candidate": "release-work/final-internet-batch/Orion_0.1.5_x64_final-preview-setup.exe",
+    "upgrade_sha256": "D617E63DD323199A9B454CA200C2F5A54967AC5C08F1C9257F5A9DD7EF018545"
   }
 }

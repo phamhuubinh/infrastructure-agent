@@ -1,20 +1,12 @@
 # Nâng cấp Windows từ checkpoint 8eb4ad2
 
-Ghi chú sau nghiệm thu fdfcb15. Kịch bản `upgrade-maintenance.ps1` hiện trỏ đến ứng viên sửa lỗi `827e263`. Thông tin bộ cài và benchmark mới nhất nằm ở mục “Lỗi nghiệm thu sau nâng cấp fdfcb15” trong `EXECUTION_LOG.md`. Các bước bảo trì và rollback bên dưới tiếp tục áp dụng.
+Kịch bản bảo trì hiện trỏ tới ứng viên sửa lỗi từ checkpoint `253dae0`.
 
-## Bộ cài và backup đã xác minh
+- Bộ cài Windows x64 preview chưa ký tại `release-work/final-internet-batch/Orion_0.1.5_x64_final-preview-setup.exe`.
+- SHA-256 `D617E63DD323199A9B454CA200C2F5A54967AC5C08F1C9257F5A9DD7EF018545`.
+- Backup trực tuyến đã kiểm khôi phục tại `C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261123-055027`. Kịch bản chụp lại một backup trong cửa sổ bảo trì trước cài.
 
-Bộ cài cuối cùng là `F:/Orion/release-work/acceptance-fdfcb15/Orion_0.1.5_x64_fdfcb15-preview-setup.exe`, x64 debug preview chưa ký, 120.184.178 byte.
-
-SHA-256 là `9B56E4FFDFB7606EE4F3FF437C91CBC647F61702D4666BDA5442C82DE9A2E24C`.
-
-Backend và Worker lấy từ `fdfcb15`, UI lấy từ `9391a52`. Phần ứng dụng của hai nguồn này tương đương `8eb4ad2`. Build lại UI tại `8eb4ad2` để đối chiếu đủ 72 tệp Web và 8 tệp JS/CSS nằm trong Orion.exe. Kiểm tra 844 hash backend/Worker của payload với manifest đã đóng gói. Bằng chứng tại `release-work/upgrade-8eb4ad2/package-verification.json`. Bộ cài hiện tại đáp ứng checkpoint yêu cầu.
-
-Backup trực tuyến đã tạo tại `C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261118-073941`. ACL chỉ cấp tài khoản hiện tại và SYSTEM. Thư mục chứa SQLite snapshot qua SQLite Backup API, blobs, credential DPAPI còn mã hóa, bộ ứng dụng đang cài, registry Host/uninstall, mục autostart và JSON Tailscale Serve. Manifest lưu hash để kiểm tra lại.
-
-Đã phục hồi vào `rollback-drill` trong backup, khởi tạo SQLite bằng mã ứng dụng, kiểm integrity/foreign keys và so khớp nội dung tất cả bảng với giao dịch đọc nguồn. Owner password hash, TOTP secret, recovery digests và replay counter được bảo toàn trong SQLite. Credential phục hồi giải mã được dưới Windows account hiện tại và so khớp trong bộ nhớ. Các lượt 39.920, 105.410, 132.005 token còn đủ. Việc đăng nhập Owner thực tế mang trạng thái `PENDING_MANUAL`.
-
-Backup này phản ánh thời điểm chụp. Kịch bản nâng cấp tạo một backup mới sau khi Host đã dừng sạch để giữ các thay đổi phát sinh về sau. DPAPI cần cùng máy và tài khoản Windows. Bản sao chứa dữ liệu Owner và lịch sử riêng tư nên tiếp tục giữ trong thư mục được bảo vệ.
+Ứng viên đi cùng các bước [nghiệm thu Internet](INTERNET_ACCEPTANCE.md). Chi tiết benchmark và kiểm thử nằm trong [nhật ký](EXECUTION_LOG.md). Các backup trước được ghi ở các mục lịch sử của nhật ký.
 
 ## Cửa sổ bảo trì do chủ máy thực hiện
 
@@ -27,7 +19,7 @@ Backup này phản ánh thời điểm chụp. Kịch bản nâng cấp tạo m�
 
 3. Khi kịch bản báo PASS, mở Orion. Kiểm tra Chat, Projects, model, lịch sử dài và vị trí cuộn. Chủ máy tự đăng nhập Owner trên Web qua URL tailnet và thử một chat mới giữa Desktop/Web. Kiểm tra Android/iOS sau enrollment trên thiết bị tương ứng. Các bước xác thực và nghiệm thu nền tảng này là `PENDING_MANUAL`.
 
-Kịch bản dùng Python tại `F:/Orion-toolchains/refactor-python/Scripts/python.exe`. Có thể truyền `-Python` khi vị trí môi trường đã thay đổi. Kịch bản sử dụng payload đã giải nén tại `release-work/acceptance-fdfcb15/extracted` để đối chiếu các tệp được cài. Thao tác dừng Host do chủ máy thực hiện trước khi chạy kịch bản.
+Kịch bản dùng Python tại `F:/Orion-toolchains/refactor-python/Scripts/python.exe`. Có thể truyền `-Python` khi vị trí môi trường đã thay đổi. Kịch bản sử dụng payload đã giải nén tại `release-work/final-internet-batch/extracted` để đối chiếu các tệp được cài. Thao tác dừng Host do chủ máy thực hiện trước khi chạy kịch bản.
 
 ## Nghiệm thu tự động đã chuẩn bị
 
