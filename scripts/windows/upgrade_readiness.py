@@ -98,12 +98,6 @@ def check_database(path: Path) -> dict[str, str]:
         ).fetchone()
         if owner is None or not all(owner):
             raise ValueError("Owner security state is missing")
-        tokens = db.execute(
-            "SELECT json_extract(payload_json,'$.metrics.input_tokens') FROM timeline "
-            "WHERE json_extract(payload_json,'$.metrics.input_tokens') IN (39920,105410,132005)"
-        ).fetchall()
-        if {row[0] for row in tokens} != {39920, 105410, 132005}:
-            raise ValueError("Required historical requests are missing")
         for (blob,) in db.execute(
             "SELECT blob_id FROM documents WHERE deleted_at IS NULL"
         ):

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -65,6 +66,51 @@ describe("M1 Chat integration", () => {
     window.localStorage.clear();
     vi.restoreAllMocks();
     vi.mocked(isMobileHost).mockReturnValue(false);
+  });
+
+  it("keeps drafts across editor remounts and isolates each client provider", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => {
+        if (path === "/api/models") return jsonResponse(configuredModels);
+        if (path === "/api/sessions") return jsonResponse([]);
+        throw new Error("unexpected route " + path);
+      }),
+    );
+    function Remount() {
+      const [revision, setRevision] = useState(0);
+      return (
+        <>
+          <button onClick={() => setRevision((value) => value + 1)}>Remount editor</button>
+          <ChatPage key={revision} />
+        </>
+      );
+    }
+    const first = render(
+      <ChatProvider>
+        <Remount />
+      </ChatProvider>,
+    );
+    fireEvent.change(await screen.findByRole("textbox", { name: "Chat input" }), {
+      target: { value: "Keep my device draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Remount editor" }));
+    await waitFor(() =>
+      expect((first.container.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+        "Keep my device draft",
+      ),
+    );
+    const second = render(
+      <ChatProvider>
+        <ChatPage />
+      </ChatProvider>,
+    );
+    await waitFor(() =>
+      expect((second.container.querySelector("textarea") as HTMLTextAreaElement).value).toBe(""),
+    );
+    expect((first.container.querySelector("textarea") as HTMLTextAreaElement).value).toBe(
+      "Keep my device draft",
+    );
   });
 
   it("refreshes summaries on focus and preserves a concurrent create after a delayed delete", async () => {

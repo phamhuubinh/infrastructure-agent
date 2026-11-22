@@ -174,7 +174,11 @@ async def test_bootstrap_ssh_tools_work_without_enabling_paired_endpoints(tmp_pa
         ]
     )
     app = build_application(
-        tmp_path / "orion.db", backend, endpoint_enabled=False, seed_model_from_environment=False
+        tmp_path / "orion.db",
+        backend,
+        endpoint_enabled=False,
+        seed_model_from_environment=False,
+        lazy_tools=False,
     )
     app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fixture", None)
     channel = Channel(app.store)

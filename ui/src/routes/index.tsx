@@ -648,7 +648,6 @@ function ChatInput({
   projectDocuments: Session["documents"];
   setProjectDocuments?: Dispatch<SetStateAction<DocumentStatus[]>>;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const mobile = isMobileHost();
   const [mobileAvailable, setMobileAvailable] = useState(
     () => !mobile || (navigator.onLine && !document.hidden),
@@ -692,6 +691,8 @@ function ChatInput({
     };
   }, [mobile]);
   const {
+    drafts,
+    setDrafts,
     currentSessionId,
     sessions,
     createSession,
@@ -942,6 +943,7 @@ function ChatInput({
       addOptimisticMessage,
       createSession,
       draftKey,
+      setDrafts,
       loadSession,
       mobile,
       mobileAvailable,

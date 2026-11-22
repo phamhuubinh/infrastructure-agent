@@ -874,7 +874,11 @@ async def test_official_inprocess_tools_only_and_list_changes_are_ignored(tmp_pa
         ]
     )
     app = build_application(
-        tmp_path / "db", backend, mcp_manager=manager, mcp_registrations=registrations
+        tmp_path / "db",
+        backend,
+        mcp_manager=manager,
+        mcp_registrations=registrations,
+        lazy_tools=False,
     )
     owner = scope(app)
     app.store.upsert_model_config("openai_compatible", "http://model.test", "fake", None)

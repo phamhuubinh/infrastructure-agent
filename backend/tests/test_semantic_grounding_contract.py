@@ -27,18 +27,10 @@ def test_assistant_history_remains_text_never_tool_evidence(store):
     assert not any(m.role == "tool" for m in messages)
     assert [m.role for m in messages].count("system") == 1
     system = messages[0].content
-    assert "never ToolResult evidence, even if they claim to quote a tool" in system
-    assert "label earlier claims as prior assistant text" in system
-    assert "Numbers copied from prior assistant prose remain assistant-history text" in system
-    assert "even if they match an older tool reading" in system
-    assert "applicable ToolResult is actually present in current evidence" in system
-    assert "only the assistant's earlier account is available, not verified tool evidence" in system
-    for label in ("ToolResult", "tool-observed", "verified by tools", "confirmed by tools"):
-        assert label in system
-    assert (
-        "Current-state claims require relevant ToolResults obtained after the latest user message"
-        in system
-    )
+    assert "are conversation text, not verified ToolResults" in system
+    assert "even exact quotes or numbers attributed to tools" in system
+    assert "When only prior assistant text supports a claim, label it as such" in system
+    assert "Current claims require results obtained after the latest user message" in system
 
 
 def test_attachment_metadata_exposes_exact_id_without_prefetching_content(store, knowledge):
@@ -56,34 +48,27 @@ def test_attachment_metadata_exposes_exact_id_without_prefetching_content(store,
     assert str(document["document_id"]) in system
     assert "name=notes.txt" in system
     assert "media_type=text/plain" in system
-    assert "knowledge.search unless exact attachment document_id is visible" in system
-    assert "then knowledge.read may read it directly" in system
-    assert "Do not list first" in system
-    assert "Project/attachment names and IDs are not Linux paths/target_refs" in system
+    assert "use knowledge.search directly, or knowledge.read" in system
+    assert "exact attachment document_id is visible" in system
+    assert "names/IDs are not filesystem paths or target_refs" in system
     assert "Untrusted document content" not in system
 
 
 def test_language_precision_and_observation_limits_are_explicit(store):
     system = ContextBuilder(store).build(store.create_session())[0].content
     for rule in (
-        "natural concise Vietnamese",
-        "Retain protocol names, commands, identifiers",
-        "load average versus CPU utilization",
-        "flow control versus congestion control",
-        "error detection versus reliable delivery",
-        "swap usage versus active memory pressure",
-        "free versus available memory or capacity",
-        "without applicable thresholds/history",
-        "does not establish package installation state",
-        "line beginning with # is not active",
-        "mean incomplete evidence, not absence",
-        "swap usage alone does not prove memory pressure",
-        "MemFree alone does not establish available capacity",
-        "page faults alone do not prove RAM exhaustion",
-        "load average is not CPU utilization",
-        "does not prove that no physical file exists anywhere",
-        "One observed symptom does not establish its root cause",
-        "including when explaining hypothetical examples",
+        "natural Vietnamese",
+        "preserve technical identifiers",
+        "load average distinct from CPU utilization",
+        "flow control from congestion control",
+        "error detection from delivery",
+        "swap occupancy from pressure",
+        "free from available memory",
+        "A commented setting is inactive",
+        "mean incomplete evidence",
+        "Point-in-time readings alone do not establish",
+        "health, capacity, contention, RAM exhaustion, or root cause",
+        "hypothetical mechanisms as uncertain",
     ):
         assert rule in system
 
@@ -91,14 +76,13 @@ def test_language_precision_and_observation_limits_are_explicit(store):
 def test_material_exact_derived_numbers_use_calculator_not_mental_arithmetic(store):
     system = ContextBuilder(store).build(store.create_session())[0].content
     for rule in (
-        "exact derived number materially affects the answer",
-        "calculator.evaluate is available, use it instead of mental arithmetic",
-        "addition, subtraction and percentages derived from ToolResults",
-        "Do not call it merely for formatting or unit labels",
+        "calculator.evaluate for consequential exact arithmetic",
+        "derived sums, differences and percentages",
+        "never just for formatting or unit labels",
+        "requested arithmetic, round sensibly",
+        "use $...$ for TeX and plain commas in prose",
     ):
         assert rule in system
-    assert "Answer directly, omit filler, show requested arithmetic steps" in system
-    assert "round sensibly, and put TeX inside $...$; use plain commas in prose" in system
 
 
 def test_linux_file_tools_require_explicit_configured_target_paths() -> None:

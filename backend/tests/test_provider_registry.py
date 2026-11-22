@@ -236,7 +236,7 @@ async def test_default_application_uses_registry_for_real_compatible_tool_roundt
         "orion.models.providers.openai_compatible.httpx.AsyncClient",
         lambda **kw: client_type(transport=httpx.MockTransport(provider), **kw),
     )
-    application = build_application(tmp_path / "application.db")
+    application = build_application(tmp_path / "application.db", lazy_tools=False)
     try:
         assert isinstance(application.backend, ProviderRegistry)
         profile = None

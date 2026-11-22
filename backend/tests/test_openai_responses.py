@@ -223,7 +223,9 @@ async def test_default_responses_encrypted_state_multiple_functions_then_later_u
         return httpx.Response(200, stream=stream)
 
     use_provider(monkeypatch, provider)
-    app = build_application(tmp_path / "application.db", seed_model_from_environment=False)
+    app = build_application(
+        tmp_path / "application.db", seed_model_from_environment=False, lazy_tools=False
+    )
     try:
         bound = configured()
         app.store.create_model_config(

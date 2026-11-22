@@ -75,7 +75,7 @@ def test_registry_builder_rejects_duplicate_names_handler_keys_and_invalid_schem
 
 def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # type: ignore[no-untyped-def]
     app = build_application(
-        tmp_path / "orion.db", ScriptedBackend([]), endpoint_enabled=False
+        tmp_path / "orion.db", ScriptedBackend([]), endpoint_enabled=False, lazy_tools=False
     )
 
     assert [definition.name for definition in app.registry.definitions()] == [
@@ -115,7 +115,7 @@ def test_semantic_composition_is_opt_in_and_lazy(tmp_path, monkeypatch, mode: st
         raise AssertionError("E5 load was attempted")
 
     monkeypatch.setattr(bootstrap, "LocalE5Embeddings", load_model)
-    app = build_application(tmp_path / "orion.db", ScriptedBackend([]))
+    app = build_application(tmp_path / "orion.db", ScriptedBackend([]), lazy_tools=False)
     try:
         assert initializations == 0
         session = app.store.create_session()
@@ -144,7 +144,7 @@ def test_production_bootstrap_rejects_invalid_model_stream_timeout(
     monkeypatch.setenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", configured)
 
     with pytest.raises(ValueError, match="ORION_MODEL_STREAM_TIMEOUT_SECONDS"):
-        build_application(tmp_path / "orion.db", ScriptedBackend([]))
+        build_application(tmp_path / "orion.db", ScriptedBackend([]), lazy_tools=False)
 
 
 def test_internet_bootstrap_uses_built_in_default_or_explicit_searxng_override(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -175,6 +175,7 @@ def test_production_bootstrap_denies_mutations_by_default_before_fake_handler(
         tmp_path / "orion.db",
         ScriptedBackend([]),
         (ToolRegistration(definition=_mutation_definition(), handler=mutate),),
+        lazy_tools=False,
     )
     blocked = app.runtime._runner.run(  # noqa: SLF001 - verifies production composition.
         ModelToolCall(
@@ -218,6 +219,7 @@ def test_production_bootstrap_allows_only_configured_exact_mutation_target(
         ScriptedBackend([]),
         (ToolRegistration(definition=_mutation_definition(), handler=mutate),),
         infrastructure_catalog=catalog,
+        lazy_tools=False,
     )
     scope = RuntimeScope(session_id="session", principal_id="local", workspace_id="local")
     allowed = app.runtime._runner.run(  # noqa: SLF001 - verifies production composition.
@@ -245,7 +247,7 @@ def test_invalid_production_mutation_allowlist_fails_bootstrap(tmp_path, monkeyp
     monkeypatch.setenv("ORION_INFRASTRUCTURE_CONFIG", str(config))
 
     with pytest.raises(MutationAuthorizationConfigurationError, match="unknown or non-mutation"):
-        build_application(tmp_path / "orion.db", ScriptedBackend([]))
+        build_application(tmp_path / "orion.db", ScriptedBackend([]), lazy_tools=False)
 
 
 def test_environment_model_bootstrap_preserves_existing_saved_profile(
@@ -255,13 +257,13 @@ def test_environment_model_bootstrap_preserves_existing_saved_profile(
     monkeypatch.setenv("ORION_MODEL_BASE_URL", "http://qwen.test/v1")
     monkeypatch.setenv("ORION_MODEL_ID", "qwen3-32b")
     monkeypatch.setenv("ORION_MODEL_REASONING_MODE", "disabled")
-    first = build_application(database, ScriptedBackend([]))
+    first = build_application(database, ScriptedBackend([]), lazy_tools=False)
     first.store.close()
 
     monkeypatch.setenv("ORION_MODEL_BASE_URL", "http://replacement.test/v1")
     monkeypatch.setenv("ORION_MODEL_ID", "replacement-model")
     monkeypatch.setenv("ORION_MODEL_REASONING_MODE", "enabled")
-    restarted = build_application(database, ScriptedBackend([]))
+    restarted = build_application(database, ScriptedBackend([]), lazy_tools=False)
 
     assert [profile["model_id"] for profile in restarted.store.model_configs()] == ["qwen3-32b"]
     assert restarted.store.active_model_config()["model_id"] == "qwen3-32b"  # type: ignore[index]
@@ -300,6 +302,7 @@ async def test_local_principal_and_workspace_are_runtime_owned_not_model_argumen
                 definition=_definition("fake.scope", "fake.scope"), handler=inspect_scope
             ),
         ),
+        lazy_tools=False,
     )
     app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
     principal = app.access.current_principal()
@@ -331,6 +334,7 @@ async def test_unpaired_application_omits_only_unusable_endpoint_schemas_and_rec
         endpoint_enabled=True,
         managed_desktop=True,
         seed_model_from_environment=False,
+        lazy_tools=False,
     )
     app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fixture", None)
     session = app.store.create_session()

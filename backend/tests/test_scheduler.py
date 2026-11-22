@@ -544,7 +544,7 @@ async def test_same_runtime_registry_project_reads_and_forced_read_only(
             ModelTurn(assistant=AssistantMessage(content="Read succeeded; mutation blocked.")),
         ]
     )
-    app = build_application(tmp_path / "orion.db", backend)
+    app = build_application(tmp_path / "orion.db", backend, endpoint_enabled=False, lazy_tools=False)
     app.store.upsert_model_config("openai_compatible", "http://model.test", "fake", None)
     app.scheduler.clock = app.scheduler_engine.clock = lambda: NOW
     project = app.store.create_project("Knowledge", instructions="Use project knowledge.")[

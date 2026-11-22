@@ -69,6 +69,7 @@ from orion.models.backend import (
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import protect_request_values, redact_public, reset_request_values
+from orion.tool_runtime.lazy import LazyToolExposure
 from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import ToolRegistry
 from orion.tool_runtime.runner import PreparedTool, ToolRunner
@@ -213,6 +214,8 @@ _RECOVERY_CONTINUATION_REQUEST = (
 )
 
 _MODEL_CONTINUATION_INSTRUCTIONS = (
+    "If the result is tools.enable, it only loaded schemas: use the enabled tools to complete "
+    "the original task under the existing permissions. Otherwise, "
     "The preceding ToolResult is a discovery or selection result that explicitly requires "
     "another model-selected tool step. It is not answer-bearing evidence. Do not answer from "
     "discovery metadata. Use only locators or identifiers returned by that ToolResult to choose "
@@ -430,6 +433,7 @@ class ChatRuntime:
         skill_context: Callable[[str, RuntimeScope], str] | None = None,
         skill_request_end: Callable[[str], None] | None = None,
         model_tool_definitions: Callable[[RuntimeScope], tuple[ToolDefinition, ...]] | None = None,
+        tool_exposure: LazyToolExposure | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -439,6 +443,7 @@ class ChatRuntime:
         self._skill_context = skill_context
         self._skill_request_end = skill_request_end
         self._registry = registry
+        self._tool_exposure = tool_exposure
         self._model_tool_definitions = model_tool_definitions or (
             lambda _scope: registry.model_definitions()
         )
@@ -1576,6 +1581,8 @@ class ChatRuntime:
             self._scheduled_requests.discard(request_id)
             self._transient_endpoint_results.pop(request_id, None)
             self._transient_tool_calls.pop(request_id, None)
+            if self._tool_exposure is not None:
+                self._tool_exposure.end_request(request_id)
             if self._skill_request_end is not None:
                 with contextlib.suppress(Exception):
                     self._skill_request_end(request_id)
@@ -1603,7 +1610,14 @@ class ChatRuntime:
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
+        tool_capable = settings.profile is None or (
+            settings.profile.capabilities.tools
+            and settings.profile.capabilities.tool_result_continuation
+        )
         runtime_instruction_parts = [
+            self._tool_exposure.context(scope)
+            if self._tool_exposure is not None and tool_capable
+            else "",
             self._skill_context(request_id, scope) if self._skill_context is not None else "",
             _RECOVERY_DECISION_INSTRUCTIONS if recovery_decision or recovery_guidance else "",
             _RECOVERY_EXHAUSTED_INSTRUCTIONS if recovery_exhausted else "",
@@ -1627,15 +1641,9 @@ class ChatRuntime:
         # permission and does not introduce request-specific semantic discovery.
         model_tools = (
             ()
-            if recovery_exhausted
-            or terminal_final
-            or (
-                settings.profile is not None
-                and not (
-                    settings.profile.capabilities.tools
-                    and settings.profile.capabilities.tool_result_continuation
-                )
-            )
+            if recovery_exhausted or terminal_final or not tool_capable
+            else self._tool_exposure.definitions(request_id, scope)
+            if self._tool_exposure is not None
             else self._model_tool_definitions(scope)
         )
         model_continuation_messages = (

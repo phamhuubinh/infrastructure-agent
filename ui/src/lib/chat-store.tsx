@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import {
   attachSessionDocument,
@@ -117,6 +119,8 @@ export function sessionRoute(
 export type ModelInvocation = { elapsed_ms: number; input_tokens?: number; output_tokens?: number };
 
 type ChatContextValue = {
+  drafts: Record<string, string>;
+  setDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   sessions: Session[];
   sessionsLoaded: boolean;
   currentSessionId: string | null;
@@ -477,6 +481,7 @@ async function reconcileSessionDocuments(
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -916,6 +921,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ChatContextValue>(
     () => ({
+      drafts,
+      setDrafts,
       sessions,
       sessionsLoaded,
       currentSessionId,
@@ -936,6 +943,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       deleteDocument,
     }),
     [
+      drafts,
       sessions,
       sessionsLoaded,
       currentSessionId,

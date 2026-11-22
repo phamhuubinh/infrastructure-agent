@@ -3,6 +3,7 @@ import { AndroidConnectionQr } from "./AndroidConnectionQr";
 import { OwnerSecurity } from "./OwnerSecurity";
 import { PrivateQr } from "./PrivateQr";
 import { apiJson } from "@/lib/api";
+import { observeHostRefresh } from "@/lib/host-refresh";
 import type { Schemas } from "@/lib/sdk/generated";
 import {
   activeServer,
@@ -22,6 +23,7 @@ import {
   isManagedServer,
   enrollServer,
   desktopTailscaleToggle,
+  desktopInternetToggle,
 } from "@/lib/server-profiles";
 
 const tailscaleMessages: Record<string, string> = {
@@ -35,7 +37,7 @@ const tailscaleMessages: Record<string, string> = {
   serve_unavailable: "Không đọc được cấu hình Tailscale Serve.",
   unconfigured: "Chưa cấu hình Serve HTTPS.",
   different_backend: "Serve đang trỏ tới backend khác. Kiểm tra cấu hình trước khi thay đổi.",
-  public: "Funnel đang bật cho địa chỉ này. Tắt quyền truy cập công khai trước khi kiểm thử.",
+  public: "Truy cập Internet qua Funnel đang bật. Orion yêu cầu Owner và TOTP.",
   enable_failed: "Orion chưa bật được Serve. Kiểm tra quyền Administrator.",
   configured: "Serve đã trỏ tới backend Orion.",
 };
@@ -55,9 +57,11 @@ const probeMessages: Record<string, string> = {
   probe_unavailable: "Không chạy được kiểm tra HTTPS trên Windows.",
 };
 
-function TailscalePanel() {
+export function TailscalePanel() {
   const check = desktopTailscaleStatus();
   const toggle = desktopTailscaleToggle();
+  const internet = desktopInternetToggle();
+  const [confirmedPublic, setConfirmedPublic] = useState(false);
   const [status, setStatus] = useState<TailscaleStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState("");
@@ -129,13 +133,51 @@ function TailscalePanel() {
         </div>
       )}
       {busy && <p role="status">Đang cập nhật truy cập từ xa…</p>}
+      {internet && (
+        <div className="space-y-2 border-t pt-2">
+          {status?.state !== "public" && (
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={confirmedPublic}
+                disabled={busy}
+                onChange={(event) => setConfirmedPublic(event.target.checked)}
+              />
+              Tôi đồng ý công khai URL Orion trên Internet. Người truy cập phải đăng nhập Owner và
+              TOTP.
+            </label>
+          )}
+          <button
+            type="button"
+            className="rounded border px-2 py-1"
+            disabled={
+              busy || (status?.state !== "public" && (!confirmedPublic || !status?.reachable))
+            }
+            onClick={() => {
+              const enable = status?.state !== "public";
+              void refresh(() => internet(enable, enable && confirmedPublic));
+              setConfirmedPublic(false);
+            }}
+          >
+            {status?.state === "public" ? "Tắt truy cập qua Internet" : "Bật truy cập qua Internet"}
+          </button>
+          <p>
+            Bật Host Mode và Serve HTTPS trước khi bật Internet. Tắt Internet sẽ quay về Serve riêng
+            tư.
+          </p>
+        </div>
+      )}
       {(failed || status?.error) && <p role="alert">{failed || status?.error}</p>}
       {status && (
         <div role="status">
           <p>
             {status.reachable ? "Online" : "Offline"} · {tailscaleMessages[status.state]}
           </p>
-          {status.url && <p className="break-all">URL tailnet · {status.url}</p>}
+          {status.url && (
+            <p className="break-all">
+              {status.state === "public" ? "URL Internet" : "URL tailnet"} · {status.url}
+            </p>
+          )}
           {status.backend && <p>Backend · {status.backend}</p>}
           {status.probe && <p>{probeMessages[status.probe]}</p>}
         </div>
@@ -165,6 +207,15 @@ export function ServerConnections() {
   }, [enrollment]);
   const current = activeServer();
   const nativePath = "/api/auth/native";
+  useEffect(() => {
+    if (!hasActiveServer()) return;
+    return observeHostRefresh(async (current) => {
+      const rows = await apiJson<ReadonlyArray<Schemas["NativeSessionView"]>>(
+        nativePath + "/sessions",
+      );
+      if (current()) setClients(rows);
+    });
+  }, [current.id, current.origin]);
   async function refreshClients() {
     setClients(
       await apiJson<ReadonlyArray<Schemas["NativeSessionView"]>>(nativePath + "/sessions"),

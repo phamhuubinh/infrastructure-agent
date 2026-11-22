@@ -62,7 +62,10 @@ def test_service_status_context_does_not_turn_into_package_or_fabricated_facts(s
     context = ContextBuilder(store).build(session)
     tool_evidence = next(message.content for message in context if message.role == "tool")
 
-    assert "not a different resource's installation" in context[0].content
+    assert (
+        "only matching visible ToolResults support tool-observed facts about a resource"
+        in context[0].content
+    )
     assert "package" not in tool_evidence
     for fabricated in ("1234", "1h23m", "eth0", "192.168.1.100"):
         assert fabricated not in tool_evidence
@@ -104,7 +107,7 @@ async def test_commented_ssh_directive_reaches_model_as_inactive_data(store) -> 
     messages, _ = backend.calls[1]
     evidence = json.loads(next(message.content for message in messages if message.role == "tool"))
     assert evidence["data"]["content"] == fixture
-    assert "A commented configuration line beginning with # is not active" in messages[0].content
+    assert "A commented setting is inactive" in messages[0].content
 
 
 @pytest.mark.anyio
@@ -146,8 +149,8 @@ async def test_visible_ram_citation_is_provenance_not_nginx_entailment(store) ->
     )
     assert outcome.status == "completed"
     instructions = backend.calls[1][0][0].content
-    assert "citation validation only proves provenance, not semantic entailment" in instructions
-    assert "directly supported by that same ToolResult" in instructions
+    assert "only when the associated ToolResult directly supports the claim" in instructions
+    assert "only when the associated ToolResult directly supports the claim" in instructions
 
 
 def three_row_result() -> ToolResult:
@@ -531,8 +534,11 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
     messages = backend.calls[-1][0]
     assert len(backend.calls) == 2 and outcome.status == "completed"
     assert messages[0].role == "system" and GROUNDING_RULE in messages[0].content
-    assert "State a tool-observed value" in messages[0].content
-    assert "not a different resource's installation" in messages[0].content
+    assert "only matching visible ToolResults support tool-observed facts" in messages[0].content
+    assert (
+        "only matching visible ToolResults support tool-observed facts about a resource"
+        in messages[0].content
+    )
     assert "after the latest user message" in messages[0].content
     assert ContextBuilder(store).build(session)[0].role == "system"
     assert [message.content for message in messages if message.role == "user"] == [prompt]

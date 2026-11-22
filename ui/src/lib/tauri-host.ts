@@ -37,6 +37,11 @@ export async function installTauriHost() {
       platform === "windows"
         ? (enabled) => invoke("orion_tailscale_set_enabled", { enabled })
         : undefined,
+    internetSetEnabled:
+      platform === "windows"
+        ? (enabled, confirmedPublic) =>
+            invoke("orion_internet_set_enabled", { enabled, confirmedPublic })
+        : undefined,
     hostSettings:
       platform === "windows"
         ? {

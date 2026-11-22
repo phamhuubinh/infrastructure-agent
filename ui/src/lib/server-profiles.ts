@@ -16,6 +16,7 @@ export type NativeHost = {
   scanConnectionQr?: () => Promise<string | null>;
   tailscaleStatus?: () => Promise<TailscaleStatus>;
   tailscaleSetEnabled?: (enabled: boolean) => Promise<TailscaleStatus>;
+  internetSetEnabled?: (enabled: boolean, confirmedPublic: boolean) => Promise<TailscaleStatus>;
   hostSettings?: {
     load: () => Promise<HostSettingsOptions>;
     save: (settings: HostSettingsOptions) => Promise<void>;
@@ -100,6 +101,10 @@ export function desktopTailscaleStatus() {
 
 export function desktopTailscaleToggle() {
   return nativeHost?.tailscaleSetEnabled;
+}
+
+export function desktopInternetToggle() {
+  return nativeHost?.internetSetEnabled;
 }
 
 export type HostSettingsOptions = {

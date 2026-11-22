@@ -7,6 +7,7 @@ fn main() {
             "orion_host_settings",
             "orion_tailscale_status",
             "orion_tailscale_set_enabled",
+            "orion_internet_set_enabled",
             "orion_save_host_settings",
             "orion_prepare",
             "orion_start",

@@ -169,3 +169,25 @@ it("closes an in-flight native request when its SDK signal is aborted", async ()
   await cancelled;
   expect(invoke).toHaveBeenLastCalledWith("orion_close", { id: invoke.mock.calls[1][1].id });
 });
+
+it("confirms a managed Chat deletion on the first 204 response", async () => {
+  const { installTauriHost } = await import("../tauri-host");
+  const { deleteSession } = await import("../api");
+  invoke.mockResolvedValueOnce({ managedOrigin: origin });
+  invoke.mockResolvedValueOnce(undefined);
+  invoke.mockResolvedValueOnce({ status: 204, headers: [] });
+  invoke.mockResolvedValueOnce(undefined);
+  await installTauriHost();
+  await deleteSession("fixture-chat");
+  expect(invoke.mock.calls[1][1].request).toMatchObject({
+    managed: true,
+    method: "DELETE",
+    url: origin + "/api/sessions/fixture-chat",
+  });
+  expect(invoke.mock.calls.map(([command]) => command)).toEqual([
+    "orion_host",
+    "orion_prepare",
+    "orion_start",
+    "orion_close",
+  ]);
+});

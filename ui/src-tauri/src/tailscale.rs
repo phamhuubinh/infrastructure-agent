@@ -128,6 +128,54 @@ fn occupied_port(config: &Value, port: u16) -> bool {
     })
 }
 
+fn funnel_plan(config: &Value, address: &str, port: u16, enable: bool, confirmed: bool)
+    -> Result<Vec<String>, &'static str> {
+    if enable && !confirmed {
+        return Err("Cần Owner xác nhận công khai URL trước khi bật Internet.");
+    }
+    if ![443, 8443, 10000].contains(&port) {
+        return Err("Funnel chỉ hỗ trợ cổng HTTPS 443, 8443 hoặc 10000.");
+    }
+    let mut private = config.clone();
+    if let Some(flags) = private["AllowFunnel"].as_object_mut() {
+        flags.remove(address);
+    }
+    if !managed_route(&private, address, port) {
+        return Err("Cần Serve riêng tư trỏ chính xác tới Orion, không có route xung đột.");
+    }
+    Ok(vec![if enable { "funnel" } else { "serve" }.into(), "--bg".into(),
+        "--yes".into(), format!("--https={port}"), HOST_BACKEND.into()])
+}
+
+pub async fn apply_funnel(origin: &str, enable: bool, confirmed: bool)
+    -> Result<(), &'static str> {
+    let exe = executable().ok_or("Chưa cài Tailscale.")?;
+    let detected = default_origin().await?;
+    let url = url::Url::parse(origin).map_err(|_| "URL HTTPS không hợp lệ.")?;
+    let expected = url::Url::parse(&detected).map_err(|_| "URL Tailscale không hợp lệ.")?;
+    if url.scheme() != "https" || url.host_str() != expected.host_str()
+        || url.origin().ascii_serialization() != origin {
+        return Err("URL Host không khớp Tailscale HTTPS.");
+    }
+    let port = url.port().unwrap_or(443);
+    let address = format!("{}:{port}", url.host_str().ok_or("Thiếu hostname.")?);
+    let before = config(&exe).await?;
+    let args = funnel_plan(&before, &address, port, enable, confirmed)?;
+    if enable && verify_https(origin, HOST_BACKEND).await != Ok("login_ready") {
+        return Err("HTTPS, Origin và Owner MFA chưa đạt kiểm tra. Internet vẫn chưa được bật.");
+    }
+    if before["AllowFunnel"][&address].as_bool().unwrap_or(false) == enable {
+        return Ok(());
+    }
+    run_serve(&exe, &args.iter().map(String::as_str).collect::<Vec<_>>(), true).await?;
+    let after = config(&exe).await?;
+    funnel_plan(&after, &address, port, false, false)?;
+    if after["AllowFunnel"][&address].as_bool().unwrap_or(false) != enable {
+        return Err("Trạng thái Funnel sau thao tác chưa khớp. Kiểm tra lại kết nối.");
+    }
+    Ok(())
+}
+
 async fn config(exe: &Path) -> Result<Value, &'static str> {
     read_status(exe, &["serve", "status", "--json"]).await
         .ok_or("Không đọc được cấu hình Serve.")
@@ -424,7 +472,7 @@ pub async fn inspect(backend: Option<String>, host_origin: Option<String>) -> St
     };
     let port = url.port().unwrap_or(443);
     result.state = serve_state(&config, &format!("{hostname}:{port}"), port, backend);
-    if result.state == "configured" {
+    if result.state == "configured" || result.state == "public" {
         match verify_https(&origin, backend).await {
             Ok(probe) => {
                 result.probe = probe;
@@ -480,6 +528,27 @@ mod tests {
         assert!(!managed_route(&config, host, 443));
         assert!(occupied_port(&json!({"Foreground":{"existing":{"TCP":{"443":{"HTTPS":true}}}}}), 443));
         assert!(occupied_port(&json!({"AllowFunnel":{host:true}}), 443));
+    }
+
+    #[test]
+    fn funnel_requires_explicit_consent_exact_private_route_and_restores_serve() {
+        let host = "host.example.ts.net:443";
+        let mut config = json!({
+            "TCP": {"443": {"HTTPS": true}},
+            "Web": {host: {"Handlers": {"/": {"Proxy": HOST_BACKEND}}}}
+        });
+        assert!(funnel_plan(&config, host, 443, true, false).is_err());
+        let args = funnel_plan(&config, host, 443, true, true).unwrap();
+        assert_eq!(args, vec!["funnel", "--bg", "--yes", "--https=443", HOST_BACKEND]);
+        config["AllowFunnel"] = json!({host: true});
+        let private = funnel_plan(&config, host, 443, false, false).unwrap();
+        assert_eq!(private, vec!["serve", "--bg", "--yes", "--https=443", HOST_BACKEND]);
+        assert_eq!(config["AllowFunnel"][host], true);
+        config["Web"][host]["Handlers"]["/other"] = json!({"Text": "other app"});
+        assert!(funnel_plan(&config, host, 443, true, true).is_err());
+        assert!(funnel_plan(&config, host, 443, false, false).is_err());
+        assert!(funnel_plan(&json!({}), host, 443, true, true).is_err());
+        assert!(funnel_plan(&config, host, 444, true, true).is_err());
     }
 
     #[tokio::test]
