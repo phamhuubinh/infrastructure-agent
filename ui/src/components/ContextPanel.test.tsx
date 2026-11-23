@@ -38,6 +38,7 @@ describe("ContextPanel", () => {
           ...session,
           activity: [
             { callId: "started", toolName: "linux.system.inspect", status: "started" },
+            { callId: "running", toolName: "system.command.run", status: "running" },
             { callId: "complete", toolName: "linux.system.inspect", status: "completed" },
             { callId: "failed", toolName: "linux.system.inspect", status: "failed" },
           ],
@@ -51,6 +52,7 @@ describe("ContextPanel", () => {
     expect(screen.getAllByText("linux.system.inspect")).toHaveLength(2);
     expect(screen.getByText("Hoàn tất")).toBeTruthy();
     expect(screen.getByText("Lỗi")).toBeTruthy();
+    expect(screen.getByText("Lệnh còn chạy khi kiểm tra")).toBeTruthy();
     expect(screen.queryByText("Đang chạy")).toBeNull();
   });
 

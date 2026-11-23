@@ -69,6 +69,7 @@ from orion.models.backend import (
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import protect_request_values, redact_public, reset_request_values
+from orion.tool_runtime.lazy import LazyToolExposure
 from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import ToolRegistry
 from orion.tool_runtime.runner import PreparedTool, ToolRunner
@@ -213,6 +214,8 @@ _RECOVERY_CONTINUATION_REQUEST = (
 )
 
 _MODEL_CONTINUATION_INSTRUCTIONS = (
+    "If the result is tools.enable, it only loaded schemas: use the enabled tools to complete "
+    "the original task under the existing permissions. Otherwise, "
     "The preceding ToolResult is a discovery or selection result that explicitly requires "
     "another model-selected tool step. It is not answer-bearing evidence. Do not answer from "
     "discovery metadata. Use only locators or identifiers returned by that ToolResult to choose "
@@ -236,32 +239,15 @@ _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
 )
 
 _POST_OBSERVATION_INSTRUCTIONS = (
-    "Review the ordinary ToolResults already returned before selecting further tools. This does "
-    "not make other already-independent reads sequential: when relevant exposed read-only tools "
-    "have known inputs and do not depend on another result, emit them together in one model "
-    "turn rather than waiting to inspect each result first. If the returned results are enough "
-    "for a bounded answer, answer now; do not broaden a general assessment merely to make it "
-    "exhaustive. Continue only for a specific missing fact that the user requested and an "
-    "in-scope tool can obtain. Treat point-in-time resource snapshots only as "
-    "readings at their retrieval time: without history, baselines, workload requirements, "
-    "thresholds/SLOs, or activity counters, do not infer health, sustained utilization, spare "
-    "capacity, workload sufficiency, absence of risk, or absence of swap-in/swap-out activity. "
-    "For dated records, "
-    "state the explicit query window and returned earliest/latest timestamps. Do not call events "
-    "current, recent, or part of a requested reporting period unless their occurred_at values "
-    "fall inside that period. Describe failed, empty, or unqueried evidence as a gap instead of "
-    "inferring absence. Separate measured facts from unknowns. A low load average is not CPU "
-    "utilization or proof of no contention. Free memory is not proof of sufficient capacity. "
-    "Do not label readings normal/healthy or invent readiness scores or thresholds. Do not "
-    "turn an assumption into a finding, even if labeled as an assumption. When evidence "
-    "contains neighboring records, rows, or fields, preserve each field-to-value association: "
-    "never transfer a date, status, version, label, or other attribute from one record to "
-    "another. Do not rename an evidence field into a different claim; for example, a "
-    "first-released date is not a last-updated date, and retrieval time is not an event or "
-    "release date. When the user asks for one exact current fact, answer that fact and omit "
-    "ancillary metadata unless the visible evidence explicitly ties that metadata to the same "
-    "record. If evidence is omitted from context, report it as unavailable; do not reconstruct "
-    "values or states."
+    "Review returned evidence before continuing. Seek only requested missing facts. Report "
+    "snapshot values at retrieval time. Do not infer health, risk, sustained utilization, "
+    "capacity, or swap-in/swap-out activity without suitable baselines, history, "
+    "thresholds or counters. "
+    "For dated results, state the query window and earliest/latest timestamps returned; "
+    "describe only dates within the requested period as belonging to it. Keep each field tied "
+    "to its original record and meaning. Do not infer absence from omitted, failed or unqueried "
+    "evidence, reconstruct unavailable values, or present assumptions as findings. For one exact "
+    "current fact, omit ancillary metadata unless the evidence ties it to that record."
 )
 
 _CITATION_CORRECTION_INSTRUCTIONS = (
@@ -446,6 +432,8 @@ class ChatRuntime:
         skill_request_start: Callable[[str, RuntimeScope, str], None] | None = None,
         skill_context: Callable[[str, RuntimeScope], str] | None = None,
         skill_request_end: Callable[[str], None] | None = None,
+        model_tool_definitions: Callable[[RuntimeScope], tuple[ToolDefinition, ...]] | None = None,
+        tool_exposure: LazyToolExposure | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -455,6 +443,10 @@ class ChatRuntime:
         self._skill_context = skill_context
         self._skill_request_end = skill_request_end
         self._registry = registry
+        self._tool_exposure = tool_exposure
+        self._model_tool_definitions = model_tool_definitions or (
+            lambda _scope: registry.model_definitions()
+        )
         self._access = access
         self._runner = ToolRunner(registry, blocked_tool_operation_kinds, mutation_authorization)
         self._infrastructure_targets = infrastructure_targets
@@ -755,6 +747,7 @@ class ChatRuntime:
         budget: RequestBudget | None = None
         secret_token: Token[tuple[str, ...]] | None = None
         input_tokens = 0
+        model_invocations: list[dict[str, int]] = []
         output_tokens = 0
         has_complete_usage = True
         citation_correction_attempted = False
@@ -886,6 +879,12 @@ class ChatRuntime:
                         output_tokens += usage.output_tokens
                     self._ensure_not_cancelled(cancellation)
                     completed_elapsed_ms = self._elapsed_ms(model_started_at)
+                    invocation = {"elapsed_ms": completed_elapsed_ms}
+                    if usage is not None:
+                        invocation.update(
+                            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
+                        )
+                    model_invocations.append(invocation)
                     self._emit(
                         request_id,
                         "model.completed",
@@ -954,10 +953,11 @@ class ChatRuntime:
                                 ),
                                 observed_source_ref_ids,
                             )
-                        terminal_metrics: dict[str, int] = {
+                        terminal_metrics: dict[str, object] = {
+                            "model_invocations": model_invocations,
                             "response_time_ms": max(
                                 0, round((self._monotonic_clock() - started_at) * 1000)
-                            )
+                            ),
                         }
                         if has_complete_usage:
                             terminal_metrics["input_tokens"] = input_tokens
@@ -1030,12 +1030,13 @@ class ChatRuntime:
                                 citation_tool_progress_repair_available = False
                                 citation_tool_progress_repair_used = True
                             citation_correction_required = True
-                    metrics: dict[str, int] | None = None
+                    metrics: dict[str, object] | None = None
                     if not turn.tool_calls and not recovery_abandoned:
                         metrics = {
+                            "model_invocations": model_invocations,
                             "response_time_ms": max(
                                 0, round((self._monotonic_clock() - started_at) * 1000)
-                            )
+                            ),
                         }
                         if has_complete_usage:
                             metrics["input_tokens"] = input_tokens
@@ -1580,6 +1581,8 @@ class ChatRuntime:
             self._scheduled_requests.discard(request_id)
             self._transient_endpoint_results.pop(request_id, None)
             self._transient_tool_calls.pop(request_id, None)
+            if self._tool_exposure is not None:
+                self._tool_exposure.end_request(request_id)
             if self._skill_request_end is not None:
                 with contextlib.suppress(Exception):
                     self._skill_request_end(request_id)
@@ -1607,7 +1610,14 @@ class ChatRuntime:
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
+        tool_capable = settings.profile is None or (
+            settings.profile.capabilities.tools
+            and settings.profile.capabilities.tool_result_continuation
+        )
         runtime_instruction_parts = [
+            self._tool_exposure.context(scope)
+            if self._tool_exposure is not None and tool_capable
+            else "",
             self._skill_context(request_id, scope) if self._skill_context is not None else "",
             _RECOVERY_DECISION_INSTRUCTIONS if recovery_decision or recovery_guidance else "",
             _RECOVERY_EXHAUSTED_INSTRUCTIONS if recovery_exhausted else "",
@@ -1631,16 +1641,10 @@ class ChatRuntime:
         # permission and does not introduce request-specific semantic discovery.
         model_tools = (
             ()
-            if recovery_exhausted
-            or terminal_final
-            or (
-                settings.profile is not None
-                and not (
-                    settings.profile.capabilities.tools
-                    and settings.profile.capabilities.tool_result_continuation
-                )
-            )
-            else self._registry.model_definitions()
+            if recovery_exhausted or terminal_final or not tool_capable
+            else self._tool_exposure.definitions(request_id, scope)
+            if self._tool_exposure is not None
+            else self._model_tool_definitions(scope)
         )
         model_continuation_messages = (
             (ContextMessage(role="user", content=_MODEL_CONTINUATION_REQUEST),)
@@ -1728,6 +1732,7 @@ class ChatRuntime:
                     tuple(source.source_ref_id for source in citation_sources),
                     _model_request_proxy_bytes(model_messages, model_tools),
                     context_bytes=_messages_bytes(model_messages),
+                    continuation_message_bytes=_messages_bytes(extra_messages),
                     tool_schema_bytes=_tool_definitions_bytes(model_tools),
                     current_evidence_bytes=sum(
                         len(message.content.encode("utf-8"))
@@ -1832,7 +1837,7 @@ class ChatRuntime:
         session_id: str,
         request_id: str,
         turn: ModelTurn,
-        metrics: dict[str, int] | None = None,
+        metrics: dict[str, object] | None = None,
         *,
         intermediate: bool = False,
     ) -> TimelineItem:
@@ -1879,11 +1884,26 @@ class ChatRuntime:
         self, session_id: str, request_id: str, result: ToolResult, elapsed_ms: int
     ) -> None:
         persisted = result.model_dump(mode="json")
+        command_state = None
+        if result.tool_name.startswith("system.command.") and isinstance(result.data, dict):
+            observed_state = result.data.get("state")
+            if observed_state in (
+                "created",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "timed_out",
+                "outcome_unknown",
+            ):
+                command_state = observed_state
         if (
             result.tool_name.startswith(("endpoint.", "system.command.", "skill."))
             and result.data is not None
         ):
             persisted["data"] = {"payload_omitted": True}
+            if command_state is not None:
+                persisted["data"]["command_state"] = command_state
         item = self._store.append_timeline(
             session_id,
             request_id,
@@ -1909,6 +1929,8 @@ class ChatRuntime:
         if result.error is not None and result.error.code == "operation_blocked":
             payload["error_code"] = result.error.code
         payload["elapsed_ms"] = elapsed_ms
+        if command_state is not None:
+            payload["command_state"] = command_state
         definition = self._registry.definition(result.tool_name)
         if definition is not None and result.tool_name.split(".", 1)[0] in {
             "linux",

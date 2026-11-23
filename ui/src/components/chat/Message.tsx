@@ -44,6 +44,7 @@ export function AssistantMessage({
   responseTimeMs,
   inputTokens,
   outputTokens,
+  modelInvocations,
 }: {
   children: React.ReactNode;
   agent?: string;
@@ -51,6 +52,7 @@ export function AssistantMessage({
   responseTimeMs?: number;
   inputTokens?: number;
   outputTokens?: number;
+  modelInvocations?: import("@/lib/chat-store").ModelInvocation[];
 }) {
   const textContent = content ?? (typeof children === "string" ? children : "");
   return (
@@ -83,6 +85,22 @@ export function AssistantMessage({
             </span>
           )}
         </div>
+        {!!modelInvocations?.length && (
+          <details className="mt-1 text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer">{modelInvocations.length} lần gọi model</summary>
+            <ol className="ml-4 list-decimal">
+              {modelInvocations.map((invocation, index) => (
+                <li key={index}>
+                  {formatResponseTime(invocation.elapsed_ms)} ·{" "}
+                  {typeof invocation.input_tokens === "number" &&
+                  typeof invocation.output_tokens === "number"
+                    ? `${invocation.input_tokens.toLocaleString("vi-VN")} token vào · ${invocation.output_tokens.toLocaleString("vi-VN")} token ra`
+                    : "Model chưa trả số token"}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
       </div>
     </div>
   );

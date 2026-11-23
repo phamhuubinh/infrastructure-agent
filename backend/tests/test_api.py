@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import AsyncExitStack
+
 import httpx
 import pytest
 from conftest import ScriptedBackend
@@ -115,6 +118,85 @@ def test_session_summaries_have_a_fixed_server_side_bound(tmp_path) -> None:
         store.create_session("local", "local")
 
     assert len(store.session_summaries("local", "local", limit=10_000)) == 100
+
+
+@pytest.mark.anyio
+async def test_three_clients_share_sessions_projects_and_delete_conflicts(tmp_path) -> None:
+    database = tmp_path / "shared.db"
+    app = create_app(database, ScriptedBackend([]))
+    store = app.state.application.store
+    transport = httpx.ASGITransport(app=app)
+    async with AsyncExitStack() as stack:
+        clients = [
+            await stack.enter_async_context(
+                httpx.AsyncClient(transport=transport, base_url="http://host")
+            )
+            for _ in range(3)
+        ]
+        a, b, c = clients
+        created = await a.post("/api/sessions")
+        assert created.status_code == 201
+        session = created.json()["session_id"]
+        old_list = await a.get("/api/sessions")
+        headers = {"If-None-Match": old_list.headers["etag"]}
+        assert (await a.get("/api/sessions", headers=headers)).status_code == 304
+        for client in (b, c):
+            assert (await client.get("/api/sessions")).json()[0]["session_id"] == session
+        assert (
+            await b.patch(f"/api/sessions/{session}", json={"title": "Renamed"})
+        ).status_code == 200
+        assert (await a.get("/api/sessions", headers=headers)).status_code == 200
+        for client in clients:
+            assert (await client.get("/api/sessions")).json()[0]["title"] == "Renamed"
+
+        request = store.create_request(session, "queued")
+        assert (await b.get(f"/api/sessions/{session}")).json()["active_request"] == {
+            "request_id": request,
+            "status": "queued",
+            "awaiting_approval": False,
+        }
+        blocked = await c.delete(f"/api/sessions/{session}")
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["code"] == "active_request"
+        assert blocked.json()["detail"]["session_id"] == session
+        assert (await a.get(f"/api/sessions/{session}")).status_code == 200
+        assert store.complete_request(request, "cancelled")
+
+        removal, creation = await asyncio.gather(
+            c.delete(f"/api/sessions/{session}"), a.post("/api/sessions")
+        )
+        assert (removal.status_code, creation.status_code) == (204, 201)
+        survivor = creation.json()["session_id"]
+        project = await a.post("/api/projects", json={"name": "Shared project"})
+        assert project.status_code == 201
+        project_id = project.json()["project_id"]
+        for client in clients:
+            assert [row["session_id"] for row in (await client.get("/api/sessions")).json()] == [
+                survivor
+            ]
+            assert (await client.get("/api/projects")).json()[0]["project_id"] == project_id
+
+    store.close()
+    restarted = create_app(database, ScriptedBackend([]))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restarted), base_url="http://host"
+    ) as client:
+        assert (await client.get(f"/api/sessions/{survivor}")).status_code == 200
+        assert (await client.get(f"/api/sessions/{session}")).status_code == 404
+        assert (await client.get(f"/api/projects/{project_id}")).status_code == 200
+    restarted.state.application.store.close()
+
+
+@pytest.mark.anyio
+async def test_host_shutdown_releases_database_for_restart(tmp_path) -> None:
+    database = tmp_path / "restart.db"
+    app = create_app(database, ScriptedBackend([]))
+    async with app.router.lifespan_context(app):
+        session = app.state.application.store.create_session("local", "local")
+
+    restarted = create_app(database, ScriptedBackend([]))
+    async with restarted.router.lifespan_context(restarted):
+        assert restarted.state.application.store.session_identity(session) is not None
 
 
 @pytest.mark.anyio

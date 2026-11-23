@@ -394,6 +394,16 @@ export class OrionClient {
         refreshed = true;
         continue;
       }
+      // WebView/native fetch implementations can expose an empty stream for a
+      // status that forbids bodies. Normalize before constructing any Response.
+      if ([204, 205, 304].includes(response.status)) {
+        await response.body?.cancel().catch(() => {});
+        return new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
       if (signal && response.body) {
         return new Response(
           response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>(), { signal }),

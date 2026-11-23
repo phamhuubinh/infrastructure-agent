@@ -18,6 +18,8 @@ pub struct Settings {
     pub serve_owned: bool,
     #[serde(default)]
     pub serve_pending: bool,
+    #[serde(default)]
+    pub funnel_owned: bool,
 }
 
 #[derive(Serialize)]
@@ -95,6 +97,7 @@ impl Settings {
             "remoteAccess": self.remote_access,
             "serveOwned": self.serve_owned,
             "servePending": self.serve_pending,
+            "funnelOwned": self.funnel_owned,
         });
         key.set_value("Config", &encoded.to_string())
     }

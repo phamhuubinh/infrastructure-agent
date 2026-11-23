@@ -718,7 +718,7 @@ def test_endpoint_read_uses_same_chat_and_transient_evidence(tmp_path: Path) -> 
 
     async def scenario() -> None:
         backend = ScriptedBackend([])
-        application = build_application(tmp_path / "read.db", backend)
+        application = build_application(tmp_path / "read.db", backend, lazy_tools=False)
         target = paired(application.endpoints.store)["endpoint_id"]
         socket = connection(application.endpoints, target)
         socket.data["private"] = "endpoint-private-fixture"
@@ -823,7 +823,11 @@ def test_manual_desktop_exclusive_controller_sequence_and_disconnect(tmp_path: P
             == 409
         )
         assert not manager.controllers
-    records = manager.store.store._connection.execute("SELECT event FROM endpoint_audit").fetchall()
+    import sqlite3
+    from contextlib import closing
+
+    with closing(sqlite3.connect(tmp_path / "desktop.db")) as persisted:
+        records = persisted.execute("SELECT event FROM endpoint_audit").fetchall()
     assert "manual_control_enabled" in [row[0] for row in records]
     assert "desktop.click" not in [row[0] for row in records]
 

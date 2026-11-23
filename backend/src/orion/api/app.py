@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import mimetypes
 import sqlite3
@@ -12,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.routing import APIRoute
@@ -302,6 +303,16 @@ class SessionSummaryView(SessionView):
     last_activity_at: str
 
 
+class SessionRequestView(BaseModel):
+    request_id: str
+    status: str
+    awaiting_approval: bool
+
+
+class SessionDetailView(SessionView):
+    active_request: SessionRequestView | None = None
+
+
 class SessionTitleView(SessionView):
     title: str
 
@@ -372,11 +383,15 @@ def create_app(
             try:
                 yield
             finally:
-                await running.requests.close()
-                await running.scheduler_engine.stop()
-                if running.commands:
-                    await running.commands.close()
-                await running.endpoints.close()
+                try:
+                    await running.requests.close()
+                    await running.scheduler_engine.stop()
+                    if running.commands:
+                        await running.commands.close()
+                    await running.endpoints.close()
+                finally:
+                    if application is None and assembled is not None:
+                        running.store.close()
 
     app = FastAPI(title="Orion", version=__version__, lifespan=lifespan)
 
@@ -772,24 +787,44 @@ def _install_application_routes(
             session_id=store.create_session(principal.principal_id, principal.workspace_id)
         )
 
-    @app.get("/api/sessions", response_model=list[SessionSummaryView])
-    async def list_sessions() -> list[SessionSummaryView]:
+    @app.get(
+        "/api/sessions",
+        response_model=list[SessionSummaryView],
+        responses={304: {"description": "Session list unchanged"}},
+    )
+    async def list_sessions(
+        response: Response,
+        if_none_match: Annotated[str | None, Header()] = None,
+    ) -> Response | list[SessionSummaryView]:
         principal = assembled.access.current_principal()
-        return [
+        summaries = [
             SessionSummaryView.model_validate(summary)
             for summary in store.session_summaries(principal.principal_id, principal.workspace_id)
         ]
+        digest = hashlib.sha256()
+        for summary in summaries:
+            digest.update(summary.model_dump_json().encode())
+        revision = f'"{digest.hexdigest()}"'
+        headers = {"ETag": revision, "Cache-Control": "no-store"}
+        if if_none_match == revision:
+            return Response(status_code=304, headers=headers)
+        response.headers.update(headers)
+        return summaries
 
-    @app.get("/api/sessions/{session_id}", response_model=SessionView)
-    async def get_session(session_id: str) -> SessionView:
+    @app.get("/api/sessions/{session_id}", response_model=SessionDetailView)
+    async def get_session(session_id: str) -> SessionDetailView:
         identity = _require_session(store, assembled.access, session_id)
-        return SessionView(
+        active_request = store.active_session_request(session_id)
+        return SessionDetailView(
             session_id=session_id,
             project_id=identity["project_id"],
             surface_kind=str(identity["surface_kind"]),
             endpoint_id=identity["endpoint_id"],
             custom_title=identity["custom_title"],
             mutation_mode=MutationMode(str(identity["mutation_mode"])),
+            active_request=SessionRequestView.model_validate(active_request)
+            if active_request
+            else None,
         )
 
     @app.patch("/api/sessions/{session_id}/mutation-mode", response_model=SessionView)
@@ -841,10 +876,11 @@ def _install_application_routes(
             if str(error) == "active_request":
                 raise HTTPException(
                     status_code=409,
-                    detail=(
-                        "The active request must finish or be cancelled before deleting this "
-                        "conversation."
-                    ),
+                    detail={
+                        "code": "active_request",
+                        "session_id": session_id,
+                        "message": "An active request must finish or be cancelled before deletion.",
+                    },
                 ) from error
             raise
         if blob_ids is None:

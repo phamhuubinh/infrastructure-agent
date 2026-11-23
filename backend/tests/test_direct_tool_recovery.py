@@ -411,7 +411,7 @@ async def test_actionable_tool_error_keeps_generic_recovery_choices_visible(stor
 
     assert outcome.assistant_content == "Recovered."
     resumed_messages, resumed_tools = backend.calls[1]
-    assert "recover safely with registered tools" in resumed_messages[0].content
+    assert "Recover unresolved results with safe registered tools" in resumed_messages[0].content
     assert any(
         "Recover with another available tool." in message.content for message in resumed_messages
     )

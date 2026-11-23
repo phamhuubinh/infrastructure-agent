@@ -1,3 +1,4 @@
+import { observeHostRefresh } from "@/lib/host-refresh";
 import {
   runIntent,
   cancelIntent,
@@ -6,11 +7,13 @@ import {
   pendingObservation,
   type RequestIntent,
 } from "@/lib/requests";
-import { isMobileHost, serverContext } from "@/lib/server-profiles";
+import { activeServer, isMobileHost, serverContext } from "@/lib/server-profiles";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -56,7 +59,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   apiErrorMessage,
-  apiFetch,
+  apiJson,
   attachProjectDocument,
   attachSessionDocument,
   deleteProjectDocument,
@@ -141,9 +144,13 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [selectedSourceRefId, setSelectedSourceRefId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const followMessagesRef = useRef(true);
-  const lastScrollTopRef = useRef(0);
-  const lastDisplayedSessionIdRef = useRef<string | null>(null);
+  const readingPosition = useRef<{
+    key: string | null;
+    tail?: Message;
+    count: number;
+    nearEnd: boolean;
+    anchor?: ConversationScroll;
+  }>({ key: null, count: 0, nearEnd: true });
   const loadedInitialScope = useRef<string | null>(null);
   const session = chat.sessions.find(
     (item) =>
@@ -192,34 +199,67 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const displayedSessionId = displayedSession?.id ?? null;
   const displayedMessages = displayedSession?.messages;
 
-  useEffect(() => {
-    const scrollArea = scrollAreaRef.current;
-    if (!scrollArea) return;
-    if (lastDisplayedSessionIdRef.current !== displayedSessionId) {
-      lastDisplayedSessionIdRef.current = displayedSessionId;
-      followMessagesRef.current = true;
+  const scrollKey = displayedSessionId
+    ? `orion-chat-scroll:${activeServer().id}:${displayedSessionId}`
+    : null;
+
+  useLayoutEffect(() => {
+    const element = scrollAreaRef.current;
+    if (!element) return;
+    const previous = readingPosition.current;
+    const tail = displayedMessages?.at(-1);
+    const count = displayedMessages?.length ?? 0;
+    if (tail && (previous.key !== scrollKey || previous.count === 0)) {
+      restoreConversationScroll(element, scrollKey);
+    } else if (tail && previous.nearEnd) {
+      const appended = count > previous.count && tail.itemId !== previous.tail?.itemId;
+      const streaming =
+        tail.itemId === previous.tail?.itemId &&
+        tail.content.length > previous.tail.content.length &&
+        tail.content.startsWith(previous.tail.content);
+      if (appended || streaming) element.scrollTop = element.scrollHeight;
+      else if (previous.anchor) applyConversationScroll(element, previous.anchor);
+    } else if (tail && previous.anchor) {
+      applyConversationScroll(element, previous.anchor);
     }
-    if (followMessagesRef.current) scrollArea.scrollTop = scrollArea.scrollHeight;
-    lastScrollTopRef.current = scrollArea.scrollTop;
-  }, [displayedSessionId, displayedMessages]);
+    const nearEnd = conversationNearEnd(element);
+    const follow = nearEnd && (previous.key !== scrollKey || previous.nearEnd);
+    readingPosition.current = {
+      key: scrollKey,
+      tail,
+      count,
+      nearEnd: follow,
+      anchor: tail ? captureConversationScroll(element) : undefined,
+    };
+    setShowScrollToBottom(!nearEnd);
+  }, [scrollKey, displayedMessages]);
 
   useEffect(() => {
-    let disposed = false;
-    void apiFetch("/api/models")
-      .then(async (response) => (response.ok ? ((await response.json()) as ModelInfo[]) : []))
-      .then((configured) => {
-        if (!disposed) setModels(configured);
-      })
-      .catch(() => {
-        if (!disposed) setModels([]);
-      })
-      .finally(() => {
-        if (!disposed) setLoadingModels(false);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, []);
+    const element = scrollAreaRef.current;
+    const content = element?.firstElementChild;
+    if (!element || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const position = readingPosition.current;
+      if (position.anchor) applyConversationScroll(element, position.anchor);
+      const nearEnd = conversationNearEnd(element);
+      if (!nearEnd) readingPosition.current.nearEnd = false;
+      setShowScrollToBottom(!nearEnd);
+    });
+    observer.observe(element);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollKey]);
+
+  useEffect(
+    () =>
+      observeHostRefresh(async (current) => {
+        const configured = await apiJson<ModelInfo[]>("/api/models");
+        if (!current()) return;
+        setModels(configured);
+        setLoadingModels(false);
+      }, 10000),
+    [],
+  );
 
   useEffect(() => {
     if (!loadingModels && !models.some((model) => model.is_active)) {
@@ -245,27 +285,31 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const handleConversationScroll = useCallback(() => {
     const element = scrollAreaRef.current;
     if (!element) return;
-    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    const awayFromBottom = distanceFromBottom > 140;
-    if (distanceFromBottom <= 2) followMessagesRef.current = true;
-    else if (element.scrollTop < lastScrollTopRef.current) followMessagesRef.current = false;
-    lastScrollTopRef.current = element.scrollTop;
-    setShowScrollToBottom(awayFromBottom);
-  }, []);
+    const nearEnd = conversationNearEnd(element);
+    const position = readingPosition.current;
+    const movedUp = element.scrollTop < (position.anchor?.top ?? 0);
+    position.nearEnd = nearEnd && !movedUp;
+    setShowScrollToBottom(!nearEnd);
+    if (!scrollKey || !position.count) return;
+    position.anchor = captureConversationScroll(element);
+    try {
+      window.localStorage.setItem(scrollKey, JSON.stringify(position.anchor));
+    } catch {
+      // The in-memory anchor still works in restricted browser profiles.
+    }
+  }, [scrollKey]);
 
   return (
-    <>
+    <div className="relative flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col relative">
         <div
+          key={scrollKey}
           ref={scrollAreaRef}
           onScroll={handleConversationScroll}
-          onWheel={(event) => {
-            if (event.deltaY < 0) followMessagesRef.current = false;
-          }}
           data-testid="conversation-scroll-area"
-          className="min-h-0 flex-1 overflow-y-auto"
+          className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
         >
-          <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-6xl px-4 py-8 max-sm:pt-14 sm:px-6 lg:px-8">
             {!displayedSession || displayedSession.messages.length === 0 ? (
               <EmptyState />
             ) : (
@@ -285,7 +329,6 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
               variant="outline"
               size="icon"
               onClick={() => {
-                followMessagesRef.current = true;
                 scrollAreaRef.current?.scrollTo({
                   top: scrollAreaRef.current.scrollHeight,
                   behavior: "smooth",
@@ -298,6 +341,13 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
             </Button>
           )}
           <div className="mx-auto w-full max-w-6xl">
+            {displayedSession?.activeRequest &&
+              !chat.generatingSessions.has(displayedSession.id) && (
+                <SharedRequestStatus
+                  key={displayedSession.activeRequest.request_id}
+                  request={displayedSession.activeRequest}
+                />
+              )}
             <ChatInput
               models={models}
               loadingModels={loadingModels}
@@ -318,7 +368,62 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
           onOpenSource={setSelectedSourceRefId}
         />
       )}
-    </>
+    </div>
+  );
+}
+
+function SharedRequestStatus({ request }: { request: NonNullable<Session["activeRequest"]> }) {
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function stop() {
+    setStopping(true);
+    setError(null);
+    try {
+      await apiJson(`/api/requests/${encodeURIComponent(request.request_id)}/cancel`, {
+        method: "POST",
+      });
+    } catch (failure) {
+      setStopping(false);
+      setError(failure instanceof Error ? failure.message : "Không thể dừng yêu cầu.");
+    }
+  }
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <span role="status">
+        {stopping
+          ? "Đang chờ Host xác nhận dừng yêu cầu."
+          : request.awaiting_approval
+            ? "Yêu cầu đang chờ phê duyệt trên Orion Host."
+            : request.status === "queued"
+              ? "Orion Host đã nhận yêu cầu và đang xếp hàng."
+              : "Orion Host đang xử lý yêu cầu từ client khác."}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={stopping}
+        onClick={() => void stop()}
+      >
+        Dừng yêu cầu trên Host
+      </Button>
+      {error && (
+        <div role="alert" className="flex items-center gap-1 text-destructive">
+          {error}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Đóng thông báo lỗi"
+            onClick={() => setError(null)}
+          >
+            <XCircle className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -348,6 +453,52 @@ function ThinkingDots() {
   );
 }
 
+function conversationNearEnd(element: HTMLElement) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= 140;
+}
+
+type ConversationScroll = {
+  top: number;
+  itemId?: string;
+  offset: number;
+};
+
+function captureConversationScroll(element: HTMLElement): ConversationScroll {
+  const top = element.getBoundingClientRect().top;
+  const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
+    (item) => item.getBoundingClientRect().bottom > top,
+  );
+  return {
+    top: element.scrollTop,
+    itemId: anchor?.dataset.chatItem,
+    offset: anchor ? anchor.getBoundingClientRect().top - top : 0,
+  };
+}
+
+function applyConversationScroll(element: HTMLElement, saved: ConversationScroll) {
+  const anchor = Array.from(element.querySelectorAll<HTMLElement>("[data-chat-item]")).find(
+    (item) => item.dataset.chatItem === saved.itemId,
+  );
+  const top =
+    anchor && Number.isFinite(saved.offset)
+      ? element.scrollTop +
+        anchor.getBoundingClientRect().top -
+        element.getBoundingClientRect().top -
+        saved.offset
+      : saved.top;
+  if (Math.abs(element.scrollTop - top) >= 1) element.scrollTop = top;
+}
+
+function restoreConversationScroll(element: HTMLElement, key: string | null) {
+  if (!key) return;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(key) ?? "null");
+    if (saved && Number.isFinite(saved.top)) applyConversationScroll(element, saved);
+  } catch {
+    // Ignore malformed or inaccessible local state.
+  }
+}
+
 function Conversation({
   messages,
   generating,
@@ -362,7 +513,7 @@ function Conversation({
   return (
     <div className="space-y-8">
       {messages.map((message) => (
-        <div key={message.itemId}>
+        <div key={message.itemId} data-chat-item={message.itemId}>
           {message.role === "user" ? (
             <UserMessage content={message.content} askedAt={message.askedAt}>
               {message.content}
@@ -372,6 +523,7 @@ function Conversation({
               agent="Orion"
               content={message.content}
               responseTimeMs={message.responseTimeMs}
+              modelInvocations={message.modelInvocations}
               inputTokens={message.inputTokens}
               outputTokens={message.outputTokens}
             >
@@ -496,15 +648,17 @@ function ChatInput({
   projectDocuments: Session["documents"];
   setProjectDocuments?: Dispatch<SetStateAction<DocumentStatus[]>>;
 }) {
-  const [value, setValue] = useState("");
   const mobile = isMobileHost();
   const [mobileAvailable, setMobileAvailable] = useState(
     () => !mobile || (navigator.onLine && !document.hidden),
   );
   const [pausedSession, setPausedSession] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{
+    scope: object;
+    message: string;
+    createdSessionId?: string;
+  } | null>(null);
   const [stopPending, setStopPending] = useState(false);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [autoWarning, setAutoWarning] = useState(false);
   const [changingMode, setChangingMode] = useState(false);
@@ -537,6 +691,8 @@ function ChatInput({
     };
   }, [mobile]);
   const {
+    drafts,
+    setDrafts,
     currentSessionId,
     sessions,
     createSession,
@@ -552,6 +708,28 @@ function ChatInput({
     (item) =>
       item.id === currentSessionId && (projectId ? item.projectId === projectId : !item.projectId),
   );
+
+  const viewedId = session?.id ?? null;
+  const draftKey = viewedId ?? `draft:${projectId ?? "chat"}`;
+  const value = drafts[draftKey] ?? "";
+  const scope = useMemo(() => ({ id: viewedId, projectId }), [viewedId, projectId]);
+  const activeScope = useRef(scope);
+  useLayoutEffect(() => {
+    const previous = activeScope.current;
+    activeScope.current = scope;
+    setFailure((failure) =>
+      failure?.scope === previous && failure.createdSessionId === scope.id
+        ? { scope, message: failure.message }
+        : null,
+    );
+  }, [scope]);
+  const setError = useCallback(
+    (message: string | null) => {
+      if (activeScope.current === scope) setFailure(message ? { scope, message } : null);
+    },
+    [scope],
+  );
+  const error = failure?.scope === scope ? failure.message : null;
 
   useEffect(() => setAutoWarning(false), [currentSessionId, projectId]);
 
@@ -577,7 +755,7 @@ function ChatInput({
         setChangingMode(false);
       }
     },
-    [changingMode, createSession, mutationMode, projectId, session?.id, setMutationMode],
+    [changingMode, createSession, mutationMode, projectId, session?.id, setMutationMode, setError],
   );
 
   const resolveAuthorization = useCallback(
@@ -599,12 +777,12 @@ function ChatInput({
         setResolvingAuthorization(false);
       }
     },
-    [activePending, resolvingAuthorization],
+    [activePending, resolvingAuthorization, setError],
   );
 
   const attachFile = useCallback(
     async (file: File) => {
-      setAttachmentError(null);
+      setError(null);
       setUploading(true);
       try {
         if (projectId) {
@@ -622,7 +800,7 @@ function ChatInput({
           await loadSession(sessionId);
         }
       } catch (attachmentFailure) {
-        setAttachmentError(
+        setError(
           attachmentFailure instanceof Error
             ? `Tải lên tài liệu thất bại: ${attachmentFailure.message}`
             : "Tải lên tài liệu thất bại.",
@@ -632,7 +810,7 @@ function ChatInput({
         if (fileInput.current) fileInput.current.value = "";
       }
     },
-    [createSession, currentSessionId, loadSession, projectId, setProjectDocuments],
+    [createSession, currentSessionId, loadSession, projectId, setProjectDocuments, setError],
   );
 
   const submit = useCallback(
@@ -654,13 +832,31 @@ function ChatInput({
         intent: null,
       };
       generation.current = current;
+      const report = (message: string) => {
+        const active = activeScope.current;
+        if (
+          active === scope ||
+          (scope.id === null &&
+            sessionId !== null &&
+            active.id === sessionId &&
+            active.projectId === scope.projectId)
+        )
+          setFailure({
+            scope: active,
+            message,
+            createdSessionId:
+              active === scope && scope.id === null ? (sessionId ?? undefined) : undefined,
+          });
+      };
       try {
         if (!sessionId) sessionId = await createSession(projectId);
         current.sessionId = sessionId;
         if (current.stopRequested || controller.signal.aborted) return;
         current.intent = resume && previous ? previous : requestIntent(sessionId, content);
         if (!resume) addOptimisticMessage(sessionId, content);
-        setValue("");
+        setDrafts((drafts) =>
+          drafts[draftKey] === value ? { ...drafts, [draftKey]: "" } : drafts,
+        );
         setSessionGenerating(sessionId, true);
         let requestFailure: string | null = null;
         await runIntent(
@@ -717,17 +913,17 @@ function ChatInput({
           controller.signal,
         );
         await loadSession(sessionId);
-        if (requestFailure) setError(requestFailure);
-        if (current.cancelled) setError("Yêu cầu đã được hủy.");
+        if (requestFailure) report(requestFailure);
+        if (current.cancelled) report("Yêu cầu đã được hủy.");
       } catch (requestError) {
         if (current.paused) {
           setPausedSession(sessionId);
           return;
         }
         if (requestError instanceof DOMException && requestError.name === "AbortError") {
-          setError("Yêu cầu đã được hủy.");
+          report("Yêu cầu đã được hủy.");
         } else {
-          setError(requestError instanceof Error ? requestError.message : "Yêu cầu thất bại.");
+          report(requestError instanceof Error ? requestError.message : "Yêu cầu thất bại.");
         }
         if (sessionId && current.context === serverContext()) {
           try {
@@ -746,12 +942,16 @@ function ChatInput({
     [
       addOptimisticMessage,
       createSession,
+      draftKey,
+      setDrafts,
       loadSession,
       mobile,
       mobileAvailable,
       recordEvent,
       reconcileAssistantMessage,
       setSessionGenerating,
+      setError,
+      scope,
       session?.id,
       projectId,
       value,
@@ -789,7 +989,7 @@ function ChatInput({
       current.controller.abort();
       setStopPending(false);
     }
-  }, []);
+  }, [setError]);
 
   return (
     <div className="relative rounded-2xl border bg-surface/80 backdrop-blur transition-all border-border-strong shadow-[var(--shadow-elegant)]">
@@ -881,7 +1081,10 @@ function ChatInput({
       </Dialog>
       <textarea
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          const text = event.target.value;
+          setDrafts((previous) => ({ ...previous, [draftKey]: text }));
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -891,7 +1094,7 @@ function ChatInput({
         placeholder="Nhắn tin cho Orion"
         rows={2}
         aria-label="Chat input"
-        className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14.5px] leading-relaxed placeholder:text-muted-foreground outline-none max-h-64"
+        className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base leading-relaxed placeholder:text-muted-foreground outline-none max-h-64 max-sm:max-h-[min(10rem,30dvh)] sm:text-[14.5px]"
       />
       <div className="flex items-center gap-1 px-2 pb-2">
         <ModelStatus models={models} loading={loadingModels} />
@@ -1003,9 +1206,15 @@ function ChatInput({
         </div>
       </div>
       {error && (
-        <div className="absolute bottom-14 left-4 right-4 text-xs text-destructive flex items-center gap-2">
+        <div
+          role="alert"
+          className="px-4 pb-2 text-xs text-destructive flex flex-wrap items-center gap-2"
+        >
           <AlertCircle className="h-3 w-3" />
-          <span>Yêu cầu model thất bại: {error}</span>
+          <span>{error}</span>
+          <button type="button" aria-label="Đóng thông báo lỗi" onClick={() => setError(null)}>
+            <XCircle className="h-4 w-4" />
+          </button>
           {session?.id && pendingIntent(session.id) && !generation.current && (
             <>
               <button type="button" className="underline" onClick={() => void submit(true)}>
@@ -1057,8 +1266,7 @@ function ChatInput({
           )}
         </Button>
       </div>
-      {((projectId ? activeProjectDocuments : session?.documents || []).length ||
-        attachmentError) && (
+      {(projectId ? activeProjectDocuments : session?.documents || []).length > 0 && (
         <div className="border-t border-border px-3 py-2">
           <div className="flex flex-wrap gap-2">
             {(projectId ? activeProjectDocuments : session?.documents || []).map((document) => (
@@ -1076,22 +1284,23 @@ function ChatInput({
                         );
                       })
                       .catch((reason: unknown) => {
-                        setAttachmentError(
-                          reason instanceof Error ? reason.message : "Unable to delete document.",
+                        setError(
+                          reason instanceof Error ? reason.message : "Không thể xóa tài liệu.",
                         );
                       });
                   } else if (session) {
-                    void deleteDocument(session.id, document.document.document_id);
+                    void deleteDocument(session.id, document.document.document_id).catch(
+                      (reason: unknown) => {
+                        setError(
+                          reason instanceof Error ? reason.message : "Không thể xóa tài liệu.",
+                        );
+                      },
+                    );
                   }
                 }}
               />
             ))}
           </div>
-          {attachmentError && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
-              <XCircle className="h-3.5 w-3.5" /> {attachmentError}
-            </div>
-          )}
         </div>
       )}
     </div>

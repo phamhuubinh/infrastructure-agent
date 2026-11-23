@@ -161,7 +161,7 @@ async def test_deleting_session_with_running_request_returns_conflict(tmp_path) 
     ) as client:
         response = await client.delete(f"/api/sessions/{session}")
     assert response.status_code == 409
-    assert "finish or be cancelled" in response.json()["detail"]
+    assert "finish or be cancelled" in response.json()["detail"]["message"]
 
 
 @pytest.mark.anyio

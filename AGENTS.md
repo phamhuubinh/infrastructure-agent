@@ -34,8 +34,10 @@ lập bộ đặc tả; publication theo quyền thực tế của phiên triể
   connection, không agent AI riêng.
 - DeepSeek, Claude, OpenAI; provider-neutral adapters/capabilities/state, không ép
   mọi API thành OpenAI-compatible. Model ID từ cấu hình.
-- Tool definitions từ canonical registry; expose valid schemas on the first model turn
-  khi capability/profile hỗ trợ, không semantic pre-router/tool picker.
+- Tool definitions từ canonical registry. Theo yêu cầu nghiệm thu 2026-11-18,
+  model chọn capability qua tools.enable rồi nhận schema tương ứng theo request.
+  Hội thoại đơn giản có thể trả lời trực tiếp. Không dùng classifier từ khóa để
+  cấp quyền; scope, mutation policy và confirm vẫn kiểm tại execution boundary.
   Không giả hỗ trợ feature provider không có; schema visibility không cấp quyền.
 - Windows app, Linux headless CLI/service, web, Android/iOS clients dùng chung
   API/SDK/runtime; mobile không là Python backend hay OS shell worker.

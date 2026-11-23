@@ -30,7 +30,7 @@ class CommandService:
     def __init__(self, store: SQLiteStore, transport: CommandTransport) -> None:
         self.store, self.transport = store, transport
         self._epochs: OrderedDict[str, object] = OrderedDict()
-        self._monitors: dict[str, asyncio.Task[None]] = {}
+        self._monitors: dict[str, asyncio.Task[CommandPage | None]] = {}
         self._cancellations: dict[str, asyncio.Task[CommandPage]] = {}
         self.closed = False
 
@@ -153,9 +153,29 @@ class CommandService:
         identity: str,
         stdout_offset: int = 0,
         stderr_offset: int = 0,
+        *,
+        wait_for_completion: bool = False,
+        completion_timeout: float = 8,
     ) -> CommandPage:
         self._scope(scope, target)
         record = self.store.command_record(scope, identity, target)
+        monitor = self._monitors.get(identity)
+        if (
+            wait_for_completion
+            and monitor is not None
+            and record["state"] in {"created", "running"}
+            and self._same_connection(record)
+            and not (stdout_offset or stderr_offset)
+        ):
+            # Reuse the request-owned monitor. A cancelled or timed-out waiter
+            # must not cancel the monitor or dispatch the original command again.
+            await asyncio.wait((monitor,), timeout=completion_timeout)
+            self._scope(scope, target)
+            record = self.store.command_record(scope, identity, target)
+            if monitor.done() and not monitor.cancelled():
+                observed = monitor.result()
+                if observed is not None and self._same_connection(record):
+                    return observed
         if not self._same_connection(record):
             if record["state"] in {"created", "running", "outcome_unknown"}:
                 page = self._unknown(record)
@@ -176,7 +196,9 @@ class CommandService:
                 raise RuntimeError("Command connection changed during status")
             return self._accept(record, data, (stdout_offset, stderr_offset))
         except Exception:
-            page = self._unknown(record)
+            # The monitor may have confirmed a terminal state during the RPC.
+            # When output is no longer available, retain the verified exit metadata.
+            page = self._unknown(self.store.command_record(scope, identity, target))
             self.store.save_command_observation(page)
             return page
 
@@ -212,7 +234,9 @@ class CommandService:
             return CommandPage.model_validate_json(record["observation_json"])
         return await self._cancel_record(record)
 
-    async def _monitor(self, record: dict[str, Any], stop: Callable[[], bool] | None) -> None:
+    async def _monitor(
+        self, record: dict[str, Any], stop: Callable[[], bool] | None
+    ) -> CommandPage | None:
         identity, target = record["command_id"], record["target_ref"]
         try:
             while True:
@@ -225,17 +249,18 @@ class CommandService:
                     or not self.store.session_exists(record["session_id"])
                 ):
                     await self._cancel_record(record)
-                    return
+                    return None
                 if not self._same_connection(record):
                     self.store.save_command_observation(self._unknown(record))
-                    return
+                    return None
                 data = await self.transport.dispatch_command(
                     target, "command.status", {"command_id": identity}
                 )
                 if not self._same_connection(record):
                     raise RuntimeError("Command connection changed")
-                if self._accept(record, data).state not in {"created", "running"}:
-                    return
+                page = self._accept(record, data)
+                if page.state not in {"created", "running"}:
+                    return page
                 await asyncio.sleep(0.25)
         except asyncio.CancelledError:
             await asyncio.shield(self._cancel_record(record))
@@ -243,6 +268,7 @@ class CommandService:
             self.store.save_command_observation(self._unknown(record))
         finally:
             self._monitors.pop(identity, None)
+        return None
 
     async def close(self) -> None:
         self.closed = True

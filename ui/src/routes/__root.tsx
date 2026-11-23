@@ -6,7 +6,7 @@ import {
   useRouter,
   HeadContent,
 } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { AppSidebar } from "@/components/AppSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -73,7 +73,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Orion" },
       { name: "description", content: "Orion — Chat, Projects and remote commands" },
     ],
@@ -116,6 +116,22 @@ function useTheme() {
 }
 
 function RootComponent() {
+  const shellRef = useCallback((shell: HTMLDivElement | null) => {
+    const viewport = window.visualViewport;
+    if (!viewport || !shell) return;
+    const fitViewport = () => {
+      // Pin the mobile shell to the visible area when the on-screen keyboard opens.
+      shell.style.setProperty("--orion-viewport-height", `${viewport.height}px`);
+      shell.style.setProperty("--orion-viewport-top", `${viewport.offsetTop}px`);
+    };
+    fitViewport();
+    viewport.addEventListener("resize", fitViewport);
+    viewport.addEventListener("scroll", fitViewport);
+    return () => {
+      viewport.removeEventListener("resize", fitViewport);
+      viewport.removeEventListener("scroll", fitViewport);
+    };
+  }, []);
   const { queryClient } = Route.useRouteContext();
   useTheme();
   const [auth, setAuth] = useState<AuthSession | null>(null);
@@ -260,37 +276,36 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <HeadContent />
       <ChatProvider key={serverGeneration}>
-        <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground grain pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
-          <AppSidebar />
-          <div className="flex-1 min-w-0 flex pb-14 md:pb-0">
+        <div
+          ref={shellRef}
+          className="grain flex h-dvh w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground max-md:fixed max-md:inset-x-0 max-md:top-[var(--orion-viewport-top,0px)] max-md:h-[var(--orion-viewport-height,100dvh)] max-md:pb-[env(safe-area-inset-bottom)] md:flex-row"
+        >
+          <AppSidebar
+            mobileFooter={
+              auth.remote_access && (
+                <div className="space-y-1 px-2 md:hidden">
+                  {authError && (
+                    <span role="alert" className="text-xs text-destructive">
+                      {authError}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void signOut()}
+                    className="w-full rounded px-2.5 py-1.5 text-left text-sm hover:bg-sidebar-accent"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )
+            }
+          />
+          <div className="relative flex min-h-0 min-w-0 flex-1">
             <Outlet />
           </div>
           <CommandPalette />
-          <nav
-            aria-label="Điều hướng mobile"
-            className="fixed bottom-0 inset-x-0 z-40 grid grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
-          >
-            {(
-              [
-                { to: "/", label: "Chat" },
-                { to: "/projects", label: "Projects" },
-                { to: "/endpoints", label: "Remote" },
-                { to: "/commands", label: "Commands" },
-                { to: "/settings", label: "Settings" },
-              ] as const
-            ).map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                className="flex min-h-12 items-center justify-center px-1 text-xs focus-visible:outline focus-visible:outline-2"
-                activeProps={{ className: "font-semibold bg-accent" }}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
           {auth.remote_access && (
-            <div className="fixed bottom-16 left-3 z-50 flex flex-col gap-1">
+            <div className="fixed bottom-16 left-3 z-50 hidden flex-col gap-1 md:flex">
               {authError && (
                 <span role="alert" className="text-xs text-destructive">
                   {authError}

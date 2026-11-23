@@ -1031,6 +1031,19 @@ class SQLiteStore(
             ).fetchone()
         return dict(row) if row else None
 
+    def active_session_request(self, session_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                """SELECT request_id, status, EXISTS (
+                    SELECT 1 FROM pending_tool_authorizations AS approvals
+                    WHERE approvals.request_id = requests.request_id AND approvals.state = 'pending'
+                ) AS awaiting_approval FROM requests
+                WHERE session_id = ? AND status IN ('queued', 'running')
+                ORDER BY created_at DESC, request_id DESC LIMIT 1""",
+                (session_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def append_timeline(
         self,
         session_id: str,

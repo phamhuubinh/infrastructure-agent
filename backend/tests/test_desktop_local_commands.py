@@ -49,6 +49,7 @@ async def test_local_transport_powershell_runs_in_background(tmp_path, monkeypat
                 "shell": "powershell",
                 "command": (
                     "if (Test-Path Env:ORION_TEST_PROVIDER_KEY) { exit 19 }; "
+                    "if ((Get-ExecutionPolicy -Scope Process) -ne 'Bypass') { exit 20 }; "
                     "[System.Net.Dns]::GetHostName()"
                 ),
             },

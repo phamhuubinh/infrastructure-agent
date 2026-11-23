@@ -409,6 +409,10 @@ async fn orion_tailscale_set_enabled(app: tauri::AppHandle, host: State<'_, Host
     let mut settings = remote_settings()?;
     *operation = None;
     if !enabled {
+        if settings.funnel_owned {
+            crate::tailscale::apply_funnel(&settings.origin, false, false).await?;
+            settings.funnel_owned = false;
+        }
         if settings.serve_owned {
             crate::tailscale::apply(&settings.origin, false, true).await?;
         }
@@ -454,6 +458,34 @@ async fn orion_tailscale_set_enabled(app: tauri::AppHandle, host: State<'_, Host
 }
 
 #[cfg(windows)]
+#[tauri::command]
+async fn orion_internet_set_enabled(host: State<'_, Host>, enabled: bool, confirmed_public: bool)
+    -> Result<crate::tailscale::Status, &'static str> {
+    let _operation = host.serve.lock().await;
+    let mut settings = remote_settings()?;
+    let backend = host.backend.as_ref().ok_or("Backend cục bộ chưa sẵn sàng.")?;
+    if !settings.enabled || !settings.remote_access
+        || backend.origin() != crate::tailscale::HOST_BACKEND
+        || host.host_origin.as_deref() != Some(settings.origin.as_str()) {
+        return Err("Bật Host Mode và Serve HTTPS riêng tư trước khi bật Internet.");
+    }
+    if enabled && (!confirmed_public || !crate::tailscale::owner_ready(backend, &host.transport).await) {
+        return Err("Cần Owner với mật khẩu và TOTP, cùng xác nhận công khai URL.");
+    }
+    crate::tailscale::apply_funnel(&settings.origin, enabled, confirmed_public).await?;
+    settings.funnel_owned = enabled;
+    let serve_owned = settings.serve_owned;
+    if store_remote_settings(settings).is_err() {
+        if enabled {
+            crate::tailscale::apply_funnel(host.host_origin.as_deref().unwrap_or(""), false, false).await?;
+        }
+        return Err("Không lưu được cài đặt Internet. Đã yêu cầu quay về Serve riêng tư.");
+    }
+    Ok(crate::tailscale::inspect(Some(backend.origin().to_owned()), host.host_origin.clone()).await
+        .with_settings(true, serve_owned, None))
+}
+
+#[cfg(windows)]
 fn remote_settings() -> Result<crate::host_settings::Settings, &'static str> {
     crate::host_settings::Settings::read().map(Option::unwrap_or_default)
         .map_err(|_| "Không đọc được cài đặt truy cập từ xa.")
@@ -468,6 +500,10 @@ fn store_remote_settings(settings: crate::host_settings::Settings) -> Result<(),
 async fn configure_remote_serve(host: &Host, requested: bool) -> Result<(), &'static str> {
     let mut settings = remote_settings()?;
     if !settings.remote_access {
+        return Ok(());
+    }
+    if settings.funnel_owned {
+        // Persisted Funnel is inspected, never silently enabled on startup.
         return Ok(());
     }
     let allow_uac = requested || settings.serve_pending;
@@ -586,8 +622,11 @@ pub fn run() {
             orion_host,
             orion_stop_host,
             orion_host_settings,
+            crate::updates::orion_check_update,
+            crate::updates::orion_open_update_release,
             orion_tailscale_status,
             orion_tailscale_set_enabled,
+            orion_internet_set_enabled,
             orion_save_host_settings,
             orion_prepare,
             orion_start,

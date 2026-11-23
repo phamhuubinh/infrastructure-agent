@@ -94,6 +94,10 @@ mọi request. Không thêm lượt model tóm tắt/planner không cần thiế
 Capability không hỗ trợ phải báo rõ, không gửi tham số không hợp lệ hoặc tự đổi
 provider/model để làm được tác vụ.
 
+Theo ADR 0019 và yêu cầu nghiệm thu 18/11/2026, model mở capability bằng
+`tools.enable` theo từng request trước khi dùng schema chuẩn. Registry và quyền
+thực thi vẫn kiểm độc lập. Hội thoại thông thường dùng một lượt model khi đủ dữ liệu.
+
 ## 6. Windows/Linux commands
 
 Dùng [system.command.run/status/cancel](../architecture/SYSTEM_COMMANDS.md) làm

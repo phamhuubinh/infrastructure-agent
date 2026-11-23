@@ -1,5 +1,6 @@
+import { useHostRefresh } from "@/lib/host-refresh";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { serverRequest } from "@/lib/server-profiles";
 import type { Schemas } from "@/lib/sdk/generated";
 
@@ -13,32 +14,27 @@ export function CommandsPage() {
   const [output, setOutput] = useState({ stdout: "", stderr: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    void serverRequest("list_sessions_api_sessions_get", {}, controller.signal)
-      .then(setSessions)
-      .catch(() => {
-        if (!controller.signal.aborted) setError("Không thể tải hội thoại.");
-      });
-    return () => controller.abort();
+  const refreshSessions = useCallback(async (current: () => boolean) => {
+    const rows = await serverRequest("list_sessions_api_sessions_get", {});
+    if (current()) setSessions(rows);
   }, []);
+  useHostRefresh(refreshSessions);
   useEffect(() => {
     setSelected(null);
     setCommands([]);
     setOutput({ stdout: "", stderr: "" });
-    if (!sessionId) return;
-    const controller = new AbortController();
-    void serverRequest(
-      "list_commands_api_sessions__session_id__commands_get",
-      { path: { session_id: sessionId } },
-      controller.signal,
-    )
-      .then(setCommands)
-      .catch(() => {
-        if (!controller.signal.aborted) setError("Không thể tải command metadata.");
-      });
-    return () => controller.abort();
   }, [sessionId]);
+  const refreshCommands = useCallback(
+    async (current: () => boolean) => {
+      if (!sessionId || busy) return;
+      const rows = await serverRequest("list_commands_api_sessions__session_id__commands_get", {
+        path: { session_id: sessionId },
+      });
+      if (current()) setCommands(rows);
+    },
+    [sessionId, busy],
+  );
+  useHostRefresh(refreshCommands);
   async function inspect(command: Schemas["CommandPage"], cancel = false) {
     if (busy) return;
     setBusy(true);

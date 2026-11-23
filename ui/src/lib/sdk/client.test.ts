@@ -248,3 +248,26 @@ describe("incremental observation decoding", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
+
+it.each([204, 205, 304])(
+  "normalizes status %s before applying the abort stream adapter",
+  async (status) => {
+    const cancel = vi.fn();
+    const response = new Response(null, { status, headers: { ETag: '"revision"' } });
+    Object.defineProperty(response, "body", { value: new ReadableStream({ cancel }) });
+    const fetcher = vi.fn().mockResolvedValue(response);
+    const client = new OrionClient({ origin, mode: "browser", fetch: fetcher });
+    const result = await client.response(
+      "delete_session_api_sessions__session_id__delete",
+      {
+        path: { session_id: "fixture" },
+      },
+      new AbortController().signal,
+    );
+    expect(result.status).toBe(status);
+    expect(result.body).toBeNull();
+    expect(result.headers.get("ETag")).toBe('"revision"');
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
+  },
+);

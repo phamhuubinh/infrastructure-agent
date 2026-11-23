@@ -27,6 +27,13 @@ export async function installTauriHost() {
     clear: (origin) => invoke("orion_vault_clear", { origin }),
   };
   installNativeHost({
+    appUpdates:
+      platform === "windows"
+        ? {
+            check: () => invoke("orion_check_update"),
+            openRelease: (version) => invoke("orion_open_update_release", { version }),
+          }
+        : undefined,
     platform,
     tokens,
     scanConnectionQr: platform === "android" ? () => invoke("orion_scan_qr") : undefined,
@@ -36,6 +43,11 @@ export async function installTauriHost() {
     tailscaleSetEnabled:
       platform === "windows"
         ? (enabled) => invoke("orion_tailscale_set_enabled", { enabled })
+        : undefined,
+    internetSetEnabled:
+      platform === "windows"
+        ? (enabled, confirmedPublic) =>
+            invoke("orion_internet_set_enabled", { enabled, confirmedPublic })
         : undefined,
     hostSettings:
       platform === "windows"
@@ -86,7 +98,7 @@ function nativeFetch(managed: boolean, mobile = false): typeof fetch {
         ? await invoke<ResponseHead>("orion_start_mobile", { id, body: mobileBody(body) })
         : await invoke<ResponseHead>("orion_start", body, { headers: { "x-orion-request": id } });
       signal.throwIfAborted();
-      if (head.status === 204 || head.status === 205) {
+      if (head.status === 204 || head.status === 205 || head.status === 304) {
         await close();
         return new Response(null, head);
       }

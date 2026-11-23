@@ -8,7 +8,7 @@
     "openai"
   ],
   "current_task": "R21",
-  "next_action": "DeepSeek credential migration and fresh chat passed on the installed Windows Desktop preview; an isolated authenticated Edge Web chat also passed. Await an authenticated session at the real private Serve URL for live Web acceptance. Funnel remains disabled.",
+  "next_action": "PENDING_MANUAL: maintenance-window install from 253dae0, Owner-authenticated desktop/Web/mobile acceptance, then outside-tailnet Funnel verification and private Serve rollback as documented.",
   "work_items": [
     {
       "id": "R00",
@@ -670,7 +670,7 @@
       "status": "todo",
       "evidence": [],
       "blockers": [
-        "Pending live provider gates R22-R24, released desktop upgrade R25, iOS functional smoke R28 and signing R29."
+        "Pending live provider gates R23-R24, released desktop upgrade R25, iOS functional smoke R28 and signing R29."
       ]
     },
     {
@@ -679,11 +679,25 @@
       "depends_on": [
         "R04"
       ],
-      "status": "needs_external",
-      "evidence": [],
-      "blockers": [
-        "Presence-only assessment: current process has no DEEPSEEK_API_KEY/ORION_DEEPSEEK_API_KEY/DEEPSEEK_MODEL/ORION_DEEPSEEK_MODEL/ORION_MODEL_API_KEY/ORION_MODEL_ID. Provide an explicitly owner-configured live DeepSeek model/profile and credential reference. No external account or private user-store inventory performed; no live call/pass claimed."
-      ]
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "live_provider",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Installed DeepSeek DPAPI streaming and live deepseek-flash fixture tool loop passed with per-invocation usage. Deployed Web and native device acceptance remain separate."
+        },
+        {
+          "kind": "live_provider_fixture_benchmark",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "2026-11-18 DeepSeek prompt fixtures saved 12.9-16.5% input. The owned command status fixture saved 74.7% input and reduced model calls from 8 to 3, with a single execution and correct output in both runs."
+        },
+        {
+          "kind": "full_application_live_token_benchmark",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Recreated the 9929-token greeting with 46 tools. Availability-based omission of 25 unpaired endpoint operations gives 5387 input tokens (45.7% lower), one invocation. Full-registry fixture RAG and dependent calculator checks pass before/after; history and continuation are absent in the measured greeting."
+        }
+      ],
+      "blockers": []
     },
     {
       "id": "R23",
@@ -746,10 +760,26 @@
           "kind": "windows_personal_in_place_upgrade_0_1_4",
           "path": "docs/refactor/EXECUTION_LOG.md",
           "result": "Installed NSIS 0.1.4 over the user's 0.1.3, verified existing SQLite and model references, shortcut startup without Windows Terminal, clean shutdown, and live model execution of approved local PowerShell without worker pairing."
+        },
+        {
+          "kind": "windows_unsigned_preview_payload",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "Code 9391a52 with sidecar/Worker fdfcb15. NSIS SHA-256 9B56E4FFDFB7606EE4F3FF437C91CBC647F61702D4666BDA5442C82DE9A2E24C. Frozen smoke, archive integrity and extracted payload checks pass. Installed upgrade remains PENDING_MANUAL."
+        },
+        {
+          "kind": "online_backup_and_isolated_rollback_drill",
+          "path": "docs/refactor/UPGRADE_8EB4AD2.md",
+          "result": "Snapshot and restored SQLite table equality, integrity/foreign keys, Owner MFA state and DPAPI equality passed. NSIS payload verified against 8eb4ad2. Isolated acceptance passed and detected changed Chat data. Deployed upgrade remains PENDING_MANUAL."
+        },
+        {
+          "kind": "native_transport_and_independent_client_regression",
+          "path": "docs/refactor/EXECUTION_LOG.md",
+          "result": "827e263: 3 real-HTTP Rust transport tests; 31 UI tests including managed 304 and stable session order; two isolated Edge contexts (Web and JS managed IPC fixture) verify two-way create/delete, 200/304 and sidebar scroll/selection. Verified unsigned NSIS payload and frozen sidecar. Installed Owner-authenticated acceptance remains PENDING_MANUAL."
         }
       ],
       "blockers": [
-        "Personal-use upgrade has local self-built evidence. Full-scope public upgrade evidence still requires a prior released desktop installer."
+        "Personal-use upgrade has local self-built evidence. Full-scope public upgrade evidence still requires a prior released desktop installer.",
+        "PENDING_MANUAL: in-place upgrade of the active Windows Host and Owner-authenticated tailnet smoke. Current Host was left running. Use the recorded backup and rollback procedure."
       ]
     },
     {
@@ -886,7 +916,7 @@
     }
   ],
   "checkpoint": {
-    "local_date": "2026-11-13",
+    "local_date": "2026-11-23",
     "recovery_path": "F:/Orion-recovery/20261029-before-refactor",
     "test_python": "F:/Orion-toolchains/r18-python-locked/Scripts/python.exe",
     "report": "docs/refactor/EXECUTION_LOG.md",
@@ -895,11 +925,17 @@
       "R25 requires a prior released Windows desktop installer.",
       "R28 requires functional testing on a macOS/Xcode iOS Simulator.",
       "R29 requires signing credentials and signed candidate validation.",
-      "R21 requires the remaining gates. R26 and R27 are done at their documented scope."
+      "R21 requires the remaining gates. R26 and R27 are done at their documented scope.",
+      "Linux native desktop GUI is not implemented. Linux headless and Web remain available."
     ],
     "reproduction": "R27 Windows: use the SDK under F:/Orion-toolchains/r16-android/sdk and boot Orion_R27_API_35 on port 5556 with -accel on -gpu swiftshader -feature -Vulkan -no-snapshot. Check adb -s emulator-5556 shell getprop sys.boot_completed. Build with tauri android build --ci --debug --apk --target x86_64 --features desktop. Host linker override: CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER points to Rust 1.99.1 bin/rust-lld.exe under its x86_64-pc-windows-gnu rustlib. Logs: F:/Orion-toolchains/r16-android/r27-whpx-lld-build.log and r27-whpx.stdout.log. Run scripts/android/smoke.py <x86_64 APK> --adb <SDK adb.exe> --serial emulator-5556 --extended.",
     "reviewed_files_at_checkpoint": 656,
     "inventory_files_at_checkpoint": 636,
-    "next_task": "R21"
+    "next_task": "R21",
+    "code_checkpoint": "5a9e1aa",
+    "upgrade_backup": "C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261123-205410",
+    "upgrade_runbook": "docs/refactor/UPGRADE_8EB4AD2.md",
+    "upgrade_candidate": "release-work/mobile-runtime-5a9e1aa/Orion_0.1.5_x64_mobile-runtime-preview-setup.exe",
+    "upgrade_sha256": "8E753FD7182142039CBAC474DBECAECAC14C9D94E444F286F917794AE6635982"
   }
 }

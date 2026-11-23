@@ -95,7 +95,9 @@ impl Transport {
             .send()
             .await
             .map_err(|_| io::Error::other("Orion server request failed"))?;
-        if response.status().is_redirection() {
+        if response.status().is_redirection()
+            && response.status() != reqwest::StatusCode::NOT_MODIFIED
+        {
             return Err(io::Error::other("Orion server returned a redirect"));
         }
         Ok(response)
@@ -149,6 +151,7 @@ fn request_headers(values: Vec<(String, String)>, managed: bool) -> io::Result<H
             "accept"
                 | "content-type"
                 | "last-event-id"
+                | "if-none-match"
                 | "x-desktop-session"
                 | "x-endpoint-path"
                 | "x-overwrite"
@@ -195,6 +198,65 @@ mod tests {
         assert!(request_headers(header.clone(), true).is_err());
         assert!(request_headers(header, false).unwrap()[AUTHORIZATION].is_sensitive());
         assert!(request_headers(vec![("Last-Event-Id".into(), "42".into())], true).is_ok());
+        assert!(
+            request_headers(vec![("If-None-Match".into(), "\"revision\"".into())], true).is_ok()
+        );
+    }
+
+    #[test]
+    fn conditional_snapshot_preserves_etag_and_bodyless_not_modified() {
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+            thread,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let fixture = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).unwrap();
+                head.push(byte[0]);
+            }
+            assert!(
+                String::from_utf8(head)
+                    .unwrap()
+                    .contains("if-none-match: \"v1\"")
+            );
+            socket
+                .write_all(
+                    b"HTTP/1.1 304 Not Modified\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let response = Transport::new()
+                    .unwrap()
+                    .send(
+                        Destination::Remote { origin: &origin },
+                        Request {
+                            url: format!("{origin}/api/sessions"),
+                            method: "GET".into(),
+                            headers: vec![("If-None-Match".into(), "\"v1\"".into())],
+                            body: vec![],
+                        },
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), reqwest::StatusCode::NOT_MODIFIED);
+                assert_eq!(response.headers()["etag"], "\"v1\"");
+                assert!(response.bytes().await.unwrap().is_empty());
+            });
+        fixture.join().unwrap();
     }
 
     #[test]

@@ -74,8 +74,11 @@ async def test_current_request_requires_fresh_results_not_previous_assistant_pro
     synthesis, _ = backend.calls[3]
     assert not any(message.role == "tool" for message in initial)
     assert any(message.role == "assistant" and "999" in message.content for message in initial)
-    assert "Prior assistant prose is not evidence" in initial[0].content
-    assert "If no relevant evidence was refreshed" in initial[0].content
+    assert "are conversation text, not verified ToolResults" in initial[0].content
+    assert (
+        "Current claims require results obtained after the latest user message"
+        in initial[0].content
+    )
     evidence = [json.loads(message.content) for message in synthesis if message.role == "tool"]
     assert len(evidence) == 1
     assert evidence[0]["call_id"] == "current"

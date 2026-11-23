@@ -18,6 +18,7 @@ from orion.application.models import ModelConfigurationService
 from orion.application.requests import RequestService
 from orion.chat.diagnostics import BoundedModelInputDiagnostics
 from orion.chat.runtime import ChatRuntime
+from orion.contracts import RuntimeScope, ToolDefinition
 from orion.endpoints.manager import EndpointManager
 from orion.endpoints.persistence import EndpointStore
 from orion.endpoints.tools import endpoint_registrations
@@ -53,6 +54,7 @@ from orion.skills.tools import skill_registrations
 from orion.tool_runtime.calculator import calculate, calculator_definition
 from orion.tool_runtime.infrastructure import infrastructure_registrations
 from orion.tool_runtime.internet import internet_registrations
+from orion.tool_runtime.lazy import LazyToolExposure
 from orion.tool_runtime.mutation_authorization import (
     MutationAuthorizationConfigurationError,
     MutationAuthorizationPolicy,
@@ -101,6 +103,7 @@ def build_application(
     mcp_registrations: tuple[ToolRegistration, ...] = (),
     seed_model_from_environment: bool = True,
     managed_desktop: bool = False,
+    lazy_tools: bool = True,
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
     if mcp_manager is None and load_config().servers:
@@ -216,6 +219,11 @@ def build_application(
         if enabled or ssh_enabled:
             for registration in command_registrations(commands):
                 registry_builder.register(registration.definition, registration.handler)
+        exposure = (
+            LazyToolExposure(lambda scope: model_tool_definitions(scope)) if lazy_tools else None
+        )
+        if exposure is not None:
+            registry_builder.register(exposure.definition, exposure.enable)
         registry = registry_builder.freeze()
         skills.capabilities = frozenset(
             definition.name for definition in registry.definitions()
@@ -249,6 +257,22 @@ def build_application(
         model_configurations = ModelConfigurationService(
             store, configuration_registry, credentials_for_database(resolved_path)
         )
+
+        def model_tool_definitions(scope: RuntimeScope) -> tuple[ToolDefinition, ...]:
+            # An unpaired installation has no valid target for endpoint operations.
+            # Recheck each turn so pairing/revocation takes effect immediately.
+            # Keep discovery, RAG, commands and all other registered tools visible.
+            paired = any(
+                row["revoked_at"] is None
+                and (scope.endpoint_id is None or scope.endpoint_id == row["endpoint_id"])
+                for row in endpoints.store.list()
+            )
+            return tuple(
+                tool
+                for tool in registry.model_definitions()
+                if paired or not tool.name.startswith("endpoint.") or tool.name == "endpoint.list"
+            )
+
         runtime = ChatRuntime(
             store,
             selected_backend,
@@ -271,6 +295,8 @@ def build_application(
             skill_request_start=skills.begin_request,
             skill_context=skills.context,
             skill_request_end=skills.end_request,
+            model_tool_definitions=model_tool_definitions,
+            tool_exposure=exposure,
         )
         store.recover_interrupted_requests(ownership)
         return OrionApplication(

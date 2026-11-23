@@ -186,7 +186,9 @@ async def test_registered_internet_tools_are_exposed_and_direct_answer_does_not_
 ) -> None:  # type: ignore[no-untyped-def]
     internet = FakeInternetClient()
     backend = ScriptedBackend([ModelTurn(assistant=AssistantMessage(content="No lookup needed."))])
-    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app = build_application(
+        tmp_path / "orion.db", backend, internet_client=internet, lazy_tools=False
+    )
     app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
     principal = app.access.current_principal()
     session = app.store.create_session(principal.principal_id, principal.workspace_id)
@@ -242,7 +244,9 @@ async def test_search_then_fetch_stays_in_same_model_loop_and_cites_visible_sour
             ),
         ]
     )
-    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app = build_application(
+        tmp_path / "orion.db", backend, internet_client=internet, lazy_tools=False
+    )
     app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
     principal = app.access.current_principal()
     session = app.store.create_session(principal.principal_id, principal.workspace_id)
@@ -283,8 +287,7 @@ async def test_search_then_fetch_stays_in_same_model_loop_and_cites_visible_sour
     fetched_answer_messages, _ = backend.calls[2]
     assert any(
         message.role == "system"
-        and "preserve each field-to-value association" in message.content
-        and "first-released date is not a last-updated date" in message.content
+        and "Keep each field tied to its original record" in message.content
         for message in fetched_answer_messages
     )
 
@@ -439,7 +442,9 @@ async def test_project_composes_knowledge_internet_and_calculator_in_one_runtime
             ),
         ]
     )
-    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app = build_application(
+        tmp_path / "orion.db", backend, internet_client=internet, lazy_tools=False
+    )
     project = app.projects.create("Capacity")
     session = app.projects.create_session(project["project_id"], "local", "local")
     document = app.knowledge.attach_project(
@@ -974,7 +979,9 @@ async def test_discovery_only_citation_pending_survives_repeated_bad_terminal_dr
         ]
     )
 
-    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app = build_application(
+        tmp_path / "orion.db", backend, internet_client=internet, lazy_tools=False
+    )
     app.store.upsert_model_config(
         "openai_compatible",
         "http://model.test/v1",

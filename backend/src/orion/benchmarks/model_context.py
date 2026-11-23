@@ -19,6 +19,7 @@ from orion.contracts import (
     ModelToolCall,
     ModelTurn,
     ModelTurnCompleted,
+    ModelUsage,
     ToolCall,
     ToolDefinition,
     ToolResult,
@@ -164,7 +165,7 @@ def complete_tool_definitions() -> tuple[ToolDefinition, ...]:
     )
 
 
-def active_model_settings() -> ModelSettings:
+def active_model_settings(*, allow_native: bool = False) -> ModelSettings:
     """Resolve the application's persisted profile without touching its data."""
     path = database_path()
     try:
@@ -178,7 +179,7 @@ def active_model_settings() -> ModelSettings:
     settings = ModelSettingsResolver(
         default_provider_registry(), credentials_for_database(path)
     ).resolve_binding(binding)
-    if settings.provider_type != "openai_compatible":
+    if not allow_native and settings.provider_type != "openai_compatible":
         raise RuntimeError("This legacy measurement requires an explicitly compatible profile.")
     return settings
 
@@ -188,6 +189,7 @@ class _RecordingBackend(ModelBackend):
         self.backend = backend
         self.inputs: list[tuple[tuple[ContextMessage, ...], tuple[ToolDefinition, ...]]] = []
         self.turns: list[ModelTurn] = []
+        self.usage: list[ModelUsage | None] = []
 
     async def stream(
         self,
@@ -197,9 +199,11 @@ class _RecordingBackend(ModelBackend):
         cancellation: asyncio.Event,
     ) -> AsyncIterator[ModelStreamEvent]:
         self.inputs.append((messages, tools))
+        self.usage.append(None)
         async for event in self.backend.stream(messages, tools, settings, cancellation):
             if isinstance(event, ModelTurnCompleted):
                 self.turns.append(event.turn)
+                self.usage[-1] = event.usage
             yield event
 
 
@@ -265,7 +269,7 @@ def _fixture_read(call: ToolCall) -> ToolResult:
 
 async def _run_benchmark(live: bool) -> BenchmarkReport:
     settings = (
-        active_model_settings()
+        active_model_settings(allow_native=True)
         if live
         else ModelSettings(
             provider_type="openai_compatible",
@@ -290,7 +294,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                 for definition in complete_tool_definitions():
                     builder.register(definition, _fixture_read)
                 backend = _RecordingBackend(
-                    OpenAICompatibleBackend() if live else _OfflineBackend(_script(scenario.name))
+                    default_provider_registry() if live else _OfflineBackend(_script(scenario.name))
                 )
                 runtime = ChatRuntime(
                     store,
@@ -354,6 +358,12 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                         returned_tool_calls_by_call=tuple(
                             tuple(call.tool_name for call in turn.tool_calls)
                             for turn in backend.turns
+                        ),
+                        input_tokens_by_call=tuple(
+                            usage.input_tokens if usage else None for usage in backend.usage
+                        ),
+                        output_tokens_by_call=tuple(
+                            usage.output_tokens if usage else None for usage in backend.usage
                         ),
                         metrics={
                             "full_registry_schema_bytes": schema_bytes,

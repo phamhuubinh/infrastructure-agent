@@ -301,7 +301,10 @@ async def test_opt_in_diagnostics_record_exact_model_projection_and_phase_data(s
     assert isinstance(records, list)
     model_inputs = [record["model_input"] for record in records if "model_input" in record]
     assert len(model_inputs) == 2
-    assert all("system" not in json.dumps(value).lower() for value in model_inputs)
+    for item in model_inputs:
+        assert item["content_bytes_by_role"]["system"] > 0
+        assert all(isinstance(size, int) for size in item["content_bytes_by_role"].values())
+        assert "You are Orion" not in json.dumps(item)
     second = model_inputs[1]
     assert second["tool_names"] == ["test.read"]
     assert second["tool_schema_bytes"] > 0

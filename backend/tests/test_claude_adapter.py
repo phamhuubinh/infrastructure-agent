@@ -177,7 +177,9 @@ async def test_default_native_messages_multi_tool_signature_replay_and_later_use
         return httpx.Response(200, stream=stream)
 
     use_provider(monkeypatch, provider)
-    app = build_application(tmp_path / "application.db", seed_model_from_environment=False)
+    app = build_application(
+        tmp_path / "application.db", seed_model_from_environment=False, lazy_tools=False
+    )
     try:
         bound = configured()
         app.store.create_model_config(

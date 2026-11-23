@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsPage } from "@/routes/settings";
+import * as serverProfiles from "@/lib/server-profiles";
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -14,6 +15,20 @@ describe("M1 model settings", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it("checks for a Windows release and opens its page only on request", async () => {
+    const check = vi.fn().mockResolvedValue({ current: "0.1.5", available: "0.1.6" });
+    const openRelease = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(serverProfiles, "desktopAppUpdates").mockReturnValue({ check, openRelease });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
+    render(<SettingsPage />);
+    expect(check).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra bản cập nhật" }));
+    const release = await screen.findByRole("button", { name: "Mở trang tải Orion 0.1.6" });
+    expect(openRelease).not.toHaveBeenCalled();
+    fireEvent.click(release);
+    expect(openRelease).toHaveBeenCalledWith("0.1.6");
   });
 
   it("loads the active M1 model and posts only the current configuration contract", async () => {

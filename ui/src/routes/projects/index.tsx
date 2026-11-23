@@ -1,3 +1,4 @@
+import { observeHostRefresh } from "@/lib/host-refresh";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
@@ -35,7 +36,7 @@ export function ProjectsPage() {
           current.filter((project) => project.project_id !== change.projectId),
         );
       }
-      void listProjects()
+      return listProjects()
         .then((loaded) => {
           if (disposed || currentRevision !== revision) return;
           setProjects(loaded);
@@ -49,11 +50,12 @@ export function ProjectsPage() {
           if (!disposed && currentRevision === revision) setLoading(false);
         });
     };
-    refresh();
+    const stopPolling = observeHostRefresh(() => refresh());
     const unsubscribe = onProjectListInvalidated(refresh);
     return () => {
       disposed = true;
       unsubscribe();
+      stopPolling();
     };
   }, []);
 

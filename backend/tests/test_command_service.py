@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import time
 import uuid
 
 import pytest
 
+from orion.application.command_tools import command_registrations
 from orion.application.commands import CommandService
 from orion.contracts import RuntimeScope, ToolCall
 from orion_endpoint.executor import Executor
@@ -74,6 +76,40 @@ async def terminal(service, owner, identity):
 
 
 @pytest.mark.anyio
+async def test_quick_command_run_returns_terminal_failure_and_status_keeps_handle(store):
+    transport = Transport(store)
+    service = CommandService(store, transport)
+    owner = call(store, script="exit 7")
+    run, status, _ = command_registrations(service)
+    try:
+        result = await run.handler(owner)
+        assert result.status == "error" and result.error.code == "command_failed"
+        assert result.data["state"] == "failed" and result.data["exit_code"] == 7
+        identity = result.data["command_id"]
+        status_call = owner.model_copy(
+            update={
+                "tool_name": "system.command.status",
+                "arguments": {"target_ref": TARGET, "command_id": identity},
+            }
+        )
+        transport.executor.commands.handles.pop(identity)
+        observed = await status.handler(status_call)
+        assert observed.error.code == "command_failed"
+        assert observed.data["command_id"] == identity and observed.data["exit_code"] == 7
+        missing = status_call.model_copy(
+            update={
+                "arguments": {**status_call.arguments, "command_id": "f" * 32},
+            }
+        )
+        failed = await status.handler(missing)
+        assert failed.error.code == "operation_blocked" and failed.data is None
+        assert sum(operation == "command.run" for operation, _ in transport.calls) == 1
+    finally:
+        await service.close()
+        await transport.executor.close()
+
+
+@pytest.mark.anyio
 async def test_handle_before_dispatch_duplicate_and_safe_metadata(store):
     transport = Transport(store)
     service = CommandService(store, transport)
@@ -102,6 +138,45 @@ async def test_handle_before_dispatch_duplicate_and_safe_metadata(store):
             is False
         )
     finally:
+        await service.close()
+        await transport.executor.close()
+
+
+@pytest.mark.anyio
+async def test_model_status_waits_for_monitor_without_replaying_command(store):
+    allow_status = asyncio.Event()
+
+    class DelayedStatus(Transport):
+        async def dispatch_command(self, target, operation, arguments, cancellation=None):
+            if operation == "command.status":
+                await allow_status.wait()
+            return await super().dispatch_command(target, operation, arguments, cancellation)
+
+    transport = DelayedStatus(store)
+    service = CommandService(store, transport)
+    owner = call(store, script=f'"{sys.executable}" -c "import time; time.sleep(0.5)"')
+    try:
+        initial = await service.run(owner)
+        assert initial.state in {"created", "running"}
+        observer = asyncio.create_task(
+            service.status(
+                owner.runtime_scope, TARGET, initial.command_id, wait_for_completion=True
+            )
+        )
+        await asyncio.sleep(0)
+        assert not observer.done()
+        observer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await observer
+        assert not service._monitors[initial.command_id].done()
+        allow_status.set()
+        final = await service.status(
+            owner.runtime_scope, TARGET, initial.command_id, wait_for_completion=True
+        )
+        assert final.state == "succeeded"
+        assert len([op for op, _ in transport.calls if op == "command.run"]) == 1
+    finally:
+        allow_status.set()
         await service.close()
         await transport.executor.close()
 

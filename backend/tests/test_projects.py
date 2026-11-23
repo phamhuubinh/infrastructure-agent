@@ -154,8 +154,8 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
     system_policy = "\n".join(
         message.content for message in backend.calls[0][0] if message.role == "system"
     )
-    assert "fact/topic/quote/attribution use knowledge.search" in system_policy
-    assert "Do not list first" in system_policy
+    assert "For document facts/topics/quotes/attribution, use knowledge.search" in system_policy
+    assert "use knowledge.search directly" in system_policy
     assert [item.tool_name for item in store.timeline(session) if item.kind == "tool_call"] == [
         "knowledge.search",
         "calculator.evaluate",

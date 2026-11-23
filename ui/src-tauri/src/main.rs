@@ -13,6 +13,9 @@ mod host_settings;
 mod tailscale;
 
 #[cfg(windows)]
+mod updates;
+
+#[cfg(windows)]
 fn main() {
     app::run();
 }
