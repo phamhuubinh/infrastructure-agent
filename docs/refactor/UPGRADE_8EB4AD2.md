@@ -1,29 +1,30 @@
 # Nâng cấp Windows từ checkpoint 8eb4ad2
 
-Kịch bản bảo trì hiện trỏ tới ứng viên sửa lỗi từ checkpoint `253dae0`.
+Kịch bản bảo trì hiện trỏ tới ứng viên sửa lỗi từ checkpoint `5a9e1aa`.
 
-- Bộ cài Windows x64 preview chưa ký tại `release-work/final-internet-batch/Orion_0.1.5_x64_final-preview-setup.exe`.
-- SHA-256 `D617E63DD323199A9B454CA200C2F5A54967AC5C08F1C9257F5A9DD7EF018545`.
-- Backup trực tuyến đã kiểm khôi phục tại `C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261123-055027`. Kịch bản chụp lại một backup trong cửa sổ bảo trì trước cài.
+- Bộ cài Windows x64 preview chưa ký tại `release-work/mobile-runtime-5a9e1aa/Orion_0.1.5_x64_mobile-runtime-preview-setup.exe`.
+- SHA-256 `8E753FD7182142039CBAC474DBECAECAC14C9D94E444F286F917794AE6635982`.
+- Backup trực tuyến đã kiểm khôi phục tại `C:/Users/phamg/AppData/Local/OrionRecovery/before-upgrade-8eb4ad2-20261123-205410`. Kịch bản chụp lại một backup trong cửa sổ bảo trì trước cài.
 
 Ứng viên đi cùng các bước [nghiệm thu Internet](INTERNET_ACCEPTANCE.md). Chi tiết benchmark và kiểm thử nằm trong [nhật ký](EXECUTION_LOG.md). Các backup trước được ghi ở các mục lịch sử của nhật ký.
 
 ## Cửa sổ bảo trì do chủ máy thực hiện
 
-1. Chọn thời gian bảo trì, chờ request hoàn tất và dừng Host sạch bằng Orion. Xác nhận cả Orion và OrionBackend đã thoát. Đóng cửa sổ ứng dụng có thể để Host tiếp tục chạy.
+1. Chọn thời gian bảo trì. Kiểm tra Funnel đã tắt theo điều kiện của kịch bản. Chờ request hoàn tất và dừng Host sạch bằng Orion. Xác nhận cả Orion và OrionBackend đã thoát. Đóng cửa sổ ứng dụng có thể để Host tiếp tục chạy.
 2. Trong PowerShell dưới cùng Windows account, chạy lệnh dưới đây. Kịch bản kiểm cửa sổ bảo trì, tiến trình và cổng, checksum NSIS, tạo và kiểm backup mới, cài đè, rồi kiểm trước lần mở đầu.
 
 ```powershell
 & F:/Orion/scripts/windows/upgrade-maintenance.ps1 -MaintenanceWindow
 ```
 
-3. Khi kịch bản báo PASS, mở Orion. Kiểm tra Chat, Projects, model, lịch sử dài và vị trí cuộn. Chủ máy tự đăng nhập Owner trên Web qua URL tailnet và thử một chat mới giữa Desktop/Web. Kiểm tra Android/iOS sau enrollment trên thiết bị tương ứng. Các bước xác thực và nghiệm thu nền tảng này là `PENDING_MANUAL`.
+3. Khi kịch bản báo PASS, mở Orion. Kiểm tra Chat, Projects, model, lịch sử dài và vị trí cuộn. Chủ máy tự đăng nhập Owner trên Web qua URL tailnet, thử tạo Chat hai chiều, rồi mở phiên cũ và xác nhận thứ tự Gần đây. Kiểm tra menu, lịch sử, bảng hoạt động và composer trên Chrome Android và Safari iPhone. Chạy chẩn đoán PowerShell chỉ đọc ở chế độ Confirm, xác nhận một lần và đối chiếu kết quả. Các bước xác thực và nghiệm thu trên Host thật là `PENDING_MANUAL`.
 
-Kịch bản dùng Python tại `F:/Orion-toolchains/refactor-python/Scripts/python.exe`. Có thể truyền `-Python` khi vị trí môi trường đã thay đổi. Kịch bản sử dụng payload đã giải nén tại `release-work/final-internet-batch/extracted` để đối chiếu các tệp được cài. Thao tác dừng Host do chủ máy thực hiện trước khi chạy kịch bản.
+Kịch bản dùng Python tại `F:/Orion-toolchains/refactor-python/Scripts/python.exe`. Có thể truyền `-Python` khi vị trí môi trường đã thay đổi. Kịch bản sử dụng payload đã giải nén tại `release-work/mobile-runtime-5a9e1aa/extracted` để đối chiếu các tệp được cài. Thao tác dừng Host do chủ máy thực hiện trước khi chạy kịch bản.
 
 ## Nghiệm thu tự động đã chuẩn bị
 
 - `scripts/windows/upgrade_readiness.py --snapshot <thư-mục-cha>` chụp backup và diễn tập phục hồi vào thư mục mới. `--verify <backup>` kiểm hash, SQLite, dữ liệu Chat, Owner state và khả năng giải mã DPAPI.
+- Khi chỉ sao lưu trực tuyến, thêm `--online-only` để ghi nhận cấu hình Serve/Funnel đang chạy. Kịch bản cài bảo trì dùng chế độ mặc định.
 - `scripts/windows/upgrade_acceptance.py --backup <backup-mới> --payload <payload>` đối chiếu các tệp ứng dụng, mọi hàng SQLite trước lần mở đầu, credential/blobs, cấu hình Host, autostart và Serve. Lệnh cần `PYTHONPATH=F:/Orion/backend/src`.
 - Đã chạy bộ kiểm sau cài trên payload và SQLite sao chép vào thư mục cô lập. Ca đúng đạt, ca thay đổi Chat trên bản sao bị phát hiện. Đã kiểm guard khi thiếu `-MaintenanceWindow`. Các bài runtime, Chat UI, frozen smoke và benchmark còn bằng chứng hợp lệ tại nhật ký checkpoint trước.
 

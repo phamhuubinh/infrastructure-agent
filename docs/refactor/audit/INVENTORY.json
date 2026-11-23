@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "253dae09de3d1fafbb578871f9b31165307d1113",
+  "source_commit": "5a9e1aa91e33aa6e855f9251a618a34c3bab7cd9",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -782,8 +782,8 @@
     {
       "path": "backend/src/orion/application/command_tools.py",
       "kind": "text",
-      "bytes": 5575,
-      "sha256": "4252f3296e72c18a163399a21e084bbc7ec42392648f95a1dec371d26dab4727",
+      "bytes": 6218,
+      "sha256": "665bcc639a29e6805195df740e8eba2d739e221e69b2475b5a77e0e9dfe4b314",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -792,14 +792,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 140,
+      "lines": 153,
       "python_syntax": "parsed"
     },
     {
       "path": "backend/src/orion/application/commands.py",
       "kind": "text",
-      "bytes": 12895,
-      "sha256": "5db185193fe6ee9a1a7ab40996c99ffb360f51a54ed267cd5a5e6127767dd5fc",
+      "bytes": 13488,
+      "sha256": "6b24c94ad274dea10ff6a5c4f7d48d0966c1ea3c42e1530713286b9c5dbef3b8",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -808,7 +808,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 282,
+      "lines": 293,
       "python_syntax": "parsed"
     },
     {
@@ -1022,8 +1022,8 @@
     {
       "path": "backend/src/orion/chat/runtime.py",
       "kind": "text",
-      "bytes": 107285,
-      "sha256": "cdedc2070fe9a8390f5e1db664eda22faf61929e3d8a09e527de238c6c4ff47f",
+      "bytes": 107977,
+      "sha256": "203f89d89466c0c1fdeff09d292d8d0915a2060104c9274b857714fdff517500",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -1032,7 +1032,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 2215,
+      "lines": 2232,
       "python_syntax": "parsed"
     },
     {
@@ -2734,8 +2734,8 @@
     {
       "path": "backend/src/orion_endpoint/commands.py",
       "kind": "text",
-      "bytes": 15681,
-      "sha256": "3854fefd2846ee5b674312912fa2e5e12e563bef41e4c6ae391f8c49c182439d",
+      "bytes": 16139,
+      "sha256": "295cf0c4e6b7a23842e6cb9f54e07cccf4dbe1618698e179b6e406d710d8ae36",
       "group": "worker",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -2744,7 +2744,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 371,
+      "lines": 386,
       "python_syntax": "parsed"
     },
     {
@@ -3166,8 +3166,8 @@
     {
       "path": "backend/tests/test_command_service.py",
       "kind": "text",
-      "bytes": 13816,
-      "sha256": "0cc59371c339b2a36fc8f8af7d3c933efc4d7e19d00755fac0427c04aa2ca80a",
+      "bytes": 15400,
+      "sha256": "948ddf140a9156369a409d839860ef06a16e3b82dc5f56d037f72dc06528607a",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -3176,7 +3176,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 348,
+      "lines": 383,
       "python_syntax": "parsed"
     },
     {
@@ -3278,8 +3278,8 @@
     {
       "path": "backend/tests/test_desktop_local_commands.py",
       "kind": "text",
-      "bytes": 2726,
-      "sha256": "f899ae2f7c60f9385c2ad2422d0ad550ee1cd8111ae1c065fef056c33fc59616",
+      "bytes": 2817,
+      "sha256": "f2a76180e192dcd292cce336b22dd2073bf9864149b3f26d4f8a74ed5ca2b50b",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -3288,7 +3288,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 70,
+      "lines": 71,
       "python_syntax": "parsed"
     },
     {
@@ -3657,6 +3657,22 @@
       "replacement_or_callers": "R09 SSH CommandService/router/helper; R10 SkillService/ChatRuntime/SQLite/CLI; R11 MCP manager/owner API/CLI, tests and dated operation contracts as applicable.",
       "verification": "R10_REPAIRED_CHECKS_2026-10-31.json; R10_WHEEL_CHECKS_2026-10-31.json; R09_QEMU_LINUX/SSH evidence; R11 current full/static and focused lifecycle regressions. Source/guest scope only; inspect each report source hash and failures, not native artifact/live acceptance.",
       "lines": 124,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "backend/tests/test_mobile_shared_ui.py",
+      "kind": "text",
+      "bytes": 5862,
+      "sha256": "56b7b5feabf491b2267d1c94b8cb780de38b4eac234042efcfc3724dca71f93c",
+      "group": "backend-tests",
+      "git_state": "tracked",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 135,
       "python_syntax": "parsed"
     },
     {
@@ -4766,17 +4782,17 @@
     {
       "path": "backend/tests/test_worker_commands.py",
       "kind": "text",
-      "bytes": 9440,
-      "sha256": "56f832881265425e0fff68506adeddfcef2c3010e30742b7d509e77ab45337a6",
+      "bytes": 10804,
+      "sha256": "7758fd5d7a65f6832011ae2a033bb710599e7d2a436ed1b750d0d2c91c7665d4",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Make the child fixture produce UTF-8 across Windows locales.",
-      "replacement_or_callers": "Worker command streaming and exit-code regression.",
-      "verification": "Reviewed the platform precondition or fixture change; Ruff passed and full runs are tracked separately.",
-      "lines": 250,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 288,
       "python_syntax": "parsed"
     },
     {
@@ -7406,8 +7422,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 48706,
-      "sha256": "c7d4542fd0cfe74e1961afd27afcab55dd9fb76c535919f650888ef0507decea",
+      "bytes": 53132,
+      "sha256": "6930f1686ff0d3cb11c02fadef39f443cff890c663c5cb575fe37998f0532e13",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7416,7 +7432,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 224,
+      "lines": 242,
       "python_syntax": null
     },
     {
@@ -7534,8 +7550,8 @@
     {
       "path": "docs/refactor/STATE.json",
       "kind": "text",
-      "bytes": 49910,
-      "sha256": "bc9d7a8de08b194d40ac898cebf311e72c9502c3044d7f9f625c61b03ffa0d56",
+      "bytes": 49921,
+      "sha256": "57cd361f066f56618bb50bbdd840f79270ba80ad93f47c062c7962269c075ca5",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7550,8 +7566,8 @@
     {
       "path": "docs/refactor/UPGRADE_8EB4AD2.md",
       "kind": "text",
-      "bytes": 4822,
-      "sha256": "4682258522657938622c3c6ec1a6ff5af86f11156513afc9e86f11b28af802ae",
+      "bytes": 5287,
+      "sha256": "e3feb6c32664ff4b13f84c975e5bba1da420be24cf805e8ec0ed38d5ec99b558",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7560,7 +7576,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 38,
+      "lines": 39,
       "python_syntax": null
     },
     {
@@ -8462,8 +8478,8 @@
     {
       "path": "scripts/windows/upgrade-maintenance.ps1",
       "kind": "text",
-      "bytes": 2536,
-      "sha256": "4a1a09f886336b966b4cc09a062c45b01c9e165fd077f5f56c1a1c80028be87d",
+      "bytes": 2547,
+      "sha256": "c92b1633a30d16efc1d46e30891be2ceb216457c5c954af3cf1668ca7534a8b6",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8494,8 +8510,8 @@
     {
       "path": "scripts/windows/upgrade_readiness.py",
       "kind": "text",
-      "bytes": 9443,
-      "sha256": "71202736fca6e5809eb4bdd4c875f8f45dbe34e03722901fb5fa13f12a322f45",
+      "bytes": 9811,
+      "sha256": "34ad9ad1e872e6bb5151b7a3cf08d9e788c23b4cd5d74763b781ee55aa6bbaef",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8504,7 +8520,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 236,
+      "lines": 243,
       "python_syntax": "parsed"
     },
     {
@@ -8990,8 +9006,8 @@
     {
       "path": "ui/src/components/AppSidebar.tsx",
       "kind": "text",
-      "bytes": 17561,
-      "sha256": "5de4679a2f04133cc4bbe2902c5d7fbcd083e2655bc13740582ad88099e0c333",
+      "bytes": 20316,
+      "sha256": "8148c812b43399d09c248a217e7f838a9553879bafe1585fa8873cefc51f8f26",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9000,7 +9016,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 521,
+      "lines": 600,
       "python_syntax": null
     },
     {
@@ -9150,33 +9166,33 @@
     {
       "path": "ui/src/components/ContextPanel.test.tsx",
       "kind": "text",
-      "bytes": 4334,
-      "sha256": "a05d96a584504fd2aacf1c97555986e773cbc7b410a3d29c9655862ed2bc548b",
+      "bytes": 4500,
+      "sha256": "379b83abbc02609832e2971be9280d5aa63abe1a52365775c4cb66cb1ec2b07a",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Read all collapsed/session reset/final-call activity/document-versus-evidence fixtures. Preserve same-runtime distinction and useful UI behavior; mobile availability requires new responsive/native checks.",
-      "replacement_or_callers": "Reviewed corresponding MCP/runtime/context/store/access/UI production callers and test boundaries; evolve with R02-R18 contracts, preserve safety regressions.",
-      "verification": "Whole-file semantic read; existing real backend/UI reports distinguish fixture, local transport, live and native acceptance. No new live/native pass claimed.",
-      "lines": 123,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 125,
       "python_syntax": null
     },
     {
       "path": "ui/src/components/ContextPanel.tsx",
       "kind": "text",
-      "bytes": 10000,
-      "sha256": "5a2541e008dc3102136c5442d704ecad28bc09c231a68d76e3eb94b57541555f",
+      "bytes": 10278,
+      "sha256": "0f35f06ccee2d0e1d271564016284f29e50059f9c2017ac9883bc734746c0afa",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
-      "review_status": "reviewed",
-      "final_action": "rewrite",
-      "reason": "Read full panel/source cards. Safe public activity display reusable but inaccessible below lg and hides running activity; add command status/output and mobile surface without raw private state.",
-      "replacement_or_callers": "R01_RESUME_2026-10-29.md; observed current code and callers, follow R02-R19 dependencies before cleanup.",
-      "verification": "Full semantic read, not hash approval. Existing baseline R01_BACKEND_FINAL and subsequent R01_INTERNET_CHECKS give exact test scope; not target/native/live completion.",
-      "lines": 266,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 270,
       "python_syntax": null
     },
     {
@@ -9614,8 +9630,8 @@
     {
       "path": "ui/src/lib/chat-store.tsx",
       "kind": "text",
-      "bytes": 34771,
-      "sha256": "d06e409206bc44eb364567e7689ae840187c946bdeda54b0c8f28b61cc774637",
+      "bytes": 34988,
+      "sha256": "bf0cd025cb4f668167166c82553ea1f7287ac2fede9ff4e0cc3b3e88d31e28a1",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9624,7 +9640,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 969,
+      "lines": 974,
       "python_syntax": null
     },
     {
@@ -9774,8 +9790,8 @@
     {
       "path": "ui/src/lib/server-profiles.ts",
       "kind": "text",
-      "bytes": 10661,
-      "sha256": "880ffda0bdfcc609616ed02fda4b2c92ca7cb4567b948d518248cda6c162c792",
+      "bytes": 10891,
+      "sha256": "54edcd6666418ed3040e935c725d0b324faba2e5e00641af56c06e993138acdf",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9784,14 +9800,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 340,
+      "lines": 348,
       "python_syntax": null
     },
     {
       "path": "ui/src/lib/tauri-host.ts",
       "kind": "text",
-      "bytes": 4695,
-      "sha256": "7d263055397232141593b0c17e59f98f17be2fc97f5600e49e532e0b10a23a6b",
+      "bytes": 4935,
+      "sha256": "5bf4db7b06fb084209625b2d6d144f0f1b606a4b93ea104dcc542c0bcbe86c66",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9800,7 +9816,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 127,
+      "lines": 134,
       "python_syntax": null
     },
     {
@@ -9870,8 +9886,8 @@
     {
       "path": "ui/src/routes/__root.tsx",
       "kind": "text",
-      "bytes": 11090,
-      "sha256": "a095f151a8eaee1f74757f967e2ca150593017abed2985261d5a5e4034525977",
+      "bytes": 11820,
+      "sha256": "292c1d95339f542e68c3392fd8715a9f9ed3abb0165023e6def65efb93f30ed3",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9880,7 +9896,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 312,
+      "lines": 327,
       "python_syntax": null
     },
     {
@@ -9934,17 +9950,17 @@
     {
       "path": "ui/src/routes/__tests__/-settings.test.tsx",
       "kind": "text",
-      "bytes": 10052,
-      "sha256": "1e2f4d349ebcbf5c83a8b0991f11c4e058f36c440773244c28585905e38963f5",
+      "bytes": 10909,
+      "sha256": "eabd01d08dce0aaa5fb78e0bc4c91519bd526de3d3f0089e902600a8244218ba",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Settings load new configuration snapshot and test native vendor profile protocol/model/credential references rather than legacy raw key payload.",
-      "replacement_or_callers": "R13 shared React routes/SDK/server profiles/RequestService/SQLite and canonical owner API; removed SSR paths replaced by main.tsx/Vite/backend shell serving.",
-      "verification": "R13_SESSION_2026-11-01.md; R13_CLOSURE_2026-11-02.json: fresh115 UI pass, final type/lint/static bundle pass, source-matched full backend1600pass6POSIX-host-fail17skip23subtests; actual browser desktop/mobile/Stop fixture. Source/callers reviewed; no native/live claim.",
-      "lines": 262,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 277,
       "python_syntax": null
     },
     {
@@ -9982,8 +9998,8 @@
     {
       "path": "ui/src/routes/index.tsx",
       "kind": "text",
-      "bytes": 48976,
-      "sha256": "ac921bae454e779ca6afc5fa7af374c40ad75c19277847864ba4c6cf38767e4b",
+      "bytes": 49089,
+      "sha256": "4a3423c1bf8563ab9a68adf2b0fe684f06a03d7f6fe9ec053ed41d9cced42bde",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10078,8 +10094,8 @@
     {
       "path": "ui/src/routes/settings.tsx",
       "kind": "text",
-      "bytes": 20558,
-      "sha256": "1df9a17c4b3ddf07035f24c37d723c85ad026063062bf896ec67c245b9a86bc8",
+      "bytes": 22553,
+      "sha256": "971f5a8d62b6d1cac0c6f8e6e68a4cba19797a0766c1868b39704def5cb967a5",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10088,7 +10104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 500,
+      "lines": 560,
       "python_syntax": null
     },
     {
@@ -10126,8 +10142,8 @@
     {
       "path": "ui/src-tauri/build.rs",
       "kind": "text",
-      "bytes": 787,
-      "sha256": "07b8404300ddbb27972f179bb3949dd07f91b9a5abbdaaae8617c115fcd1df52",
+      "bytes": 862,
+      "sha256": "761ba4097c2530475b41c53cf8ed26e2df4e90695044793bb2c4b3d5668616ff",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10136,7 +10152,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 25,
+      "lines": 27,
       "python_syntax": null
     },
     {
@@ -10238,8 +10254,8 @@
     {
       "path": "ui/src-tauri/src/app.rs",
       "kind": "text",
-      "bytes": 25214,
-      "sha256": "75a0ea7054f9d293b9e0c0a948f9152245a6ce3d2b1fa9d6d7926d142d480640",
+      "bytes": 25319,
+      "sha256": "2365f4f842d558f7a52d053fb05bb4ecc312eb5962ecc6a5702ee4663879e0fb",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10248,7 +10264,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 713,
+      "lines": 715,
       "python_syntax": null
     },
     {
@@ -10302,8 +10318,8 @@
     {
       "path": "ui/src-tauri/src/main.rs",
       "kind": "text",
-      "bytes": 293,
-      "sha256": "fbd5ed6c08a2eda23641139a55a79d38f443ff8b0c1b29dd680955f2c32a6219",
+      "bytes": 323,
+      "sha256": "d7d45cc02023f52b7202ccbe2a6a2bd00e24b0e8ecb5eecc32ad88bfcb7a5e57",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10312,7 +10328,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 21,
+      "lines": 24,
       "python_syntax": null
     },
     {
@@ -10364,6 +10380,22 @@
       "python_syntax": null
     },
     {
+      "path": "ui/src-tauri/src/updates.rs",
+      "kind": "text",
+      "bytes": 4401,
+      "sha256": "107c7e15f903067f0a8eee154cabba9552a79b440616b8d593f95710284bb5a7",
+      "group": "client",
+      "git_state": "tracked",
+      "candidate": "rewrite_or_reuse_after_contract_review",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 126,
+      "python_syntax": null
+    },
+    {
       "path": "ui/src-tauri/src/vault.rs",
       "kind": "text",
       "bytes": 5510,
@@ -10398,8 +10430,8 @@
     {
       "path": "ui/src-tauri/tauri.conf.json",
       "kind": "text",
-      "bytes": 1371,
-      "sha256": "a3993b7b7ecf8f5422a8b13f5884fd59c877c3933fec7ef9ef8128f1bd65c30f",
+      "bytes": 1460,
+      "sha256": "1f2bd8e9fdd8ecdf3e47c22b6b67ecdc57b1946a3113a8459a5b48302015271d",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10408,7 +10440,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 46,
+      "lines": 48,
       "python_syntax": null
     },
     {

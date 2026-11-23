@@ -122,7 +122,7 @@ def verify(directory: Path) -> None:
         raise ValueError("Backup table contents differ")
 
 
-def snapshot(destination: Path) -> Path:
+def snapshot(destination: Path, *, online_only: bool = False) -> Path:
     local = Path(os.environ["LOCALAPPDATA"])
     managed = local / "io.orion.desktop/managed"
     root = destination / (
@@ -175,7 +175,7 @@ def snapshot(destination: Path) -> Path:
     (root / "autostart.json").write_text(json.dumps(autostart), encoding="utf-8")
     tailscale = Path(os.environ["ProgramFiles"]) / "Tailscale/tailscale.exe"
     serve = subprocess.check_output([str(tailscale), "serve", "status", "--json"])
-    if any(json.loads(serve).get("AllowFunnel", {}).values()):
+    if not online_only and any(json.loads(serve).get("AllowFunnel", {}).values()):
         raise ValueError("Funnel is enabled")
     (root / "tailscale-serve.json").write_bytes(serve)
     # Exercise a byte-for-byte rollback into a new directory, then run only DB
@@ -215,9 +215,16 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--snapshot", type=Path, metavar="BACKUP_PARENT")
     mode.add_argument("--verify", type=Path, metavar="BACKUP")
+    parser.add_argument(
+        "--online-only",
+        action="store_true",
+        help="For a backup outside maintenance, record the live Serve/Funnel state as-is",
+    )
     args = parser.parse_args()
+    if args.online_only and not args.snapshot:
+        parser.error("--online-only requires --snapshot")
     if args.snapshot:
-        path = snapshot(args.snapshot.absolute())
+        path = snapshot(args.snapshot.absolute(), online_only=args.online_only)
         print(f"PASS private snapshot and isolated rollback drill: {path}")
     else:
         verify(args.verify.absolute())

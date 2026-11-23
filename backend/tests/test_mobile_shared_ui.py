@@ -61,6 +61,7 @@ def fixture_host(tmp_path):
             server.should_exit = True
             thread.join(timeout=10)
             assert not thread.is_alive()
+            application.store.close()
 
 
 @pytest.mark.parametrize("engine,device", [("chromium", "Pixel 7"), ("webkit", "iPhone 13")])
