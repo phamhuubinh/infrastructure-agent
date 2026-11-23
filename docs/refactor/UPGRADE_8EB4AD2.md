@@ -37,3 +37,11 @@ Sau lần mở đầu, backend có thể ghi thêm trạng thái phiên hoặc d
 3. Nếu cần phục hồi SQLite, phục hồi cả thư mục dữ liệu từ `managed` của backup bảo trì mới khi toàn bộ tiến trình đã thoát. Di chuyển bộ DB/WAL/SHM hiện tại sang thư mục hậu kiểm trước khi đặt snapshot vào vị trí. Snapshot là SQLite độc lập, không ghép với WAL/SHM từ phiên cũ. Việc trở về snapshot làm mất các thay đổi sau thời điểm chụp trong dữ liệu đang dùng, vì vậy chủ máy cần xác nhận khi chọn bước này.
 4. Khôi phục `desktop-host.reg` và đúng giá trị/type `OrionDesktopHost` từ `autostart.json` nếu chúng đã đổi. So sánh Serve với `tailscale-serve.json` và khôi phục mapping trong cửa sổ bảo trì nếu cần. Giữ Funnel tắt.
 5. Mở lại ứng dụng và chủ máy tự kiểm tra đăng nhập Owner, model và lịch sử. Thực thi rollback trên hệ thống đang dùng mang trạng thái `PENDING_MANUAL`. Diễn tập hiện tại đã kiểm bản sao dữ liệu và credential.
+
+## Cập nhật từ Cài đặt trên Windows Host
+
+Luồng cài trong ứng dụng dành cho bản phát hành ổn định. Bản Windows nguồn cần được build với `ORION_UPDATE_SIGNER_SHA256` là fingerprint SHA-256 của chứng thư Authenticode dùng để ký bộ cài. GitHub Releases cần tag `vX.Y.Z`, asset `Orion_X.Y.Z_x64-setup.exe` cùng version và digest SHA-256 do GitHub trả về. Chỉ phát hành sau khi có bộ cài đã ký qua kiểm thử nâng cấp trong môi trường cô lập.
+
+Sau khi chủ máy bấm cập nhật, Orion tải và kiểm chữ ký, fingerprint, kích thước, SHA-256 và phiên bản NSIS. Hộp thoại Windows xác nhận bắt đầu bảo trì. Orion chỉ chuyển sang bảo trì khi Host không có request hoặc command đang chạy. Hệ thống đóng sidecar sạch, sao lưu và diễn tập khôi phục trước khi chạy NSIS. Nếu khâu chuẩn bị sau khi dừng không đạt, Orion mở lại ứng dụng hiện tại. Thư mục `OrionRecovery` giữ snapshot và thư mục `update-*` trong dữ liệu ứng dụng giữ trạng thái cài ở `outcome.txt`. Bản backup dùng cho khôi phục thủ công nếu NSIS lỗi.
+
+Web, Android và iOS nhận thông báo phiên bản Host qua API dùng chung sau xác thực. Việc cài đặt thực hiện trên Windows Host trong cửa sổ bảo trì. Luồng phát hành và cài bộ NSIS ký chính thức còn `PENDING_MANUAL`.

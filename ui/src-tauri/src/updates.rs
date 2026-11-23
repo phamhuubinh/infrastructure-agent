@@ -1,9 +1,60 @@
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::{
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    os::windows::process::CommandExt,
+    path::{Path, PathBuf},
+    process::{Command, ExitStatus, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
+use tauri::Manager;
+use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 const RELEASES: &str = "https://github.com/phamhuubinh/infrastructure-agent/releases";
-const LATEST: &str =
-    "https://api.github.com/repos/phamhuubinh/infrastructure-agent/releases/latest";
+const LATEST: &str = "https://api.github.com/repos/phamhuubinh/infrastructure-agent/releases/latest";
+const LIMIT: u64 = 512 * 1024 * 1024;
+const UNAVAILABLE: &str = "Không kiểm tra được bản cập nhật Orion.";
+const REJECTED: &str = "Bộ cài không khớp phiên bản, SHA-256 hoặc chữ ký Orion.";
+const CHECK_SIGNATURE: &str = r#"
+$ErrorActionPreference = 'Stop'
+$file = $env:ORION_UPDATE_FILE
+$sig = Get-AuthenticodeSignature -LiteralPath $file
+if ($sig.Status -ne 'Valid' -or !$sig.SignerCertificate) { throw 'Signature invalid' }
+$hash = [Security.Cryptography.SHA256]::Create()
+$signer = [BitConverter]::ToString($hash.ComputeHash($sig.SignerCertificate.RawData)).Replace('-', '')
+if ($signer -ne $env:ORION_UPDATE_SIGNER) { throw 'Wrong publisher' }
+if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $env:ORION_UPDATE_HASH) {
+    throw 'Wrong asset digest'
+}
+$info = (Get-Item -LiteralPath $file).VersionInfo
+if ($info.ProductName -ne 'Orion' -or $info.ProductVersion -ne $env:ORION_UPDATE_VERSION) {
+    throw 'Wrong product version'
+}
+"#;
+
+// NSIS /D must be the final raw argument, including when the existing path has spaces.
+// Start only after the current UI exits, then reopen the same installation if it still exists.
+const HANDOFF: &str = r#"
+$ErrorActionPreference = 'Stop'
+$exe = $env:ORION_UPDATE_EXE
+$stage = Split-Path -LiteralPath $env:ORION_UPDATE_FILE
+try {
+    $parent = Get-Process -Id ([int]$env:ORION_UPDATE_PARENT) -ErrorAction SilentlyContinue
+    if ($parent -and !$parent.WaitForExit(30000)) { exit 1 }
+    & ([scriptblock]::Create($env:ORION_UPDATE_VERIFY))
+    $directory = Split-Path -LiteralPath $exe
+    $process = Start-Process -FilePath $env:ORION_UPDATE_FILE -ArgumentList ("/S /D=" + $directory) -Wait -PassThru
+    if ($process.ExitCode -ne 0) { throw 'Installer failed' }
+    'Installed' | Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
+} catch {
+    'Failed. Use the verified pre-update backup if repair is required.' |
+        Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
+} finally {
+    if (Test-Path -LiteralPath $exe -PathType Leaf) { Start-Process -FilePath $exe }
+}
+"#;
 
 #[derive(Deserialize)]
 struct Release {
@@ -17,12 +68,19 @@ struct Release {
 struct Asset {
     name: String,
     size: u64,
+    digest: Option<String>,
+}
+
+struct Candidate {
+    version: String,
+    asset: Asset,
 }
 
 #[derive(Serialize)]
 pub struct UpdateCheck {
     current: String,
     available: Option<String>,
+    can_install: bool,
 }
 
 fn stable_version(version: &str) -> Option<[u64; 3]> {
@@ -30,7 +88,8 @@ fn stable_version(version: &str) -> Option<[u64; 3]> {
     let mut value = [0; 3];
     for number in &mut value {
         let part = components.next()?;
-        if !part.bytes().all(|byte| byte.is_ascii_digit())
+        if part.len() > 9
+            || !part.bytes().all(|byte| byte.is_ascii_digit())
             || (part.len() > 1 && part.starts_with('0'))
         {
             return None;
@@ -40,43 +99,210 @@ fn stable_version(version: &str) -> Option<[u64; 3]> {
     components.next().is_none().then_some(value)
 }
 
-fn available_release(current: [u64; 3], release: Release) -> Option<String> {
+fn digest(value: &str) -> Option<&str> {
+    if value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+fn publisher_pin() -> Option<&'static str> {
+    // Pin a release publisher at build time. Preview builds omit this value.
+    option_env!("ORION_UPDATE_SIGNER_SHA256").and_then(digest)
+}
+
+fn available_release(current: [u64; 3], release: Release) -> Option<Candidate> {
     let version = release.tag_name.strip_prefix('v')?;
     if release.draft || release.prerelease || stable_version(version)? <= current {
         return None;
     }
     let installer = format!("Orion_{version}_x64-setup.exe");
-    release.assets.iter().any(|asset| asset.name == installer && asset.size > 0)
-        .then(|| version.to_owned())
+    let asset = release.assets.into_iter().find(|asset| {
+        asset.name == installer && asset.size > 0 && asset.size <= LIMIT
+            && asset.digest.as_deref()
+                .and_then(|value| digest(value.strip_prefix("sha256:")?)).is_some()
+    })?;
+    Some(Candidate { version: version.to_owned(), asset })
+}
+
+async fn latest(app: &tauri::AppHandle) -> Result<Option<Candidate>, &'static str> {
+    let mut response = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .timeout(Duration::from_secs(8))
+        .build().map_err(|_| UNAVAILABLE)?
+        .get(LATEST)
+        .header(reqwest::header::USER_AGENT, "Orion-Desktop")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send().await.map_err(|_| UNAVAILABLE)?;
+    if response.status() != reqwest::StatusCode::OK {
+        return Err(UNAVAILABLE);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| UNAVAILABLE)? {
+        if body.len() + chunk.len() > 512 * 1024 {
+            return Err(UNAVAILABLE);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let release = serde_json::from_slice(&body).map_err(|_| UNAVAILABLE)?;
+    let current = &app.package_info().version;
+    Ok(available_release([current.major, current.minor, current.patch], release))
 }
 
 #[tauri::command]
 pub async fn orion_check_update(app: tauri::AppHandle) -> Result<UpdateCheck, &'static str> {
-    let unavailable = "Không kiểm tra được bản cập nhật Orion.";
-    let mut response = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(10))
-        .build().map_err(|_| unavailable)?
-        .get(LATEST)
-        .header(reqwest::header::USER_AGENT, "Orion-Desktop")
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .send().await.map_err(|_| unavailable)?;
-    if response.status() != reqwest::StatusCode::OK {
-        return Err(unavailable);
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| unavailable)? {
-        if body.len() + chunk.len() > 512 * 1024 {
-            return Err(unavailable);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    let release = serde_json::from_slice(&body).map_err(|_| unavailable)?;
-    let current = &app.package_info().version;
+    let available = latest(&app).await?.map(|candidate| candidate.version);
     Ok(UpdateCheck {
-        current: current.to_string(),
-        available: available_release([current.major, current.minor, current.patch], release),
+        current: app.package_info().version.to_string(),
+        can_install: available.is_some() && publisher_pin().is_some(),
+        available,
     })
+}
+
+pub fn confirm_maintenance() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_SETFOREGROUND, MB_YESNO, MessageBoxW,
+    };
+    let text: Vec<u16> = "Bắt đầu cửa sổ bảo trì? Orion sẽ tạm dừng Host, sao lưu và cài bản đã xác minh."
+        .encode_utf16().chain([0]).collect();
+    let caption: Vec<u16> = "Cập nhật Orion".encode_utf16().chain([0]).collect();
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(),
+            MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING | MB_SETFOREGROUND) == IDYES
+    }
+}
+
+pub struct StagedUpdate {
+    directory: PathBuf,
+    version: String,
+    hash: String,
+    signer: &'static str,
+    handed_off: bool,
+}
+
+impl StagedUpdate {
+    fn installer(&self) -> PathBuf {
+        self.directory.join("OrionSetup.exe")
+    }
+
+    fn powershell(&self, script: &str) -> Result<Command, &'static str> {
+        let root = std::env::var_os("SystemRoot").ok_or(UNAVAILABLE)?;
+        let mut command = Command::new(PathBuf::from(root)
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe"));
+        command
+            .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+            .env("ORION_UPDATE_FILE", self.installer())
+            .env("ORION_UPDATE_VERSION", &self.version)
+            .env("ORION_UPDATE_HASH", &self.hash)
+            .env("ORION_UPDATE_SIGNER", self.signer)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        Ok(command)
+    }
+
+    fn verify(&self) -> Result<(), &'static str> {
+        if !wait_for_status(&mut self.powershell(CHECK_SIGNATURE)?, Duration::from_secs(90))
+            .is_ok_and(|status| status.success())
+        {
+            return Err(REJECTED);
+        }
+        Ok(())
+    }
+
+    pub fn hand_off(mut self, executable: &Path) -> Result<(), &'static str> {
+        self.powershell(HANDOFF)?
+            .env("ORION_UPDATE_VERIFY", CHECK_SIGNATURE)
+            .env("ORION_UPDATE_EXE", executable)
+            .env("ORION_UPDATE_PARENT", std::process::id().to_string())
+            .spawn().map_err(|_| "Không khởi động được bộ cài Orion.")?;
+        self.handed_off = true;
+        Ok(())
+    }
+}
+
+pub fn wait_for_status(command: &mut Command, limit: Duration) -> io::Result<ExitStatus> {
+    let mut child = command.spawn()?;
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "Update helper timed out"));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+impl Drop for StagedUpdate {
+    fn drop(&mut self) {
+        if !self.handed_off {
+            let _ = fs::remove_file(self.installer());
+            let _ = fs::remove_dir(&self.directory);
+        }
+    }
+}
+
+fn is_release_redirect(url: &url::Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty() && url.password().is_none()
+        && url.port().is_none()
+        && matches!(url.host_str(), Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com"))
+}
+
+pub async fn stage(app: &tauri::AppHandle, version: &str) -> Result<StagedUpdate, &'static str> {
+    let signer = publisher_pin().ok_or("Bản này chưa cấu hình chữ ký phát hành Orion.")?;
+    let candidate = latest(app).await?.filter(|candidate| candidate.version == version)
+        .ok_or("Bản phát hành đã thay đổi. Hãy kiểm tra lại.")?;
+    let hash = candidate.asset.digest.as_deref().and_then(|value| value.strip_prefix("sha256:"))
+        .and_then(digest).ok_or(REJECTED)?.to_owned();
+    let mut random = [0u8; 18];
+    getrandom::fill(&mut random).map_err(|_| UNAVAILABLE)?;
+    let directory = app.path().app_local_data_dir().map_err(|_| UNAVAILABLE)?
+        .join(format!("update-{}", URL_SAFE_NO_PAD.encode(random)));
+    fs::create_dir(&directory).map_err(|_| UNAVAILABLE)?;
+    let staged = StagedUpdate { directory, version: candidate.version, hash, signer, handed_off: false };
+    let mut file = OpenOptions::new().write(true).create_new(true).open(staged.installer())
+        .map_err(|_| UNAVAILABLE)?;
+
+    let download = format!("{RELEASES}/download/v{}/{}", staged.version, candidate.asset.name);
+    let mut response = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|hop| {
+            if hop.previous().len() <= 3 && is_release_redirect(hop.url()) {
+                hop.follow()
+            } else {
+                hop.error("Unexpected release download redirect")
+            }
+        }))
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(180))
+        .build().map_err(|_| UNAVAILABLE)?
+        .get(download).send().await.map_err(|_| UNAVAILABLE)?;
+    if response.status() != reqwest::StatusCode::OK {
+        return Err(UNAVAILABLE);
+    }
+    let mut bytes = 0;
+    while let Some(chunk) = response.chunk().await.map_err(|_| UNAVAILABLE)? {
+        bytes += chunk.len() as u64;
+        if bytes > candidate.asset.size {
+            return Err(REJECTED);
+        }
+        file.write_all(&chunk).map_err(|_| UNAVAILABLE)?;
+    }
+    if bytes != candidate.asset.size {
+        return Err(REJECTED);
+    }
+    file.sync_all().map_err(|_| UNAVAILABLE)?;
+    drop(file);
+    tauri::async_runtime::spawn_blocking(move || {
+        staged.verify()?;
+        Ok(staged)
+    }).await.map_err(|_| UNAVAILABLE)?
 }
 
 #[tauri::command]
@@ -85,12 +311,8 @@ pub fn orion_open_update_release(version: String) -> Result<(), &'static str> {
     let url: Vec<u16> = format!("{RELEASES}/tag/v{version}").encode_utf16().chain([0]).collect();
     let result = unsafe {
         windows_sys::Win32::UI::Shell::ShellExecuteW(
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            url.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null(),
-            windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            std::ptr::null_mut(), std::ptr::null(), url.as_ptr(), std::ptr::null(),
+            std::ptr::null(), windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
         )
     };
     if result as isize <= 32 {
@@ -104,23 +326,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_newer_stable_releases_with_an_nsis_asset_are_offered() {
-        for (tag, prerelease, draft, asset, available) in [
-            ("v0.1.10", false, false, "Orion_0.1.10_x64-setup.exe", true),
-            ("v0.1.5", false, false, "Orion_0.1.5_x64-setup.exe", false),
-            ("v0.1.4", false, false, "Orion_0.1.4_x64-setup.exe", false),
-            ("v0.1.6", true, false, "Orion_0.1.6_x64-setup.exe", false),
-            ("v0.1.6", false, true, "Orion_0.1.6_x64-setup.exe", false),
-            ("v0.1.6", false, false, "orion-0.1.6-windows-x64.zip", false),
-            ("v0.1.6/../../other", false, false, "setup.exe", false),
+    fn release_requires_exact_asset_bounded_size_and_digest() {
+        for (tag, prerelease, draft, asset, sha, available) in [
+            ("v0.1.10", false, false, "Orion_0.1.10_x64-setup.exe", true, true),
+            ("v0.1.5", false, false, "Orion_0.1.5_x64-setup.exe", true, false),
+            ("v0.1.6", true, false, "Orion_0.1.6_x64-setup.exe", true, false),
+            ("v0.1.6", false, true, "Orion_0.1.6_x64-setup.exe", true, false),
+            ("v0.1.6", false, false, "Orion_0.1.6_x64-preview-setup.exe", true, false),
+            ("v0.1.6", false, false, "Orion_0.1.6_x64-setup.exe", false, false),
+            ("v0.1.6/../../other", false, false, "setup.exe", true, false),
         ] {
             let release = Release {
-                tag_name: tag.into(),
-                draft,
-                prerelease,
-                assets: vec![Asset { name: asset.into(), size: 1 }],
+                tag_name: tag.into(), draft, prerelease,
+                assets: vec![Asset {
+                    name: asset.into(), size: 100,
+                    digest: sha.then(|| format!("sha256:{}", "1".repeat(64))),
+                }],
             };
             assert_eq!(available_release([0, 1, 5], release).is_some(), available, "{tag}");
         }
+    }
+
+    #[test]
+    fn only_github_release_delivery_hosts_are_followed() {
+        for (address, allowed) in [
+            ("https://release-assets.githubusercontent.com/a", true),
+            ("https://objects.githubusercontent.com/a", true),
+            ("http://objects.githubusercontent.com/a", false),
+            ("https://objects.githubusercontent.com.evil.example/a", false),
+            ("https://objects.githubusercontent.com:8081/a", false),
+        ] {
+            assert_eq!(is_release_redirect(&url::Url::parse(address).unwrap()), allowed);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a local unsigned installer fixture"]
+    fn windows_trust_rejects_unsigned_installer() {
+        let fixture = PathBuf::from(std::env::var_os("ORION_TEST_UNSIGNED_INSTALLER").unwrap());
+        let directory = std::env::temp_dir().join(format!("orion-update-test-{}", std::process::id()));
+        fs::create_dir(&directory).unwrap();
+        let update = StagedUpdate {
+            directory, version: "0.1.5".into(), hash: "0".repeat(64),
+            signer: "1111111111111111111111111111111111111111111111111111111111111111",
+            handed_off: false,
+        };
+        fs::copy(fixture, update.installer()).unwrap();
+        assert_eq!(update.verify(), Err(REJECTED));
     }
 }

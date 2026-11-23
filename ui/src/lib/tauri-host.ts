@@ -9,6 +9,7 @@ type HostInfo = {
   hostMode?: boolean;
   hostOrigin?: string | null;
   managedError?: string | null;
+  startupProbe?: boolean;
 };
 type ResponseHead = { status: number; headers: [string, string][] };
 
@@ -19,6 +20,7 @@ export async function installTauriHost() {
     managedError,
     hostMode,
     hostOrigin,
+    startupProbe,
   } = await invoke<HostInfo>("orion_host");
   if (!["windows", "android", "ios"].includes(platform)) throw new Error("Invalid Orion host");
   const tokens: SecureTokenStore = {
@@ -30,11 +32,24 @@ export async function installTauriHost() {
     appUpdates:
       platform === "windows"
         ? {
-            check: () => invoke("orion_check_update"),
+            check: async () => {
+              const update = await invoke<{
+                current: string;
+                available: string | null;
+                can_install: boolean;
+              }>("orion_check_update");
+              return { ...update, can_install: update.can_install && Boolean(hostMode) };
+            },
             openRelease: (version) => invoke("orion_open_update_release", { version }),
+            install: (version) => invoke("orion_install_update", { version }),
           }
         : undefined,
     platform,
+    startupReady: startupProbe
+      ? () => {
+          void invoke("orion_startup_probe_ready");
+        }
+      : undefined,
     tokens,
     scanConnectionQr: platform === "android" ? () => invoke("orion_scan_qr") : undefined,
     fetch: nativeFetch(false, platform !== "windows"),

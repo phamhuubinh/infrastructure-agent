@@ -36,8 +36,13 @@ type Provider = Schemas["ModelProfile"]["provider_id"];
 
 function AppUpdates() {
   const updates = desktopAppUpdates();
-  const [result, setResult] = useState<{ current: string; available: string | null }>();
+  const [result, setResult] = useState<{
+    current: string;
+    available: string | null;
+    can_install: boolean;
+  }>();
   const [busy, setBusy] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const [error, setError] = useState("");
   if (!updates) return null;
 
@@ -55,16 +60,29 @@ function AppUpdates() {
     }
   }
 
+  async function install(version: string) {
+    if (!updates) return;
+    setError("");
+    setInstalling(true);
+    try {
+      await updates.install(version);
+    } catch (reason) {
+      setError(typeof reason === "string" ? reason : "Không hoàn tất cập nhật Orion.");
+      setInstalling(false);
+    }
+  }
+
   return (
     <Card className="space-y-3 p-5">
       <h2 className="text-sm font-semibold">Cập nhật Orion</h2>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={busy} onClick={() => void check()}>
+        <Button variant="outline" disabled={busy || installing} onClick={() => void check()}>
           {busy ? "Đang kiểm tra…" : "Kiểm tra bản cập nhật"}
         </Button>
         {result?.available && (
           <Button
             variant="outline"
+            disabled={installing}
             onClick={() => {
               if (result.available)
                 void updates.openRelease(result.available).catch(() => {
@@ -73,6 +91,16 @@ function AppUpdates() {
             }}
           >
             Mở trang tải Orion {result.available}
+          </Button>
+        )}
+        {result?.available && result.can_install && isManagedServer() && (
+          <Button
+            disabled={installing}
+            onClick={() => {
+              if (result.available) void install(result.available);
+            }}
+          >
+            {installing ? "Đang xác minh bộ cài…" : `Cập nhật Orion ${result.available}`}
           </Button>
         )}
       </div>

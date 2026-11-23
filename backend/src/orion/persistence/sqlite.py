@@ -1044,6 +1044,17 @@ class SQLiteStore(
             ).fetchone()
         return dict(row) if row else None
 
+    def update_work_active(self) -> bool:
+        with self._lock:
+            return (
+                self._connection.execute(
+                    "SELECT 1 FROM requests WHERE status IN ('queued','running') "
+                    "UNION ALL SELECT 1 FROM command_records WHERE state IN ('created','running') "
+                    "LIMIT 1"
+                ).fetchone()
+                is not None
+            )
+
     def append_timeline(
         self,
         session_id: str,

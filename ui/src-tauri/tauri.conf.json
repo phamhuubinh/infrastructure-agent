@@ -25,10 +25,12 @@
           ],
           "permissions": [
             "allow-orion-host",
+            "allow-orion-startup-probe-ready",
             "allow-orion-stop-host",
             "allow-orion-host-settings",
             "allow-orion-check-update",
             "allow-orion-open-update-release",
+            "allow-orion-install-update",
             "allow-orion-tailscale-status",
             "allow-orion-tailscale-set-enabled",
             "allow-orion-internet-set-enabled",

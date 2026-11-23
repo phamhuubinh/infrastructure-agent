@@ -13,6 +13,7 @@ use url::Url;
 use crate::managed::ManagedBackend;
 
 pub(crate) const OWNER_HEADER: &str = "x-orion-managed-token";
+const UPDATE_HEADER: &str = "x-orion-local-maintenance";
 
 pub struct Request {
     pub url: String,
@@ -34,6 +35,20 @@ pub struct Transport {
 }
 
 impl Transport {
+    #[cfg(windows)]
+    pub async fn prepare_update(&self, backend: &ManagedBackend) -> io::Result<bool> {
+        let mut token = HeaderValue::from_str(backend.owner_token()).map_err(|_| invalid_request())?;
+        token.set_sensitive(true);
+        let status = self.client
+            .post(format!("{}/api/internal/prepare-update", backend.origin()))
+            .header(OWNER_HEADER, token)
+            .header(UPDATE_HEADER, "1")
+            .timeout(Duration::from_secs(5))
+            .send().await.map_err(|_| io::Error::other("Update preparation failed"))?
+            .status();
+        Ok(status == reqwest::StatusCode::NO_CONTENT)
+    }
+
     pub fn new() -> io::Result<Self> {
         let builder = Client::builder();
         #[cfg(target_os = "android")]
@@ -184,6 +199,7 @@ mod tests {
         }
         for name in [
             OWNER_HEADER,
+            UPDATE_HEADER,
             "Cookie",
             "Origin",
             "Host",

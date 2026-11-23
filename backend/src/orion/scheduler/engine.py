@@ -35,6 +35,7 @@ class SchedulerEngine:
         self._wake = asyncio.Event()
         self._worker: asyncio.Task[None] | None = None
         self._stopping = False
+        self._update_paused = False
         self._request_id: str | None = None
         self._tick_lock = asyncio.Lock()
         service.wake = self._wake.set
@@ -62,6 +63,9 @@ class SchedulerEngine:
     async def _serve(self) -> None:
         while not self._stopping:
             self._wake.clear()
+            if self._update_paused:
+                await self.waiter(self._wake, None)
+                continue
             if await self.tick():
                 continue
             next_due = self.store.next_scheduled_due()
@@ -72,7 +76,7 @@ class SchedulerEngine:
     async def tick(self) -> bool:
         """Injectable deterministic boundary: at most one claim and one runtime call."""
         async with self._tick_lock:
-            if self._stopping:
+            if self._stopping or self._update_paused:
                 return False
             task = self.store.claim_scheduled_run(self.clock())
             if task is None:
@@ -115,3 +119,10 @@ class SchedulerEngine:
                 )
                 self._request_id = None
             return True
+
+    def pause_for_update(self, paused: bool) -> bool:
+        if paused and self._tick_lock.locked():
+            return False
+        self._update_paused = paused
+        self._wake.set()
+        return True

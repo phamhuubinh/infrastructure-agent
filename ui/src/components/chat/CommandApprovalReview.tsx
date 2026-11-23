@@ -89,7 +89,7 @@ export function CommandApprovalReview({
           {typeof args.command === "string" && (
             <pre
               aria-label="Lệnh chờ xác nhận"
-              className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border p-2"
+              className="max-h-64 max-w-full overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded border p-2"
             >
               {args.command}
             </pre>

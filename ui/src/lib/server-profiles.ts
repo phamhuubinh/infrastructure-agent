@@ -14,9 +14,11 @@ export type NativeHost = {
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
   scanConnectionQr?: () => Promise<string | null>;
+  startupReady?: () => void;
   appUpdates?: {
-    check: () => Promise<{ current: string; available: string | null }>;
+    check: () => Promise<{ current: string; available: string | null; can_install: boolean }>;
     openRelease: (version: string) => Promise<void>;
+    install: (version: string) => Promise<void>;
   };
   tailscaleStatus?: () => Promise<TailscaleStatus>;
   tailscaleSetEnabled?: (enabled: boolean) => Promise<TailscaleStatus>;
@@ -123,6 +125,11 @@ export function desktopHostSettings() {
 
 export function desktopAppUpdates() {
   return nativeHost?.appUpdates;
+}
+
+export function reportNativeStartupReady() {
+  const report = nativeHost?.startupReady;
+  if (report) window.requestAnimationFrame(() => window.requestAnimationFrame(report));
 }
 
 export function activeHostOrigin() {

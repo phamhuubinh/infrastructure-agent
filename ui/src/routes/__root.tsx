@@ -9,10 +9,15 @@ import {
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { AppSidebar } from "@/components/AppSidebar";
+import { HostUpdateNotice } from "@/components/HostUpdateNotice";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ChatProvider } from "@/lib/chat-store";
 import { AUTH_EXPIRED_EVENT, getAuthSession, login, logout, type AuthSession } from "@/lib/api";
-import { SERVER_CHANGED_EVENT, isNativeHost } from "@/lib/server-profiles";
+import {
+  SERVER_CHANGED_EVENT,
+  isNativeHost,
+  reportNativeStartupReady,
+} from "@/lib/server-profiles";
 import { ServerConnections } from "@/components/ServerConnections";
 
 function NotFoundComponent() {
@@ -117,6 +122,7 @@ function useTheme() {
 
 function RootComponent() {
   const shellRef = useCallback((shell: HTMLDivElement | null) => {
+    if (shell) reportNativeStartupReady();
     const viewport = window.visualViewport;
     if (!viewport || !shell) return;
     const fitViewport = () => {
@@ -300,8 +306,11 @@ function RootComponent() {
               )
             }
           />
-          <div className="relative flex min-h-0 min-w-0 flex-1">
-            <Outlet />
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <HostUpdateNotice />
+            <div className="relative flex min-h-0 min-w-0 flex-1">
+              <Outlet />
+            </div>
           </div>
           <CommandPalette />
           {auth.remote_access && (

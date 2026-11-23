@@ -15,8 +15,8 @@ export function UserMessage({
   const textContent = content ?? (typeof children === "string" ? children : "");
   return (
     <div className="group flex justify-end">
-      <div className="max-w-[75%]">
-        <div className="ml-auto w-fit rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-[14.5px] leading-relaxed text-primary-foreground shadow-sm">
+      <div className="min-w-0 max-w-[75%]">
+        <div className="ml-auto w-fit max-w-full rounded-2xl rounded-tr-sm bg-primary px-4 py-2.5 text-[14.5px] leading-relaxed text-primary-foreground shadow-sm [overflow-wrap:anywhere]">
           {children}
         </div>
         <div className="mt-1 flex items-center justify-end gap-2">
@@ -62,7 +62,9 @@ export function AssistantMessage({
         <div className="flex items-center gap-2 mb-1.5">
           <span className="text-sm font-medium">{agent}</span>
         </div>
-        <div className="text-[14.5px] leading-relaxed space-y-3 text-foreground/95">{children}</div>
+        <div className="min-w-0 space-y-3 text-[14.5px] leading-relaxed text-foreground/95 [overflow-wrap:anywhere]">
+          {children}
+        </div>
         <div className="mt-2 flex items-center gap-2">
           <div className="flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
             <IconBtn icon={Copy} label="Copy" content={textContent} />

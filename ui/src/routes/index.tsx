@@ -307,7 +307,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
           ref={scrollAreaRef}
           onScroll={handleConversationScroll}
           data-testid="conversation-scroll-area"
-          className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto [overflow-anchor:none]"
         >
           <div className="mx-auto w-full max-w-6xl px-4 py-8 max-sm:pt-14 sm:px-6 lg:px-8">
             {!displayedSession || displayedSession.messages.length === 0 ? (

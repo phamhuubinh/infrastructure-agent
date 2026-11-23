@@ -22,12 +22,92 @@ pytestmark = pytest.mark.skipif(
     reason="requires a built UI and Playwright browsers",
 )
 
+LONG_VALUE = "PowerShellResult" * 55
+OVERFLOW_REPLY = (
+    f"Identifier: {LONG_VALUE}\n\n"
+    f"```powershell\nWrite-Output '{LONG_VALUE}'\n```\n\n"
+    "| Hostname | WindowsVersion | IPv4 | DNS | DefaultGateway |\n"
+    "| --- | --- | --- | --- | --- |\n"
+    f"| {LONG_VALUE} | 10.0.12345 | 192.0.2.20 | 192.0.2.53 | 192.0.2.1 |"
+)
+
 
 class FixtureModel(ModelBackend):
     async def stream(self, messages, tools, settings, cancellation):
-        yield ModelTurnCompleted(
-            turn=ModelTurn(assistant=AssistantMessage(content="Fixture reply"))
+        content = (
+            OVERFLOW_REPLY
+            if any(LONG_VALUE in (message.content or "") for message in messages)
+            else "Fixture reply"
         )
+        yield ModelTurnCompleted(turn=ModelTurn(assistant=AssistantMessage(content=content)))
+
+
+def assert_long_chat_stays_in_viewport(page, origin):
+    page.goto(origin)
+    page.get_by_role("textbox", name="Chat input").fill(LONG_VALUE)
+    page.get_by_role("button", name="Send message").click()
+    table = page.get_by_role("region", name="Bảng kết quả")
+    pre = page.locator("pre").filter(has_text="Write-Output")
+    expect(table).to_be_visible(timeout=15000)
+    expect(pre).to_be_visible(timeout=15000)
+    page.wait_for_function(
+        """() => [...document.querySelectorAll('pre, [aria-label="Bảng kết quả"]')]
+            .every(element => element.clientWidth > 0 &&
+                element.scrollWidth > element.clientWidth)"""
+    )
+    for scroll_area in (table, pre):
+        sizes = scroll_area.evaluate(
+            """element => {
+                element.scrollLeft = element.scrollWidth;
+                return [element.clientWidth, element.scrollWidth, element.scrollLeft];
+            }"""
+        )
+        assert 0 < sizes[0] < sizes[1] and sizes[2] > 0, sizes
+    assert page.evaluate(
+        """() => {
+            const track = document.querySelector('[data-testid="conversation-scroll-area"]');
+            return document.documentElement.scrollWidth <= window.innerWidth + 1 &&
+                track.scrollWidth <= track.clientWidth + 1 && window.scrollX == 0;
+        }"""
+    )
+    assert table.evaluate(
+        """element => {
+            element.scrollLeft = element.scrollWidth;
+            const frame = element.getBoundingClientRect();
+            const cell = element.querySelector('tr:last-child td:last-child');
+            const last = cell.getBoundingClientRect();
+            return last.right > frame.left && last.left < frame.right;
+        }"""
+    )
+
+
+@pytest.mark.parametrize("engine,device", [("chromium", "Pixel 7"), ("webkit", "iPhone 13")])
+def test_wide_powershell_result_scrolls_inside_its_components(fixture_host, engine, device):
+    with sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        page = browser.new_context(**playwright.devices[device]).new_page()
+        assert_long_chat_stays_in_viewport(page, fixture_host)
+
+
+def test_update_notice_is_visible_on_desktop_and_mobile(fixture_host):
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        desktop = browser.new_context().new_page()
+        mobile = browser.new_context(**playwright.devices["Pixel 7"]).new_page()
+        for page in (desktop, mobile):
+            page.route(
+                "**/api/updates",
+                lambda route: route.fulfill(
+                    json={"host_version": "0.1.5", "available_host_version": "0.1.6"}
+                ),
+            )
+            page.goto(fixture_host)
+        for page in (desktop, mobile):
+            expect(page.get_by_text("Orion Host có bản 0.1.6.")).to_be_visible()
+            expect(page.get_by_text("Cài đặt bản cập nhật trên máy Host.")).to_be_visible()
+        mobile.get_by_role("button", name="Ẩn").click()
+        expect(mobile.get_by_text("Orion Host có bản 0.1.6.")).to_be_hidden()
+        expect(desktop.get_by_text("Orion Host có bản 0.1.6.")).to_be_visible()
 
 
 @pytest.fixture
