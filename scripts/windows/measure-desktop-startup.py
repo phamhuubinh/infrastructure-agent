@@ -48,6 +48,17 @@ def sample(executable: Path, sidecar: Path) -> dict[str, object]:
         raise RuntimeError(
             "Use an Orion debug executable with isolated startup-probe support"
         )
+    sidecar_trace = directory / "managed/backend-startup.jsonl"
+    breakdown = {}
+    if sidecar_trace.is_file():
+        # The first line is written immediately after validating the owner pipe.
+        stats = sidecar_trace.stat()
+        first_trace = stats.st_birthtime_ns // 1_000_000
+        bind_trace = stats.st_mtime_ns // 1_000_000
+        breakdown = {
+            "sidecar_to_first_trace_ms": first_trace - wall["backend_start"],
+            "sidecar_after_bind_trace_ms": wall["backend_ready"] - bind_trace,
+        }
     return {
         "sidecar_ms": native["backend_ready"] - native["backend_start"],
         "webview_ms": native["page_loaded"] - native["webview_start"],
@@ -59,7 +70,8 @@ def sample(executable: Path, sidecar: Path) -> dict[str, object]:
         "exit_after_page_ms": finished_wall - wall["page_loaded"],
         "process_lifetime_ms": round((time.perf_counter() - started) * 1000),
         "native_events": native,
-        "sidecar_events": events(directory / "managed/backend-startup.jsonl"),
+        "sidecar_events": events(sidecar_trace),
+        **breakdown,
         "probe_directory": str(directory),
     }
 
