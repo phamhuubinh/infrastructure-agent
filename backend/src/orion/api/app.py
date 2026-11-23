@@ -43,10 +43,10 @@ from orion.api.native_bearer import NativeBearerMiddleware
 from orion.api.owner_auth import OWNER_DESKTOP_ROUTES, install_owner_auth_routes
 from orion.api.requests import REQUEST_OWNER_ROUTES, install_request_routes
 from orion.api.scheduler import install_scheduler_routes
-from orion.api.updates import ReleaseNotices, UpdateNotice
 from orion.api.schema import annotate_access, request_body_schema
 from orion.api.skills import SKILL_OWNER_ROUTES, install_skill_routes
 from orion.api.system import SYSTEM_OWNER_ROUTES, SYSTEM_PUBLIC_ROUTES, install_system_routes
+from orion.api.updates import ReleaseNotices, UpdateNotice
 from orion.bootstrap import (
     OrionApplication,
     application_context,
@@ -534,8 +534,8 @@ def _install_application_routes(
     @app.get("/api/updates", response_model=UpdateNotice)
     async def update_notice(response: Response) -> UpdateNotice:
         response.headers["Cache-Control"] = "no-store"
-        if not managed_desktop:
-            # The current stable installer feed applies to the managed Windows Host.
+        if owner is None:
+            # The installer feed is available only for a managed Windows app.
             return UpdateNotice()
         return await release_notices.get()
 
