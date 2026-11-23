@@ -38,15 +38,19 @@ UI_FORBIDDEN = re.compile(
 
 
 _DOCUMENTATION_REQUIRED = {
-    "AGENTS.md": ("first model turn", "canonical registry"),
-    "README.md": ("first model turn", "canonical registry", "Knowledge/RAG", "Internet"),
-    "CHANGELOG.md": ("direct registry-derived tool schemas", "first model turn"),
-    "docs/operations/TROUBLESHOOTING.md": ("first model turn", "canonical registry"),
+    "AGENTS.md": ("tools.enable", "canonical registry"),
+    "README.md": ("tools.enable", "canonical registry", "Knowledge/RAG", "Internet"),
+    "CHANGELOG.md": ("tools.enable", "ADR 0019"),
+    "docs/operations/TROUBLESHOOTING.md": ("tools.enable", "canonical registry"),
 }
 _DOCUMENTATION_FORBIDDEN = {
     path: ("progressive model-facing", "progressive tool exposure", "schemas are hidden")
     for path in _DOCUMENTATION_REQUIRED
 }
+for _path in ("README.md", "docs/operations/TROUBLESHOOTING.md"):
+    _DOCUMENTATION_FORBIDDEN[_path] += (
+        "all registered model-callable tool schemas on the first model turn",
+    )
 
 
 def _tree(path: Path) -> ast.Module:
@@ -113,14 +117,14 @@ def _is_public_boundary(root: Path, path: Path) -> bool:
 
 
 def check_documentation(repo_root: Path) -> list[str]:
-    """Keep a few high-authority current-state claims synchronized with ADR 0007."""
+    """Keep current-state tool exposure claims synchronized with ADR 0019."""
     violations: list[str] = []
     for relative, required in _DOCUMENTATION_REQUIRED.items():
         path = repo_root / relative
         if not path.is_file():
             violations.append(f"{relative}: required architecture document is missing")
             continue
-        text = path.read_text(encoding="utf-8")
+        text = " ".join(path.read_text(encoding="utf-8").split())
         for phrase in required:
             if phrase not in text:
                 violations.append(f"{relative}: missing tool-exposure invariant: {phrase!r}")

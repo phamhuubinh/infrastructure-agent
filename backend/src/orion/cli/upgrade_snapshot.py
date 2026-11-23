@@ -120,6 +120,8 @@ def verify(directory: Path) -> None:
 def snapshot(
     destination: Path, *, online_only: bool = False, installation: Path | None = None
 ) -> Path:
+    if sys.platform != "win32":
+        raise OSError("A managed upgrade snapshot requires Windows")
     import winreg
 
     local = Path(os.environ["LOCALAPPDATA"])
@@ -163,8 +165,8 @@ def snapshot(
     try:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"
-        ) as key:
-            autostart = winreg.QueryValueEx(key, "OrionDesktopHost")
+        ) as registry_key:
+            autostart = winreg.QueryValueEx(registry_key, "OrionDesktopHost")
     except FileNotFoundError:
         autostart = None
     (root / "autostart.json").write_text(json.dumps(autostart), encoding="utf-8")
