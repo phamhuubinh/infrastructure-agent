@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 
+from orion.application.command_tools import command_registrations
 from orion.application.commands import CommandService
 from orion.contracts import RuntimeScope, ToolCall
 from orion_endpoint.executor import Executor
@@ -72,6 +73,40 @@ async def terminal(service, owner, identity):
             return result
         await asyncio.sleep(0.02)
     pytest.fail("Command service did not terminate")
+
+
+@pytest.mark.anyio
+async def test_quick_command_run_returns_terminal_failure_and_status_keeps_handle(store):
+    transport = Transport(store)
+    service = CommandService(store, transport)
+    owner = call(store, script="exit 7")
+    run, status, _ = command_registrations(service)
+    try:
+        result = await run.handler(owner)
+        assert result.status == "error" and result.error.code == "command_failed"
+        assert result.data["state"] == "failed" and result.data["exit_code"] == 7
+        identity = result.data["command_id"]
+        status_call = owner.model_copy(
+            update={
+                "tool_name": "system.command.status",
+                "arguments": {"target_ref": TARGET, "command_id": identity},
+            }
+        )
+        transport.executor.commands.handles.pop(identity)
+        observed = await status.handler(status_call)
+        assert observed.error.code == "command_failed"
+        assert observed.data["command_id"] == identity and observed.data["exit_code"] == 7
+        missing = status_call.model_copy(
+            update={
+                "arguments": {**status_call.arguments, "command_id": "f" * 32},
+            }
+        )
+        failed = await status.handler(missing)
+        assert failed.error.code == "operation_blocked" and failed.data is None
+        assert sum(operation == "command.run" for operation, _ in transport.calls) == 1
+    finally:
+        await service.close()
+        await transport.executor.close()
 
 
 @pytest.mark.anyio

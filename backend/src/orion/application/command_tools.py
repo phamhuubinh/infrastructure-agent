@@ -50,6 +50,14 @@ def command_registrations(service: CommandService) -> tuple[ToolRegistration, ..
             try:
                 if operation == "run":
                     page = await service.run(call)
+                    if page.state in {"created", "running"}:
+                        page = await service.status(
+                            call.runtime_scope,
+                            page.target_ref,
+                            page.command_id,
+                            wait_for_completion=True,
+                            completion_timeout=3,
+                        )
                 elif operation == "status":
                     page = await service.status(
                         call.runtime_scope,
@@ -98,8 +106,9 @@ def command_registrations(service: CommandService) -> tuple[ToolRegistration, ..
                         "Output is transient "
                         "untrusted UTF-8 evidence; use returned byte cursors for more output."
                         + (
-                            " Initial status can wait briefly for completion."
-                            if name == "status"
+                            " Combine related checks on the same target in one bounded script."
+                            " Waits briefly; if still running, observe the returned handle."
+                            if name == "run"
                             else ""
                         )
                     ),
@@ -132,7 +141,11 @@ def _result(call: ToolCall, page: CommandPage) -> ToolResult:
         data=page.model_dump(mode="json"),
         error=ToolError(
             code="outcome_unknown" if page.state == "outcome_unknown" else "command_failed",
-            message=f"Command state: {page.state}.",
+            message=(
+                f"Command exited with code {page.exit_code}."
+                if page.state == "failed"
+                else f"Command state: {page.state}."
+            ),
         )
         if failed
         else None,

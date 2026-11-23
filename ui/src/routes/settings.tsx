@@ -13,6 +13,7 @@ import { ServerConnections } from "@/components/ServerConnections";
 import { RuntimeResources } from "@/components/RuntimeResources";
 import {
   desktopHostSettings,
+  desktopAppUpdates,
   isManagedServer,
   isNativeHost,
   serverRequest,
@@ -32,6 +33,64 @@ export const Route = createFileRoute("/settings")({
 
 type ModelConnection = Schemas["ModelConfigView"];
 type Provider = Schemas["ModelProfile"]["provider_id"];
+
+function AppUpdates() {
+  const updates = desktopAppUpdates();
+  const [result, setResult] = useState<{ current: string; available: string | null }>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!updates) return null;
+
+  async function check() {
+    if (!updates) return;
+    setBusy(true);
+    setError("");
+    setResult(undefined);
+    try {
+      setResult(await updates.check());
+    } catch {
+      setError("Không kiểm tra được bản cập nhật Orion. Hãy thử lại.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3 p-5">
+      <h2 className="text-sm font-semibold">Cập nhật Orion</h2>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={busy} onClick={() => void check()}>
+          {busy ? "Đang kiểm tra…" : "Kiểm tra bản cập nhật"}
+        </Button>
+        {result?.available && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (result.available)
+                void updates.openRelease(result.available).catch(() => {
+                  setError("Không mở được trang phát hành Orion.");
+                });
+            }}
+          >
+            Mở trang tải Orion {result.available}
+          </Button>
+        )}
+      </div>
+      {result && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {result.available
+            ? `Đang dùng ${result.current}. Có bản ${result.available}. Nếu máy đang chạy Host, hãy cài trong cửa sổ bảo trì sau khi sao lưu.`
+            : `Đang dùng ${result.current}. Chưa có bộ cài Windows mới hơn.`}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </Card>
+  );
+}
 
 export function SettingsPage() {
   const trustedDesktop = Boolean(desktopHostSettings()) && isManagedServer();
@@ -239,6 +298,7 @@ export function SettingsPage() {
       <div className="flex-1 overflow-y-auto p-5">
         <div className="mx-auto max-w-3xl space-y-5">
           <ServerConnections />
+          <AppUpdates />
           <RuntimeResources />
           {(error || notice) && (
             <div

@@ -27,6 +27,13 @@ export async function installTauriHost() {
     clear: (origin) => invoke("orion_vault_clear", { origin }),
   };
   installNativeHost({
+    appUpdates:
+      platform === "windows"
+        ? {
+            check: () => invoke("orion_check_update"),
+            openRelease: (version) => invoke("orion_open_update_release", { version }),
+          }
+        : undefined,
     platform,
     tokens,
     scanConnectionQr: platform === "android" ? () => invoke("orion_scan_qr") : undefined,

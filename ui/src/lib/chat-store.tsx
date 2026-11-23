@@ -54,7 +54,7 @@ export type RuntimeEvent = {
 export type ToolActivity = {
   callId: string;
   toolName: string;
-  status: "started" | "completed" | "failed";
+  status: "started" | "running" | "completed" | "failed";
   targetRef?: string;
   operationKind?: "read" | "mutation";
   changed?: boolean;
@@ -166,7 +166,11 @@ function publicActivity(
   return {
     callId,
     toolName,
-    status,
+    status:
+      status === "completed" &&
+      (payload.command_state === "created" || payload.command_state === "running")
+        ? "running"
+        : status,
     ...(typeof payload.target_ref === "string" || targetRef
       ? { targetRef: typeof payload.target_ref === "string" ? payload.target_ref : targetRef }
       : {}),
@@ -423,6 +427,7 @@ export function sessionFromTimeline(
           {
             operation_kind: callMetadata.get(item.call_id)?.operationKind,
             target_ref: data.target_ref,
+            command_state: data.command_state,
             changed: data.changed,
             verification:
               data.verification && typeof data.verification === "object"

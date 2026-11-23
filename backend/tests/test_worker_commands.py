@@ -56,6 +56,44 @@ async def finish(runner, identity):
     pytest.fail("Command did not terminate")
 
 
+@pytest.mark.anyio
+async def test_status_during_cleanup_has_no_unpublished_exit_metadata(monkeypatch):
+    from orion.contracts.commands import CommandPage
+
+    runner = CommandProcesses()
+    cleaning = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup = runner._cleanup
+
+    async def delayed_cleanup(*args):
+        terminated = await cleanup(*args)
+        cleaning.set()
+        await release_cleanup.wait()
+        return terminated
+
+    monkeypatch.setattr(runner, "_cleanup", delayed_cleanup)
+    identity = uuid.uuid4().hex
+    shell = "cmd" if os.name == "nt" else "sh"
+    try:
+        await runner.start({"command_id": identity, "shell": shell, "command": "exit 7"})
+        await asyncio.wait_for(cleaning.wait(), 5)
+        during = CommandPage.model_validate(
+            {"target_ref": "test", **runner.status({"command_id": identity})}
+        )
+        assert (
+            during.command_id,
+            during.state,
+            during.exit_code,
+            during.process_tree_terminated,
+        ) == (identity, "running", None, False)
+        release_cleanup.set()
+        final = await finish(runner, identity)
+        assert (final["command_id"], final["state"], final["exit_code"]) == (identity, "failed", 7)
+    finally:
+        release_cleanup.set()
+        await runner.close()
+
+
 def invoke(shell: str, script: Path) -> str:
     if shell == "powershell":
         # PowerShell -File does not implicitly propagate native child exit codes.

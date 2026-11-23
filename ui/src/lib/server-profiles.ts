@@ -14,6 +14,10 @@ export type NativeHost = {
   tokens: SecureTokenStore;
   platform: "windows" | "linux" | "android" | "ios";
   scanConnectionQr?: () => Promise<string | null>;
+  appUpdates?: {
+    check: () => Promise<{ current: string; available: string | null }>;
+    openRelease: (version: string) => Promise<void>;
+  };
   tailscaleStatus?: () => Promise<TailscaleStatus>;
   tailscaleSetEnabled?: (enabled: boolean) => Promise<TailscaleStatus>;
   internetSetEnabled?: (enabled: boolean, confirmedPublic: boolean) => Promise<TailscaleStatus>;
@@ -115,6 +119,10 @@ export type HostSettingsOptions = {
 
 export function desktopHostSettings() {
   return nativeHost?.hostSettings;
+}
+
+export function desktopAppUpdates() {
+  return nativeHost?.appUpdates;
 }
 
 export function activeHostOrigin() {

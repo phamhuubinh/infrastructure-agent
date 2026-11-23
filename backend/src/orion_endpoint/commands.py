@@ -212,7 +212,17 @@ class CommandProcesses:
             environment["ORION_COMMAND_SCRIPT"] = str(script)
             args: str | list[str] = f'"{executable}" /d /s /c ""%ORION_COMMAND_SCRIPT%""'
         elif shell == "powershell":
-            args = [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(script)]
+            # Keep the approved script in its private file and scope policy to this process.
+            args = [
+                executable,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ]
         else:
             args = [
                 executable,
@@ -289,6 +299,8 @@ class CommandProcesses:
         tracker: asyncio.Task[None] | None = None
         waiter: asyncio.Task[int] | None = None
         state = "outcome_unknown"
+        exit_code = None
+        terminated = False
         try:
             if self._script_cache is None:
                 self._script_cache = ScriptCache()
@@ -310,7 +322,7 @@ class CommandProcesses:
                         asyncio.shield(waiter), record.input.timeout_seconds
                     )
                     state = "succeeded" if code == 0 else "failed"
-                    record.exit_code = code
+                    exit_code = code
                 except TimeoutError:
                     state = "timed_out"
                 except asyncio.CancelledError:
@@ -323,14 +335,17 @@ class CommandProcesses:
                     # cleanup bounded but do not abandon it on a second cancellation.
                     while True:
                         try:
-                            if not await asyncio.shield(cleanup):
-                                state, record.exit_code = "outcome_unknown", None
+                            terminated = await asyncio.shield(cleanup)
+                            if not terminated:
+                                state, exit_code = "outcome_unknown", None
                             break
                         except asyncio.CancelledError:
                             record.cancel_requested = True
         except Exception:
-            state = "outcome_unknown"
+            state, exit_code = "outcome_unknown", None
         finally:
+            record.exit_code = exit_code
+            record.terminated = terminated
             record.state, record.finished = state, time.monotonic()
             record.ready.set()
 
@@ -342,7 +357,7 @@ class CommandProcesses:
         waiter: asyncio.Task[int] | None,
     ) -> bool:
         try:
-            record.terminated = await self._terminate(record)
+            terminated = await self._terminate(record)
             if tracker:
                 tracker.cancel()
                 await asyncio.gather(tracker, return_exceptions=True)
@@ -353,7 +368,7 @@ class CommandProcesses:
                 await asyncio.wait_for(asyncio.gather(*readers), 3)
             except (TimeoutError, OSError):
                 return False
-            return record.terminated
+            return terminated
         except Exception:
             return False
         finally:

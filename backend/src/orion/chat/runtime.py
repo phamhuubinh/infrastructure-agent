@@ -1884,11 +1884,26 @@ class ChatRuntime:
         self, session_id: str, request_id: str, result: ToolResult, elapsed_ms: int
     ) -> None:
         persisted = result.model_dump(mode="json")
+        command_state = None
+        if result.tool_name.startswith("system.command.") and isinstance(result.data, dict):
+            observed_state = result.data.get("state")
+            if observed_state in (
+                "created",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled",
+                "timed_out",
+                "outcome_unknown",
+            ):
+                command_state = observed_state
         if (
             result.tool_name.startswith(("endpoint.", "system.command.", "skill."))
             and result.data is not None
         ):
             persisted["data"] = {"payload_omitted": True}
+            if command_state is not None:
+                persisted["data"]["command_state"] = command_state
         item = self._store.append_timeline(
             session_id,
             request_id,
@@ -1914,6 +1929,8 @@ class ChatRuntime:
         if result.error is not None and result.error.code == "operation_blocked":
             payload["error_code"] = result.error.code
         payload["elapsed_ms"] = elapsed_ms
+        if command_state is not None:
+            payload["command_state"] = command_state
         definition = self._registry.definition(result.tool_name)
         if definition is not None and result.tool_name.split(".", 1)[0] in {
             "linux",

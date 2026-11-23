@@ -300,7 +300,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   }, [scrollKey]);
 
   return (
-    <>
+    <div className="relative flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col relative">
         <div
           key={scrollKey}
@@ -309,7 +309,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
           data-testid="conversation-scroll-area"
           className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
         >
-          <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-6xl px-4 py-8 max-sm:pt-14 sm:px-6 lg:px-8">
             {!displayedSession || displayedSession.messages.length === 0 ? (
               <EmptyState />
             ) : (
@@ -368,7 +368,7 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
           onOpenSource={setSelectedSourceRefId}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -1094,7 +1094,7 @@ function ChatInput({
         placeholder="Nhắn tin cho Orion"
         rows={2}
         aria-label="Chat input"
-        className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14.5px] leading-relaxed placeholder:text-muted-foreground outline-none max-h-64"
+        className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-base leading-relaxed placeholder:text-muted-foreground outline-none max-h-64 max-sm:max-h-[min(10rem,30dvh)] sm:text-[14.5px]"
       />
       <div className="flex items-center gap-1 px-2 pb-2">
         <ModelStatus models={models} loading={loadingModels} />

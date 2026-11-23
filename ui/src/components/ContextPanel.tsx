@@ -19,6 +19,7 @@ import type { Session, SourceReference, ToolActivity } from "@/lib/chat-store";
 function activityLabel(activity: ToolActivity) {
   if (activity.status === "completed") return "Hoàn tất";
   if (activity.status === "failed") return "Lỗi";
+  if (activity.status === "running") return "Lệnh còn chạy khi kiểm tra";
   return "Đang chạy";
 }
 
@@ -48,7 +49,7 @@ export function ContextPanel({
     return (
       <aside
         data-testid="collapsed-context-panel"
-        className="hidden w-12 shrink-0 items-start justify-center border-l border-border bg-surface pt-3 lg:flex"
+        className="absolute right-2 top-2 z-10 flex items-start justify-center sm:hidden lg:static lg:flex lg:w-12 lg:shrink-0 lg:border-l lg:border-border lg:bg-surface lg:pt-3"
       >
         <button
           type="button"
@@ -64,7 +65,10 @@ export function ContextPanel({
   }
 
   return (
-    <aside className="hidden w-[400px] shrink-0 flex-col border-l border-border bg-surface lg:flex">
+    <aside
+      aria-label="Hoạt động runtime"
+      className="absolute inset-0 z-30 flex min-h-0 flex-col overflow-y-auto border-l border-border bg-surface sm:hidden lg:static lg:z-auto lg:flex lg:w-[400px] lg:shrink-0"
+    >
       <div className="flex items-center justify-between border-b border-border bg-background/40 p-3">
         <div>
           <div className="text-xs font-semibold">Hoạt động runtime</div>
