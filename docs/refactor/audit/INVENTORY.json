@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "2ce21d11da3fddee61ad78b157917c8f1a879d8e",
+  "source_commit": "40db0d4e1166919eedbeaa5951fac797e22f277d",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -62,8 +62,8 @@
     {
       "path": ".github/workflows/ci.yml",
       "kind": "text",
-      "bytes": 10631,
-      "sha256": "e1b980556fe93bc280bfa299197777ca113c5c014690f198faf515601069cf35",
+      "bytes": 10665,
+      "sha256": "2c5980fce4d4f3281d2fc97b0a85f984fb5070d177ec4c5024173612c5e01adc",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -78,33 +78,33 @@
     {
       "path": ".github/workflows/release.yml",
       "kind": "text",
-      "bytes": 11244,
-      "sha256": "b1c155d0c1bf92ab361893e08c6f052743717bfdd3c22b3f1cb9048509c1aa55",
+      "bytes": 16439,
+      "sha256": "6344d96c799c02b3d0f33c99a98a5cd711ad165dfd18977231cb26a1b1bd099e",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Exercise the verified archive under user systemd before publishing.",
-      "replacement_or_callers": "Release bundles smoke-linux and its publish dependency.",
-      "verification": "Hosted run 43378201939 passed archive checks and start/restart/stop.",
-      "lines": 270,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 387,
       "python_syntax": null
     },
     {
       "path": ".github/workflows/windows.yml",
       "kind": "text",
-      "bytes": 13913,
-      "sha256": "c4dcfea2e6a2c3e3bef2f58079f6dcda074635e9829552de355c49674d515b8d",
+      "bytes": 13568,
+      "sha256": "7122f6742d98550b3622fad570a3c280563308e2441fa072b11b4cc657c83778",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Exercise installed Windows desktop with temporary per-executable test policy on an ephemeral runner.",
-      "replacement_or_callers": "GitHub-hosted Windows CI and WebView2 smoke.",
-      "verification": "Workflow YAML and PowerShell parsed; hosted result tracked by SHA.",
-      "lines": 268,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 254,
       "python_syntax": null
     },
     {
@@ -574,8 +574,8 @@
     {
       "path": "backend/src/orion/api/app.py",
       "kind": "text",
-      "bytes": 54048,
-      "sha256": "f9eaa6711bc737069c20c740897e880ea5925daa4a17111654557553c1f49fda",
+      "bytes": 54167,
+      "sha256": "f4575bc854ed85f3795943b7aaabf559050db14499f9fad265dbe26e69ef8fb0",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -584,7 +584,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 1280,
+      "lines": 1283,
       "python_syntax": "parsed"
     },
     {
@@ -766,8 +766,8 @@
     {
       "path": "backend/src/orion/api/updates.py",
       "kind": "text",
-      "bytes": 3636,
-      "sha256": "b69b3ac5dea3d40e6f1efc8f5e99bf99dbefc6655216c7a6386243e915f35151",
+      "bytes": 4642,
+      "sha256": "8d583aa68a746e0a8dfc52ade95dc18393254a0ad510472fb15d1dd37bd6d030",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -776,7 +776,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 96,
+      "lines": 113,
       "python_syntax": "parsed"
     },
     {
@@ -1118,8 +1118,8 @@
     {
       "path": "backend/src/orion/cli/managed.py",
       "kind": "text",
-      "bytes": 8112,
-      "sha256": "94c8c49f106652c483f5fdd101943c13ba4fa0a15f8601c7087c5608fe61e21b",
+      "bytes": 8930,
+      "sha256": "8d757b4e94e51d2389184ad70c78dc12ba0b1e4e4d32ab4061d88b8b5fede619",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -1128,7 +1128,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 213,
+      "lines": 233,
       "python_syntax": "parsed"
     },
     {
@@ -1166,8 +1166,8 @@
     {
       "path": "backend/src/orion/cli/upgrade_snapshot.py",
       "kind": "text",
-      "bytes": 10564,
-      "sha256": "cc9118e170f14e4f482dca4e7562f0f66807f6a105d5180ee17235760ae790a1",
+      "bytes": 14514,
+      "sha256": "aae4ca378a81a2c14a056f18df1737db35563972c75eb3cba80e10e46bc6e2c6",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -1176,7 +1176,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 251,
+      "lines": 346,
       "python_syntax": "parsed"
     },
     {
@@ -1342,8 +1342,8 @@
     {
       "path": "backend/src/orion/endpoints/artifacts.py",
       "kind": "text",
-      "bytes": 6564,
-      "sha256": "8fd9220e1aa4b644991fe5ff149b874e67de920917db1de94d83e40a7425cb52",
+      "bytes": 6797,
+      "sha256": "ab10240fde81f96a8bb2cc5ae8641e1767aea1ad44e613bb500238c755d03c14",
       "group": "backend",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -1352,7 +1352,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 189,
+      "lines": 196,
       "python_syntax": "parsed"
     },
     {
@@ -3054,8 +3054,8 @@
     {
       "path": "backend/tests/test_chat_runtime.py",
       "kind": "text",
-      "bytes": 70691,
-      "sha256": "9071d32fe919ac3bd32f59096e29a455e769b4174e4b449481e7353bd97799f1",
+      "bytes": 70673,
+      "sha256": "4f9796f12600de15a93034bf6e1eb850ecbddf09455f665c17627e084870d67d",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -3064,7 +3064,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 1907,
+      "lines": 1905,
       "python_syntax": "parsed"
     },
     {
@@ -3694,8 +3694,8 @@
     {
       "path": "backend/tests/test_mobile_shared_ui.py",
       "kind": "text",
-      "bytes": 9526,
-      "sha256": "e6de86e49414b4c982119bee0719367f73156dfe928fabf25dea5796cb889516",
+      "bytes": 12629,
+      "sha256": "ebc67e425eca2feb651f7f5320dc9555faa938838cef41e905b6336e30ea9e98",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -3704,7 +3704,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 215,
+      "lines": 284,
       "python_syntax": "parsed"
     },
     {
@@ -4366,8 +4366,8 @@
     {
       "path": "backend/tests/test_scheduler.py",
       "kind": "text",
-      "bytes": 34474,
-      "sha256": "0d6c7c8856941c2634f8436b8a0b9f74e9b9d80f2dfa207a496767784f1f1240",
+      "bytes": 34490,
+      "sha256": "5555a06fac71fe29de62e187fcc156baf1b1ec5452bde84ab3878ced5d112895",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -4376,7 +4376,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 760,
+      "lines": 762,
       "python_syntax": "parsed"
     },
     {
@@ -4812,10 +4812,26 @@
       "python_syntax": "parsed"
     },
     {
+      "path": "backend/tests/test_update_rollback.py",
+      "kind": "text",
+      "bytes": 3983,
+      "sha256": "88c85725c1d23b3e39b5c341cfa59319d1bf080065fbbbf812c951ff008d9104",
+      "group": "backend-tests",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 94,
+      "python_syntax": "parsed"
+    },
+    {
       "path": "backend/tests/test_updates.py",
       "kind": "text",
-      "bytes": 4212,
-      "sha256": "f6e610cc89def3f07dd33255d39e5c4d34dd2e2c30c2e1305e8c6d12cb3c53a0",
+      "bytes": 5749,
+      "sha256": "a1e925d5c46f8ffdcab44345d795561a7ca326d4a182fd53791b71a01235117d",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -4824,7 +4840,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 119,
+      "lines": 159,
       "python_syntax": "parsed"
     },
     {
@@ -7470,8 +7486,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 56640,
-      "sha256": "2334f7b978a6c6b51e6655a0d768389f2921456b096fdffefddd15c73691a1dc",
+      "bytes": 60119,
+      "sha256": "e6a9c6c73ea6e6a5bc3c94b598f0e1f5fd2fe3f79349a20985645171b9d60ff4",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7480,7 +7496,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 252,
+      "lines": 262,
       "python_syntax": null
     },
     {
@@ -7614,8 +7630,8 @@
     {
       "path": "docs/refactor/UPGRADE_8EB4AD2.md",
       "kind": "text",
-      "bytes": 6772,
-      "sha256": "c15be3304f0b730bb8a10083f77ae35acd0e75107502c32fb31517471b6860d1",
+      "bytes": 8094,
+      "sha256": "ff5803dc4e0aa7c6de03eaebeb1107099eef2d68dba4233466bafa7586a3fc3c",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7624,7 +7640,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 47,
+      "lines": 53,
       "python_syntax": null
     },
     {
@@ -7870,24 +7886,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 17430,
-      "sha256": "62c8d3c12f1ab477f9f903b21bd793ac8bfc375aeb660b07664c2ae617f06cca",
-      "group": "tooling-qa",
-      "git_state": "tracked",
-      "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Flush the first provider delta through the adapter buffer before holding the stream.",
-      "replacement_or_callers": "Android extended smoke provider fixture.",
-      "verification": "Windows Ruff and full Android API 35 extended smoke passed.",
-      "lines": 444,
-      "python_syntax": "parsed"
-    },
-    {
-      "path": "scripts/desktop/build_sidecar.py",
-      "kind": "text",
-      "bytes": 4291,
-      "sha256": "778aaba0b96db7bbc202337caf9068cefaa5b77203abdec5c0ce19e697c75511",
+      "bytes": 18505,
+      "sha256": "fecb5abb6f7066c20db858812251cdc8cd4833c0353d67b4d359b8d66b017b1d",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7896,8 +7896,56 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 131,
+      "lines": 474,
       "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/desktop/build-update.ps1",
+      "kind": "text",
+      "bytes": 1872,
+      "sha256": "f77dda0aa01cdb352ac57244e149d658aec2cb256c9da0f23efb4cfe2c5ff4d1",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 29,
+      "python_syntax": null
+    },
+    {
+      "path": "scripts/desktop/build_sidecar.py",
+      "kind": "text",
+      "bytes": 4318,
+      "sha256": "6a2683c25bb11de911cca6574dd0e8acf190509351243c4ea90c82df710f88be",
+      "group": "tooling-qa",
+      "git_state": "tracked",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 133,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/desktop/exercise-signed-update.ps1",
+      "kind": "text",
+      "bytes": 3621,
+      "sha256": "03d5809208e412bf21befd309e37719d9c6304e663b470adfc46606acddc6bd4",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 59,
+      "python_syntax": null
     },
     {
       "path": "scripts/desktop/portable.py",
@@ -7918,8 +7966,8 @@
     {
       "path": "scripts/desktop/sidecar_entry.py",
       "kind": "text",
-      "bytes": 374,
-      "sha256": "309e870d43828616357a553516d87441277d120e059a203aeeae3b056ffa6d77",
+      "bytes": 566,
+      "sha256": "909255cd5746e3c71ce055939fa83df7d3d2ed3858d1ff3ce2d96835d660bd6c",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7928,7 +7976,23 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 13,
+      "lines": 17,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/desktop/signed_update_fixture.py",
+      "kind": "text",
+      "bytes": 2459,
+      "sha256": "948b2db4798d6c7c8cc9b9fa519b7b7f532f5b44d362910b19f23d0be0418a97",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 63,
       "python_syntax": "parsed"
     },
     {
@@ -7946,6 +8010,22 @@
       "verification": "Wrapped fixture startup and Ruff passed on Windows.",
       "lines": 351,
       "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/desktop/verify-signed-update.ps1",
+      "kind": "text",
+      "bytes": 2489,
+      "sha256": "c5129268e471e4869d1c7819e8238676e5261ca4e157b9c1ada79d3ea032a7d7",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 33,
+      "python_syntax": null
     },
     {
       "path": "scripts/linux/headless_smoke.py",
@@ -8396,6 +8476,22 @@
       "python_syntax": "parsed"
     },
     {
+      "path": "scripts/release/desktop_version.py",
+      "kind": "text",
+      "bytes": 2056,
+      "sha256": "8523e69c7f879e11d1755e69a5d3132177703dbd2007c619e97e8711b390d7e5",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 60,
+      "python_syntax": "parsed"
+    },
+    {
       "path": "scripts/release/install.ps1",
       "kind": "text",
       "bytes": 7297,
@@ -8494,8 +8590,8 @@
     {
       "path": "scripts/windows/measure-desktop-startup.py",
       "kind": "text",
-      "bytes": 4320,
-      "sha256": "ae956b0eeecff688c5b54928140250615b8739a769c16f87bf72f79a9c53b005",
+      "bytes": 4534,
+      "sha256": "74dbdf5397987338f59f689814162381a8c039de881fe8e2f11fcbaea2613593",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8504,7 +8600,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 122,
+      "lines": 128,
       "python_syntax": "parsed"
     },
     {
@@ -8622,8 +8718,8 @@
     {
       "path": "scripts/worker/portable.py",
       "kind": "text",
-      "bytes": 12908,
-      "sha256": "c205c15bc639bd04dda6860004030a4df2bc62e2edc619ef57370369760c19d5",
+      "bytes": 13031,
+      "sha256": "754adc577a3e288ae1e65b8487be436674c0a194dfcaf8fbfbed1afd0ab58138",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8632,7 +8728,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 341,
+      "lines": 353,
       "python_syntax": "parsed"
     },
     {
@@ -9246,8 +9342,8 @@
     {
       "path": "ui/src/components/ContextPanel.tsx",
       "kind": "text",
-      "bytes": 10278,
-      "sha256": "0f35f06ccee2d0e1d271564016284f29e50059f9c2017ac9883bc734746c0afa",
+      "bytes": 10311,
+      "sha256": "6c338732bb500bb131a33eea00c0c7560f81a313a79a9ead26df01b7c7092ca5",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9262,8 +9358,8 @@
     {
       "path": "ui/src/components/HostUpdateNotice.tsx",
       "kind": "text",
-      "bytes": 1674,
-      "sha256": "3f3163b8b82696f816d31012e434cb8ebe35cab1107a56c104473f20a8319f99",
+      "bytes": 3425,
+      "sha256": "72d9601c1e6e0c7163f96e48b81893589a0396dc5ac380faa79a36ab6e46e305",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9272,7 +9368,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 52,
+      "lines": 105,
       "python_syntax": null
     },
     {
@@ -9374,8 +9470,8 @@
     {
       "path": "ui/src/components/ServerConnections.tsx",
       "kind": "text",
-      "bytes": 18550,
-      "sha256": "b04453edbdc78994dd0b809016fe7cd2668a3e10eb58c52df23335ae5fd67094",
+      "bytes": 18613,
+      "sha256": "3bb0a9b2e273dc34cf39d9776c105f3469907a163f1ba88a9afc2e2039eac695",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9870,8 +9966,8 @@
     {
       "path": "ui/src/lib/server-profiles.ts",
       "kind": "text",
-      "bytes": 11177,
-      "sha256": "eff8264337f69d4d6e2e557f16ecfc41b48e361b093662f4f808f6a781e65807",
+      "bytes": 11783,
+      "sha256": "4d1c07c7f2ca59d55c397db988cd7550ad697f5b5a7109e309ef74f5486bd448",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9880,14 +9976,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 355,
+      "lines": 369,
       "python_syntax": null
     },
     {
       "path": "ui/src/lib/tauri-host.ts",
       "kind": "text",
-      "bytes": 5481,
-      "sha256": "5bfdd45cbd99b3b4f74ccf031c17a7a530f79f87063575529b08a6301ca168e1",
+      "bytes": 5678,
+      "sha256": "e732bf0275362726515652ff5ec7232b7778e8830ff4baa4c7d8550c04cca3e6",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9896,7 +9992,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 149,
+      "lines": 153,
       "python_syntax": null
     },
     {
@@ -9966,8 +10062,8 @@
     {
       "path": "ui/src/routes/__root.tsx",
       "kind": "text",
-      "bytes": 12101,
-      "sha256": "c6733f4ea1e84675beac671b56352636ec8b459ca418adaf20f39b35aa68e8a0",
+      "bytes": 12625,
+      "sha256": "3e9b59ba2b0cc38ce1a8e6622a522f1cc9521cdee6ae075ba22e69d134349954",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -9976,7 +10072,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 336,
+      "lines": 348,
       "python_syntax": null
     },
     {
@@ -10030,8 +10126,8 @@
     {
       "path": "ui/src/routes/__tests__/-settings.test.tsx",
       "kind": "text",
-      "bytes": 12111,
-      "sha256": "178f0e12d7869229c1fd7fcb1d5754e12a581ba478eb02df61b888ffe178b562",
+      "bytes": 12071,
+      "sha256": "d69ad2219896ac45acc66c02f372ff5c18e36d0ecd06a949d1d4b00fa9e06e67",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10040,7 +10136,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 303,
+      "lines": 304,
       "python_syntax": null
     },
     {
@@ -10174,8 +10270,8 @@
     {
       "path": "ui/src/routes/settings.tsx",
       "kind": "text",
-      "bytes": 23423,
-      "sha256": "d0fe1f05c6743163bc6e977763fe07b4bb4802aaefa05c84132696b50040746d",
+      "bytes": 24813,
+      "sha256": "5ecc8bf2138e6f2fa5683b4326c5c1a1f0373caea9c5dd8e4fcabd3eab9cd3c6",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10184,7 +10280,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 588,
+      "lines": 628,
       "python_syntax": null
     },
     {
@@ -10334,8 +10430,8 @@
     {
       "path": "ui/src-tauri/src/app.rs",
       "kind": "text",
-      "bytes": 30404,
-      "sha256": "338d73c36e0d5c449a73880eb85ed3584593276af42958c64dcab17c9869382e",
+      "bytes": 33758,
+      "sha256": "5facc2380345f6a7295587c45f5c84f4cadb355438d75c1272842bbb1489aac5",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10344,7 +10440,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 828,
+      "lines": 888,
       "python_syntax": null
     },
     {
@@ -10414,8 +10510,8 @@
     {
       "path": "ui/src-tauri/src/managed.rs",
       "kind": "text",
-      "bytes": 11958,
-      "sha256": "0289b10a9591ab4383e185a99637b3f678d793e7937182c0fdb4cb68647dd695",
+      "bytes": 12005,
+      "sha256": "9bb1c064e8cd3c6aad3ceb85f06f36a8920f395fbf77733aef63d271c0648a16",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10424,14 +10520,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 353,
+      "lines": 354,
       "python_syntax": null
     },
     {
       "path": "ui/src-tauri/src/startup.rs",
       "kind": "text",
-      "bytes": 2046,
-      "sha256": "8cf9b539f7b0f20f00973a70bf9cf1a90eb58b07a5ff24312be3642250b264f5",
+      "bytes": 2068,
+      "sha256": "e80cbfb193900b6e5e4f7a82e7b414b3b4d6b5eef13730d9b55d602ca7c36924",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10462,8 +10558,8 @@
     {
       "path": "ui/src-tauri/src/transport.rs",
       "kind": "text",
-      "bytes": 12612,
-      "sha256": "9da219ed5bf2ccc8ec966ca213b41aa5b80487ece1cfcca810fb1b5342bd64d4",
+      "bytes": 13352,
+      "sha256": "2a8702b76cf7b307929d51cd842315b392535576144e36f52cbcc701d23a867c",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10472,14 +10568,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 342,
+      "lines": 357,
       "python_syntax": null
     },
     {
       "path": "ui/src-tauri/src/updates.rs",
       "kind": "text",
-      "bytes": 14833,
-      "sha256": "ff47ce3fef85de1752be6fdfdda782869bc7f82003e1941addaaf491135c8af0",
+      "bytes": 21561,
+      "sha256": "d55a5ded1cda9570a0af5e3c1490da8f5adefa810b7715db226f31f99d968a18",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10488,7 +10584,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 377,
+      "lines": 536,
       "python_syntax": null
     },
     {

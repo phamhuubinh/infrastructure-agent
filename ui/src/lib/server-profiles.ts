@@ -9,6 +9,17 @@ import { type OperationId, type Operations } from "./sdk/generated";
 
 export const SERVER_CHANGED_EVENT = "orion-server-changed";
 export type ServerProfile = { id: string; name: string; origin: string };
+export type UpdateChannel = "stable" | "preview";
+export const UPDATE_CHANNEL_CHANGED = "orion-update-channel-changed";
+export function savedUpdateChannel(fallback: UpdateChannel = "stable"): UpdateChannel {
+  try {
+    const value = window.localStorage.getItem("orion-update-channel");
+    if (value === "preview" || value === "stable") return value;
+  } catch {
+    // The installed channel is still available in restricted storage environments.
+  }
+  return fallback;
+}
 export type NativeHost = {
   fetch: typeof fetch;
   tokens: SecureTokenStore;
@@ -16,9 +27,12 @@ export type NativeHost = {
   scanConnectionQr?: () => Promise<string | null>;
   startupReady?: () => void;
   appUpdates?: {
-    check: () => Promise<{ current: string; available: string | null; can_install: boolean }>;
-    openRelease: (version: string) => Promise<void>;
-    install: (version: string) => Promise<void>;
+    defaultChannel?: UpdateChannel;
+    check: (
+      channel: UpdateChannel,
+    ) => Promise<{ current: string; available: string | null; can_install: boolean }>;
+    openRelease: (version: string, channel: UpdateChannel) => Promise<void>;
+    install: (version: string, channel: UpdateChannel) => Promise<void>;
   };
   tailscaleStatus?: () => Promise<TailscaleStatus>;
   tailscaleSetEnabled?: (enabled: boolean) => Promise<TailscaleStatus>;

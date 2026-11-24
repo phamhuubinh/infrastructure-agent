@@ -16,6 +16,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import uuid
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,11 @@ def inventory(directory: Path) -> dict[str, str]:
 
 
 def copy_checked(source: Path, destination: Path) -> None:
+    if source.is_symlink() or source.is_junction():
+        raise ValueError("Backup does not follow linked directories")
+    if not source.exists():
+        destination.mkdir()
+        return
     before = inventory(source)
     shutil.copytree(source, destination)
     if before != inventory(source) or before != inventory(destination):
@@ -84,7 +90,7 @@ def database_state(connection: sqlite3.Connection) -> dict[str, str]:
     return result
 
 
-def check_database(path: Path) -> dict[str, str]:
+def check_database(path: Path, *, require_owner: bool = True) -> dict[str, str]:
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
         if db.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise ValueError("SQLite integrity failed")
@@ -93,7 +99,7 @@ def check_database(path: Path) -> dict[str, str]:
         owner = db.execute(
             "SELECT password_hash,totp_secret,recovery_digests FROM desktop_owner WHERE id=1"
         ).fetchone()
-        if owner is None or not all(owner):
+        if require_owner and (owner is None or not all(owner)):
             raise ValueError("Owner security state is missing")
         for (blob,) in db.execute("SELECT blob_id FROM documents WHERE deleted_at IS NULL"):
             if not (path.parent / "blobs" / blob).is_file():
@@ -113,12 +119,21 @@ def verify(directory: Path) -> None:
     for name, digest in manifest["files"].items():
         if sha(directory / name) != digest:
             raise ValueError("Backup checksum mismatch")
-    if check_database(directory / "managed/orion.db") != manifest["database_tables"]:
+    if (
+        check_database(
+            directory / "managed/orion.db", require_owner=manifest.get("require_owner", True)
+        )
+        != manifest["database_tables"]
+    ):
         raise ValueError("Backup table contents differ")
 
 
 def snapshot(
-    destination: Path, *, online_only: bool = False, installation: Path | None = None
+    destination: Path,
+    *,
+    online_only: bool = False,
+    installation: Path | None = None,
+    require_owner: bool = True,
 ) -> Path:
     if sys.platform != "win32":
         raise OSError("A managed upgrade snapshot requires Windows")
@@ -126,7 +141,7 @@ def snapshot(
 
     local = Path(os.environ["LOCALAPPDATA"])
     managed = local / "io.orion.desktop/managed"
-    root = destination / ("before-upgrade-8eb4ad2-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
+    root = destination / ("before-upgrade-8eb4ad2-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     private_directory(root)
     copied = root / "managed"
     copied.mkdir()
@@ -144,7 +159,7 @@ def snapshot(
     for folder, hashes in before.items():
         if inventory(managed / folder) != hashes:
             raise ValueError("Managed payloads changed during snapshot; retry")
-    if check_database(copied / "orion.db") != state:
+    if check_database(copied / "orion.db", require_owner=require_owner) != state:
         raise ValueError("Snapshot differs from source read transaction")
     copy_checked(installation or local / "Orion", root / "installed")
     for key, filename in (
@@ -160,7 +175,7 @@ def snapshot(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        if result.returncode and filename == "desktop-host.reg":
+        if result.returncode and filename == "desktop-host.reg" and require_owner:
             raise ValueError("Cannot back up Host configuration")
     try:
         with winreg.OpenKey(
@@ -171,7 +186,11 @@ def snapshot(
         autostart = None
     (root / "autostart.json").write_text(json.dumps(autostart), encoding="utf-8")
     tailscale = Path(os.environ["ProgramFiles"]) / "Tailscale/tailscale.exe"
-    serve = subprocess.check_output([str(tailscale), "serve", "status", "--json"])
+    serve = (
+        subprocess.check_output([str(tailscale), "serve", "status", "--json"])
+        if require_owner
+        else b"{}"
+    )
     if not online_only and any(json.loads(serve).get("AllowFunnel", {}).values()):
         raise ValueError("Funnel is enabled")
     (root / "tailscale-serve.json").write_bytes(serve)
@@ -180,7 +199,7 @@ def snapshot(
     copy_checked(copied, root / "rollback-drill")
     store = SQLiteStore(root / "rollback-drill/orion.db")
     store.close()
-    if check_database(root / "rollback-drill/orion.db") != state:
+    if check_database(root / "rollback-drill/orion.db", require_owner=require_owner) != state:
         raise ValueError("Rollback initialization changed table contents")
     original = ProtectedFileCredentialStore(managed / "provider-credentials")
     restored = ProtectedFileCredentialStore(root / "rollback-drill/provider-credentials")
@@ -197,6 +216,7 @@ def snapshot(
         "files": files,
         "rollback_drill": "PASS",
         "maintenance_snapshot_required": True,
+        "require_owner": require_owner,
     }
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     verify(root)
@@ -236,16 +256,91 @@ def guarded_main() -> None:
         sys.exit(1)
 
 
-def snapshot_for_update(installation: str) -> None:
+def snapshot_for_update(installation: str, receipt: str, mode: str) -> None:
     """Called by the frozen sidecar in the native update handoff, after clean shutdown."""
     try:
         directory = Path(installation)
         if not directory.is_absolute() or not (directory / "Orion.exe").is_file():
             raise ValueError("Invalid installed application directory")
-        snapshot(
+        if mode not in {"host", "client"}:
+            raise ValueError("Invalid snapshot mode")
+        result = snapshot(
             Path(os.environ["LOCALAPPDATA"]) / "OrionRecovery",
             online_only=True,
             installation=directory,
+            require_owner=mode == "host",
         )
+        with Path(receipt).open("x", encoding="utf-8") as output:
+            json.dump({"snapshot": str(result), "installation": str(directory)}, output)
     except Exception:  # operational errors must not print data or credentials
         raise SystemExit("The Orion update snapshot could not be verified.") from None
+
+
+def restore_folders(pairs: tuple[tuple[Path, Path], ...]) -> None:
+    """Prepare all verified copies before changing any target, retaining failed data."""
+    ident = uuid.uuid4().hex
+    staged = []
+    for source, target in pairs:
+        if not source.is_dir() or target.is_symlink() or target.is_junction():
+            raise ValueError("Invalid rollback directory")
+        replacement = target.with_name(target.name + ".restore-" + ident)
+        displaced = target.with_name(target.name + ".failed-update-" + ident)
+        copy_checked(source, replacement)
+        staged.append((target, replacement, displaced))
+
+    completed = []
+    try:
+        for target, replacement, displaced in staged:
+            if target.exists():
+                target.rename(displaced)
+            try:
+                replacement.rename(target)
+            except OSError:
+                if displaced.exists():
+                    displaced.rename(target)
+                raise
+            completed.append((target, replacement, displaced))
+    except OSError:
+        for target, replacement, displaced in reversed(completed):
+            target.rename(replacement)
+            if displaced.exists():
+                displaced.rename(target)
+        raise
+
+
+def restore_for_update(receipt: str) -> None:
+    """Use the pre-update helper outside the installation. The app and sidecar are stopped."""
+    try:
+        local = Path(os.environ["LOCALAPPDATA"]).resolve(strict=True)
+        path = Path(receipt).resolve(strict=True)
+        app_data = local / "io.orion.desktop"
+        if path.parent.parent != app_data or not path.parent.name.startswith("update-"):
+            raise ValueError("Invalid update receipt location")
+        update = json.loads(path.read_text(encoding="utf-8"))
+        backup = Path(update["snapshot"]).resolve(strict=True)
+        expected = (local / "Orion").resolve()
+        if (
+            backup.parent != local / "OrionRecovery"
+            or Path(update["installation"]).resolve() != expected
+        ):
+            raise ValueError("Update receipt points outside the approved installation")
+        verify(backup)
+        if not (backup / "installed/Orion.exe").is_file():
+            raise ValueError("Verified snapshot has no Orion executable")
+        restore_folders(
+            ((backup / "installed", expected), (backup / "managed", app_data / "managed"))
+        )
+        registration = backup / "uninstall.reg"
+        if registration.is_file():
+            subprocess.run(
+                [
+                    str(Path(os.environ["SystemRoot"]) / "System32/reg.exe"),
+                    "import",
+                    str(registration),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    except Exception:
+        raise SystemExit("Orion could not restore the verified pre-update snapshot.") from None

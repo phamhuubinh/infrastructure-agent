@@ -14,6 +14,7 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 const RELEASES: &str = "https://github.com/phamhuubinh/infrastructure-agent/releases";
 const LATEST: &str = "https://api.github.com/repos/phamhuubinh/infrastructure-agent/releases/latest";
+const PREVIEWS: &str = "https://api.github.com/repos/phamhuubinh/infrastructure-agent/releases?per_page=50";
 const LIMIT: u64 = 512 * 1024 * 1024;
 const UNAVAILABLE: &str = "Không kiểm tra được bản cập nhật Orion.";
 const REJECTED: &str = "Bộ cài không khớp phiên bản, SHA-256 hoặc chữ ký Orion.";
@@ -40,19 +41,72 @@ const HANDOFF: &str = r#"
 $ErrorActionPreference = 'Stop'
 $exe = $env:ORION_UPDATE_EXE
 $stage = Split-Path -LiteralPath $env:ORION_UPDATE_FILE
+$receipt = Join-Path $stage 'snapshot.json'
+$installStarted = $false
+$committed = $false
+$updated = $null
+$relaunch = $false
+$clearActive = $false
 try {
     $parent = Get-Process -Id ([int]$env:ORION_UPDATE_PARENT) -ErrorAction SilentlyContinue
-    if ($parent -and !$parent.WaitForExit(30000)) { exit 1 }
+    if ($parent -and !$parent.WaitForExit(30000)) { throw 'Orion did not exit' }
+    $relaunch = $true
     & ([scriptblock]::Create($env:ORION_UPDATE_VERIFY))
     $directory = Split-Path -LiteralPath $exe
+    $backup = Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+    $restore = Join-Path $backup.snapshot 'installed/backend/OrionBackend.exe'
+    if (!(Test-Path -LiteralPath $restore -PathType Leaf)) { throw 'Missing rollback helper' }
+    $installStarted = $true
     $process = Start-Process -FilePath $env:ORION_UPDATE_FILE -ArgumentList ("/S /D=" + $directory) -Wait -PassThru
     if ($process.ExitCode -ne 0) { throw 'Installer failed' }
+    if ((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion -ne $env:ORION_UPDATE_VERSION) {
+        throw 'Unexpected installed version'
+    }
+    $updated = Start-Process -FilePath $exe -ArgumentList ('--finish-update "' + $stage + '"') -PassThru
+    $deadline = [DateTime]::UtcNow.AddSeconds(60)
+    $healthy = Join-Path $stage 'healthy.txt'
+    while (!(Test-Path -LiteralPath $healthy -PathType Leaf)) {
+        if ($updated.HasExited -or [DateTime]::UtcNow -ge $deadline) { throw 'Orion health timeout' }
+        Start-Sleep -Milliseconds 100
+    }
+    if ($updated.HasExited) { throw 'Orion exited before commit' }
+    $prepared = Join-Path $stage 'commit.tmp'
+    [IO.File]::WriteAllText($prepared, 'committed')
+    [IO.File]::Move($prepared, (Join-Path $stage 'committed.txt'))
+    $committed = $true
+    $clearActive = $true
+    $relaunch = $false
     'Installed' | Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
 } catch {
-    'Failed. Use the verified pre-update backup if repair is required.' |
-        Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
+    if ($committed) { exit 0 }
+    if ($installStarted) {
+        $relaunch = $false
+        try {
+            if ($updated -and !$updated.HasExited) {
+                $updated.Kill()
+                if (!$updated.WaitForExit(15000)) { throw 'Updated app did not stop' }
+            }
+            & $restore '--restore-for-update' $receipt
+            if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
+            $relaunch = $true
+            $clearActive = $true
+            'Rolled back' | Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
+        } catch {
+            'Manual recovery required' | Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
+        }
+    } else {
+        $clearActive = $true
+        'Update rejected' | Set-Content -LiteralPath (Join-Path $stage 'outcome.txt')
+    }
 } finally {
-    if (Test-Path -LiteralPath $exe -PathType Leaf) { Start-Process -FilePath $exe }
+    if ($clearActive) {
+        $expected = Split-Path -Leaf $stage
+        $active = $env:ORION_UPDATE_ACTIVE
+        if ((Test-Path -LiteralPath $active) -and [IO.File]::ReadAllText($active) -eq $expected) {
+            [IO.File]::Delete($active)
+        }
+    }
+    if ($relaunch -and (Test-Path -LiteralPath $exe -PathType Leaf)) { Start-Process -FilePath $exe }
 }
 "#;
 
@@ -74,6 +128,26 @@ struct Asset {
 struct Candidate {
     version: String,
     asset: Asset,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    Stable,
+    Preview,
+}
+
+impl Channel {
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Stable => "v",
+            Self::Preview => "orion-preview-v",
+        }
+    }
+
+    fn tag(self, version: &str) -> String {
+        format!("{}{version}", self.prefix())
+    }
 }
 
 #[derive(Serialize)]
@@ -108,13 +182,15 @@ fn digest(value: &str) -> Option<&str> {
 }
 
 fn publisher_pin() -> Option<&'static str> {
-    // Pin a release publisher at build time. Preview builds omit this value.
+    // Both release channels use the publisher pinned at build time.
     option_env!("ORION_UPDATE_SIGNER_SHA256").and_then(digest)
 }
 
-fn available_release(current: [u64; 3], release: Release) -> Option<Candidate> {
-    let version = release.tag_name.strip_prefix('v')?;
-    if release.draft || release.prerelease || stable_version(version)? <= current {
+fn available_release(current: [u64; 3], channel: Channel, release: Release) -> Option<Candidate> {
+    let version = release.tag_name.strip_prefix(channel.prefix())?;
+    if release.draft || release.prerelease != matches!(channel, Channel::Preview)
+        || stable_version(version)? <= current
+    {
         return None;
     }
     let installer = format!("Orion_{version}_x64-setup.exe");
@@ -126,13 +202,13 @@ fn available_release(current: [u64; 3], release: Release) -> Option<Candidate> {
     Some(Candidate { version: version.to_owned(), asset })
 }
 
-async fn latest(app: &tauri::AppHandle) -> Result<Option<Candidate>, &'static str> {
+async fn latest(app: &tauri::AppHandle, channel: Channel) -> Result<Option<Candidate>, &'static str> {
     let mut response = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .timeout(Duration::from_secs(8))
         .build().map_err(|_| UNAVAILABLE)?
-        .get(LATEST)
+        .get(match channel { Channel::Stable => LATEST, Channel::Preview => PREVIEWS })
         .header(reqwest::header::USER_AGENT, "Orion-Desktop")
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
         .send().await.map_err(|_| UNAVAILABLE)?;
@@ -146,14 +222,20 @@ async fn latest(app: &tauri::AppHandle) -> Result<Option<Candidate>, &'static st
         }
         body.extend_from_slice(&chunk);
     }
-    let release = serde_json::from_slice(&body).map_err(|_| UNAVAILABLE)?;
     let current = &app.package_info().version;
-    Ok(available_release([current.major, current.minor, current.patch], release))
+    let current = [current.major, current.minor, current.patch];
+    let releases = match channel {
+        Channel::Stable => vec![serde_json::from_slice(&body).map_err(|_| UNAVAILABLE)?],
+        Channel::Preview => serde_json::from_slice::<Vec<Release>>(&body).map_err(|_| UNAVAILABLE)?,
+    };
+    Ok(releases.into_iter()
+        .filter_map(|release| available_release(current, channel, release))
+        .max_by_key(|candidate| stable_version(&candidate.version)))
 }
 
 #[tauri::command]
-pub async fn orion_check_update(app: tauri::AppHandle) -> Result<UpdateCheck, &'static str> {
-    let available = latest(&app).await?.map(|candidate| candidate.version);
+pub async fn orion_check_update(app: tauri::AppHandle, channel: Channel) -> Result<UpdateCheck, &'static str> {
+    let available = latest(&app, channel).await?.map(|candidate| candidate.version);
     Ok(UpdateCheck {
         current: app.package_info().version.to_string(),
         can_install: available.is_some() && publisher_pin().is_some(),
@@ -183,6 +265,9 @@ pub struct StagedUpdate {
 }
 
 impl StagedUpdate {
+    pub fn receipt(&self) -> PathBuf {
+        self.directory.join("snapshot.json")
+    }
     fn installer(&self) -> PathBuf {
         self.directory.join("OrionSetup.exe")
     }
@@ -212,11 +297,27 @@ impl StagedUpdate {
     }
 
     pub fn hand_off(mut self, executable: &Path) -> Result<(), &'static str> {
-        self.powershell(HANDOFF)?
+        let active = self.directory.parent().ok_or(UNAVAILABLE)?.join("update-active.txt");
+        let mut command = self.powershell(HANDOFF)?;
+        let name = self.directory.file_name().and_then(|name| name.to_str()).ok_or(UNAVAILABLE)?;
+        let mut lock = OpenOptions::new().write(true).create_new(true).open(&active)
+            .map_err(|_| "Đang có một giao dịch cập nhật Orion khác.")?;
+        if lock.write_all(name.as_bytes()).is_err() || lock.sync_all().is_err() {
+            drop(lock);
+            let _ = fs::remove_file(&active);
+            return Err(UNAVAILABLE);
+        }
+        drop(lock);
+        if command
             .env("ORION_UPDATE_VERIFY", CHECK_SIGNATURE)
             .env("ORION_UPDATE_EXE", executable)
+            .env("ORION_UPDATE_ACTIVE", &active)
             .env("ORION_UPDATE_PARENT", std::process::id().to_string())
-            .spawn().map_err(|_| "Không khởi động được bộ cài Orion.")?;
+            .spawn().is_err()
+        {
+            let _ = fs::remove_file(active);
+            return Err("Không khởi động được bộ cài Orion.");
+        }
         self.handed_off = true;
         Ok(())
     }
@@ -242,9 +343,49 @@ impl Drop for StagedUpdate {
     fn drop(&mut self) {
         if !self.handed_off {
             let _ = fs::remove_file(self.installer());
+            let _ = fs::remove_file(self.receipt());
             let _ = fs::remove_dir(&self.directory);
         }
     }
+}
+
+pub fn boot_directory(app: &tauri::AppHandle) -> io::Result<Option<PathBuf>> {
+    let invalid = || io::Error::other("Invalid Orion update transaction");
+    let app_data = app.path().app_local_data_dir().map_err(|_| invalid())?;
+    let active = app_data.join("update-active.txt");
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new("--finish-update")) {
+        if active.exists() {
+            return Err(io::Error::other("Orion update in progress. See the recovery runbook."));
+        }
+        return Ok(None);
+    }
+    let path = PathBuf::from(args.next().ok_or_else(invalid)?).canonicalize()?;
+    let parent = app_data.canonicalize()?;
+    let pending = fs::read_to_string(active)?;
+    if args.next().is_some() || path.parent() != Some(&parent)
+        || !path.file_name().and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("update-") && name == pending)
+        || !path.join("snapshot.json").is_file()
+        || path.join("healthy.txt").exists() || path.join("committed.txt").exists()
+    {
+        return Err(invalid());
+    }
+    Ok(Some(path))
+}
+
+pub fn report_healthy(directory: &Path) -> io::Result<()> {
+    let marker = directory.join("healthy.tmp");
+    OpenOptions::new().write(true).create_new(true).open(&marker)?.write_all(b"healthy")?;
+    fs::rename(&marker, directory.join("healthy.txt"))?;
+    let deadline = Instant::now() + Duration::from_secs(12);
+    while !directory.join("committed.txt").is_file() {
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "Update not committed"));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    Ok(())
 }
 
 fn is_release_redirect(url: &url::Url) -> bool {
@@ -254,9 +395,9 @@ fn is_release_redirect(url: &url::Url) -> bool {
         && matches!(url.host_str(), Some("release-assets.githubusercontent.com" | "objects.githubusercontent.com"))
 }
 
-pub async fn stage(app: &tauri::AppHandle, version: &str) -> Result<StagedUpdate, &'static str> {
+pub async fn stage(app: &tauri::AppHandle, version: &str, channel: Channel) -> Result<StagedUpdate, &'static str> {
     let signer = publisher_pin().ok_or("Bản này chưa cấu hình chữ ký phát hành Orion.")?;
-    let candidate = latest(app).await?.filter(|candidate| candidate.version == version)
+    let candidate = latest(app, channel).await?.filter(|candidate| candidate.version == version)
         .ok_or("Bản phát hành đã thay đổi. Hãy kiểm tra lại.")?;
     let hash = candidate.asset.digest.as_deref().and_then(|value| value.strip_prefix("sha256:"))
         .and_then(digest).ok_or(REJECTED)?.to_owned();
@@ -269,7 +410,8 @@ pub async fn stage(app: &tauri::AppHandle, version: &str) -> Result<StagedUpdate
     let mut file = OpenOptions::new().write(true).create_new(true).open(staged.installer())
         .map_err(|_| UNAVAILABLE)?;
 
-    let download = format!("{RELEASES}/download/v{}/{}", staged.version, candidate.asset.name);
+    let tag = channel.tag(&staged.version);
+    let download = format!("{RELEASES}/download/{tag}/{}", candidate.asset.name);
     let mut response = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(|hop| {
             if hop.previous().len() <= 3 && is_release_redirect(hop.url()) {
@@ -306,9 +448,9 @@ pub async fn stage(app: &tauri::AppHandle, version: &str) -> Result<StagedUpdate
 }
 
 #[tauri::command]
-pub fn orion_open_update_release(version: String) -> Result<(), &'static str> {
+pub fn orion_open_update_release(version: String, channel: Channel) -> Result<(), &'static str> {
     stable_version(&version).ok_or("Phiên bản Orion không hợp lệ.")?;
-    let url: Vec<u16> = format!("{RELEASES}/tag/v{version}").encode_utf16().chain([0]).collect();
+    let url: Vec<u16> = format!("{RELEASES}/tag/{}", channel.tag(&version)).encode_utf16().chain([0]).collect();
     let result = unsafe {
         windows_sys::Win32::UI::Shell::ShellExecuteW(
             std::ptr::null_mut(), std::ptr::null(), url.as_ptr(), std::ptr::null(),
@@ -343,7 +485,7 @@ mod tests {
                     digest: sha.then(|| format!("sha256:{}", "1".repeat(64))),
                 }],
             };
-            assert_eq!(available_release([0, 1, 5], release).is_some(), available, "{tag}");
+            assert_eq!(available_release([0, 1, 5], Channel::Stable, release).is_some(), available, "{tag}");
         }
     }
 
@@ -358,6 +500,23 @@ mod tests {
         ] {
             assert_eq!(is_release_redirect(&url::Url::parse(address).unwrap()), allowed);
         }
+    }
+
+    #[test]
+    fn preview_tags_are_opt_in_and_cannot_downgrade() {
+        fn preview() -> Release {
+            Release {
+                tag_name: "orion-preview-v0.1.9".into(),
+                draft: false, prerelease: true,
+                assets: vec![Asset {
+                    name: "Orion_0.1.9_x64-setup.exe".into(), size: 100,
+                    digest: Some(format!("sha256:{}", "a".repeat(64))),
+                }],
+            }
+        }
+        assert!(available_release([0, 1, 5], Channel::Preview, preview()).is_some());
+        assert!(available_release([0, 1, 5], Channel::Stable, preview()).is_none());
+        assert!(available_release([0, 1, 10], Channel::Preview, preview()).is_none());
     }
 
     #[test]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import time
 from typing import Any
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from orion._version import __version__
 
 RELEASE_URL = "https://api.github.com/repos/phamhuubinh/infrastructure-agent/releases/latest"
+PREVIEW_URL = "https://api.github.com/repos/phamhuubinh/infrastructure-agent/releases?per_page=50"
 _VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 
 
@@ -23,17 +25,18 @@ class UpdateNotice(BaseModel):
     check_available: bool = False
 
 
-def release_version(release: Any, current: str) -> str | None:
+def release_version(release: Any, current: str, *, preview: bool = False) -> str | None:
     if not isinstance(release, dict) or release.get("draft") is not False:
         return None
     tag, assets = release.get("tag_name"), release.get("assets")
+    prefix = "orion-preview-v" if preview else "v"
     if (
-        release.get("prerelease") is not False
+        release.get("prerelease") is not preview
         or not isinstance(tag, str)
-        or not tag.startswith("v")
+        or not tag.startswith(prefix)
     ):
         return None
-    version = tag[1:]
+    version = tag[len(prefix) :]
     target = _VERSION.fullmatch(version)
     installed = _VERSION.fullmatch(current)
     if target is None or installed is None or not isinstance(assets, list):
@@ -57,7 +60,11 @@ class ReleaseNotices:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._refresh_at = 0.0
-        self._notice = UpdateNotice()
+        current = os.getenv("ORION_DESKTOP_RELEASE_VERSION", __version__)
+        self._preview = os.getenv("ORION_DESKTOP_RELEASE_CHANNEL") == "preview"
+        self._notice = UpdateNotice(
+            host_version=current if _VERSION.fullmatch(current) else __version__
+        )
 
     async def get(self) -> UpdateNotice:
         async with self._lock:
@@ -70,7 +77,7 @@ class ReleaseNotices:
                     httpx.AsyncClient(follow_redirects=False, trust_env=False) as client,
                     client.stream(
                         "GET",
-                        RELEASE_URL,
+                        PREVIEW_URL if self._preview else RELEASE_URL,
                         headers={"Accept": "application/vnd.github+json", "User-Agent": "Orion"},
                     ) as response,
                 ):
@@ -80,11 +87,21 @@ class ReleaseNotices:
                         body.extend(chunk)
                         if len(body) > 512 * 1024:
                             raise ValueError("Release response is too large")
-                release = json.loads(body)
-                if not isinstance(release, dict):
+                payload = json.loads(body)
+                if not isinstance(payload, list if self._preview else dict):
                     raise ValueError("Invalid release response")
+                releases = payload if self._preview else [payload]
+                current = self._notice.host_version
+                versions = (
+                    release_version(release, current, preview=self._preview) for release in releases
+                )
                 self._notice = UpdateNotice(
-                    available_host_version=release_version(release, __version__),
+                    host_version=current,
+                    available_host_version=max(
+                        (version for version in versions if version is not None),
+                        key=lambda version: tuple(map(int, version.split("."))),
+                        default=None,
+                    ),
                     check_available=True,
                 )
                 delay = 900

@@ -37,12 +37,14 @@ class ManagedAccess:
         remote_enabled: bool = False,
         work_active: Callable[[], bool] | None = None,
         pause_scheduler: Callable[[bool], bool] | None = None,
+        update_commit: Path | None = None,
     ) -> None:
         self.app = app
         self.token = token
         self.remote_enabled = remote_enabled
         self.work_active = work_active
         self.pause_scheduler = pause_scheduler
+        self.update_commit = update_commit
         self.in_flight = 0
         self.preparing = False
 
@@ -52,7 +54,16 @@ class ManagedAccess:
             self.pause_scheduler(False)
 
     async def _serve(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if self.preparing:
+        if self.update_commit is not None and self.update_commit.is_file():
+            self.update_commit = None
+            self._resume()
+        local_health = (
+            scope["type"] == "http"
+            and scope["method"] == "GET"
+            and scope["path"] == "/api/health"
+            and scope.get("state", {}).get("desktop_authenticated") is True
+        )
+        if self.preparing or (self.update_commit is not None and not local_health):
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1013})
             else:
@@ -77,6 +88,7 @@ class ManagedAccess:
                     status = 403
                 elif (
                     self.preparing
+                    or self.update_commit is not None
                     or self.in_flight
                     or not self.work_active
                     or not self.pause_scheduler
@@ -176,15 +188,23 @@ def serve_managed() -> None:
         frontend = Path(sys.executable).parent.parent / "web"
         if not (frontend / PACKAGED_UI_SHELL).is_file():
             raise SystemExit("Desktop Host Mode requires the packaged web client.")
-    app = create_app(remote_config=remote, managed_desktop=True, ui_directory=frontend)
+    commit_path = os.getenv("ORION_UPDATE_COMMIT")
+    app = create_app(
+        remote_config=remote,
+        managed_desktop=True,
+        ui_directory=frontend,
+        update_pending=bool(commit_path),
+    )
     mark("application_constructed")
-    application = app.state.application
     app.add_middleware(
         ManagedAccess,
         token=line[:-1],
         remote_enabled=remote.enabled,
-        work_active=application.store.update_work_active,
-        pause_scheduler=application.scheduler_engine.pause_for_update,
+        work_active=lambda: app.state.application.store.update_work_active(),
+        pause_scheduler=lambda paused: app.state.application.scheduler_engine.pause_for_update(
+            paused
+        ),
+        update_commit=Path(commit_path) if commit_path else None,
     )
     with socket.socket() as listener:
         if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):

@@ -44,6 +44,7 @@ class FixtureModel(ModelBackend):
 
 def assert_long_chat_stays_in_viewport(page, origin):
     page.goto(origin)
+    expect(page.get_by_role("button", name="fixture", exact=True)).to_be_visible(timeout=15000)
     page.get_by_role("textbox", name="Chat input").fill(LONG_VALUE)
     page.get_by_role("button", name="Send message").click()
     table = page.get_by_role("region", name="Bảng kết quả")
@@ -110,8 +111,63 @@ def test_update_notice_is_visible_on_desktop_and_mobile(fixture_host):
         expect(desktop.get_by_text("Orion Host có bản 0.1.6.")).to_be_visible()
 
 
+def test_mobile_reconnect_sees_new_project_and_keeps_draft(fixture_host):
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        desktop = browser.new_context().new_page()
+        mobile_context = browser.new_context(**playwright.devices["Pixel 7"])
+        mobile = mobile_context.new_page()
+        for page in (desktop, mobile):
+            page.goto(fixture_host)
+            expect(page.get_by_role("textbox", name="Chat input")).to_be_visible()
+        composer = mobile.get_by_role("textbox", name="Chat input")
+        mobile_context.set_offline(True)
+        composer.fill("Draft during disconnect")
+        result = desktop.request.post(
+            f"{fixture_host}/api/projects", data={"name": "Project created during disconnect"}
+        )
+        assert result.ok
+        mobile_context.set_offline(False)
+        mobile.evaluate("window.dispatchEvent(new Event('online'))")
+        mobile.get_by_role("button", name="Menu", exact=True).click()
+        expect(
+            mobile.get_by_role("button", name="Project created during disconnect", exact=True)
+        ).to_be_visible(timeout=10000)
+        mobile.get_by_role("button", name="Đóng thanh bên").click()
+        expect(composer).to_have_value("Draft during disconnect")
+
+
+def assert_runtime_stays_in_viewport(page):
+    page.get_by_role("button", name="Menu", exact=True).click()
+    page.get_by_role("button", name="Wide runtime fixture", exact=True).click()
+    page.get_by_role("button", name="Mở bảng chi tiết").click()
+    panel = page.get_by_role("complementary", name="Hoạt động runtime")
+    panel.get_by_role("button", name="system.command.run", exact=False).click()
+    expect(panel.get_by_text("Call ID:", exact=False)).to_be_visible()
+    assert panel.evaluate("(p) => p.scrollWidth <= p.clientWidth + 1")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 1")
+    page.get_by_role("button", name="Đóng bảng chi tiết").click()
+
+
+def test_runtime_long_identifiers_wrap_on_mobile(runtime_host):
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_context(**playwright.devices["Pixel 7"]).new_page()
+        page.goto(runtime_host)
+        assert_runtime_stays_in_viewport(page)
+
+
 @pytest.fixture
 def fixture_host(tmp_path):
+    yield from launch_fixture_host(tmp_path)
+
+
+@pytest.fixture
+def runtime_host(tmp_path):
+    yield from launch_fixture_host(tmp_path, wide_runtime=True)
+
+
+def launch_fixture_host(tmp_path, *, wide_runtime=False):
     root = Path(__file__).resolve().parents[2]
     bundle = root / "ui" / "dist" / "client"
     assert (bundle / "_shell.html").is_file()
@@ -124,6 +180,19 @@ def fixture_host(tmp_path):
     application.store.upsert_model_config(
         "openai_compatible", "http://fixture.test/v1", "fixture", None
     )
+    if wide_runtime:
+        wide = application.store.create_session()
+        application.store.append_timeline(
+            wide, None, "user_message", {"content": "Wide runtime fixture"}
+        )
+        application.store.append_timeline(
+            wide,
+            None,
+            "tool_result",
+            {"result": {"status": "success", "data": {"target_ref": LONG_VALUE}}},
+            call_id=LONG_VALUE,
+            tool_name="system.command.run",
+        )
     asgi = create_app(application=application, ui_directory=bundle)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

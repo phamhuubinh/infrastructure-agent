@@ -187,6 +187,14 @@ class Ui:
     def fill(
         self, name: str, value: str, *, index: int, check_keyboard: bool = False
     ) -> None:
+        if self.keyboard_visible():
+            self.emulator.run("shell", "input", "keyevent", "KEYCODE_BACK")
+        dimensions = self.emulator.run("shell", "wm", "size")
+        sizes = re.findall(r"(\d+)x(\d+)", dimensions)
+        if not sizes:
+            raise RuntimeError("Android did not report its viewport")
+        width, height = map(int, sizes[-1])
+
         def probe() -> ET.Element | None:
             edits = [
                 node
@@ -194,9 +202,30 @@ class Ui:
                 if node.get("class") == "android.widget.EditText"
             ]
             named = next((node for node in edits if self.label(node, name)), None)
-            if named is not None:
-                return named
-            return edits[index] if len(edits) > index else None
+            node = (
+                named
+                if named is not None
+                else edits[index]
+                if len(edits) > index
+                else None
+            )
+            if node is not None:
+                bounds = re.findall(r"\d+", node.get("bounds", ""))
+                if len(bounds) == 4:
+                    left, top, right, bottom = map(int, bounds)
+                    if right > left and bottom > top:
+                        return node
+            self.emulator.run(
+                "shell",
+                "input",
+                "swipe",
+                str(width // 2),
+                str(height * 3 // 4),
+                str(width // 2),
+                str(height // 3),
+                "350",
+            )
+            return None
 
         self.tap(until(f"editable accessibility node {name!r}", probe))
         if not re.fullmatch(r"[a-zA-Z0-9 .:/_-]+", value):
@@ -316,14 +345,14 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             "Android session in SQLite",
             lambda: True if native_sessions(database) == [("android", 0)] else None,
         )
-        ui.find("Sign out")
+        ui.find("Menu")
         print(
             "Android native enrollment recorded one active server session.", flush=True
         )
         emulator.run("shell", "am", "force-stop", PACKAGE)
         emulator.launch()
         ui.click("Mở Android fixture")
-        ui.find("Sign out")
+        ui.find("Menu")
         if native_sessions(database) != [("android", 0)]:
             raise AssertionError(
                 "Relaunch did not reuse its existing Android enrollment"
@@ -410,6 +439,7 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
                 flush=True,
             )
             check_file_picker(ui, stack, database.parent)
+        ui.click("Menu")
         ui.click("Sign out")
         until(
             "revoked Android session",

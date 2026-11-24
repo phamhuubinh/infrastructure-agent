@@ -346,6 +346,7 @@ def create_app(
     remote_config: RemoteAccessConfig | None = None,
     *,
     managed_desktop: bool = False,
+    update_pending: bool = False,
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     remote = remote_config or RemoteAccessConfig.from_environment()
@@ -381,6 +382,8 @@ def create_app(
         ) as running:
             if assembled is None:
                 install(app, running)
+            if update_pending:
+                running.scheduler_engine.pause_for_update(True)
             running.scheduler_engine.start()
             try:
                 yield

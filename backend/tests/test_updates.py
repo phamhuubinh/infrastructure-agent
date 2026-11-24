@@ -39,6 +39,46 @@ def test_selects_only_newer_stable_installer_with_digest(changes, expected):
     assert updates.release_version(release(**changes), "0.1.11") is None
 
 
+def test_preview_channel_cannot_consume_stable_or_downgrade():
+    preview = release(tag_name="orion-preview-v0.1.10", prerelease=True)
+    assert updates.release_version(preview, "0.1.5", preview=True) == "0.1.10"
+    assert updates.release_version(preview, "0.1.11", preview=True) is None
+    assert updates.release_version(preview, "0.1.5") is None
+    assert updates.release_version(release(), "0.1.5", preview=True) is None
+
+
+@pytest.mark.anyio
+async def test_restarted_host_accepts_only_private_health_until_commit(tmp_path):
+    commit = tmp_path / "committed.txt"
+    resumed = []
+
+    async def app(scope, receive, send):
+        await Response(status_code=200)(scope, receive, send)
+
+    def scheduler(paused):
+        resumed.append(paused)
+        return True
+
+    managed = ManagedAccess(
+        app,
+        token=b"fixture",
+        remote_enabled=True,
+        update_commit=commit,
+        pause_scheduler=scheduler,
+    )
+    async with httpx.AsyncClient(
+        base_url="http://loopback", transport=httpx.ASGITransport(app=managed)
+    ) as client:
+        native = {"X-Orion-Managed-Token": "fixture"}
+        assert (await client.get("/api/health")).status_code == 503
+        assert (await client.get("/api/health", headers=native)).status_code == 200
+        assert (await client.post("/api/sessions", headers=native)).status_code == 503
+        assert not resumed
+        commit.write_text("committed")
+        assert (await client.post("/api/sessions")).status_code == 200
+        assert resumed == [False]
+
+
 @pytest.mark.anyio
 async def test_release_notices_share_one_bounded_fetch_and_preserve_last_notice(monkeypatch):
     calls = []

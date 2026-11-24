@@ -122,7 +122,6 @@ function useTheme() {
 
 function RootComponent() {
   const shellRef = useCallback((shell: HTMLDivElement | null) => {
-    if (shell) reportNativeStartupReady();
     const viewport = window.visualViewport;
     if (!viewport || !shell) return;
     const fitViewport = () => {
@@ -138,6 +137,13 @@ function RootComponent() {
       viewport.removeEventListener("scroll", fitViewport);
     };
   }, []);
+  const readyShellRef = useCallback(
+    (shell: HTMLDivElement | null) => {
+      if (shell) reportNativeStartupReady();
+      return shellRef(shell);
+    },
+    [shellRef],
+  );
   const { queryClient } = Route.useRouteContext();
   useTheme();
   const [auth, setAuth] = useState<AuthSession | null>(null);
@@ -221,17 +227,23 @@ function RootComponent() {
 
   if (!auth)
     return (
-      <main className="min-h-screen bg-background text-foreground p-6 space-y-4">
+      <div
+        ref={shellRef}
+        className="space-y-4 bg-background p-6 text-foreground md:min-h-screen max-md:fixed max-md:inset-x-0 max-md:top-[var(--orion-viewport-top,0px)] max-md:h-[var(--orion-viewport-height,100dvh)] max-md:overflow-y-auto"
+      >
         <p role="status">{authError || "Loading Orion…"}</p>
         {authError && <ServerConnections />}
-      </main>
+      </div>
     );
   if (auth.remote_access && !auth.authenticated) {
     if (isNativeHost())
       return (
-        <main className="min-h-screen bg-background text-foreground p-6">
+        <div
+          ref={shellRef}
+          className="bg-background p-6 text-foreground md:min-h-screen max-md:fixed max-md:inset-x-0 max-md:top-[var(--orion-viewport-top,0px)] max-md:h-[var(--orion-viewport-height,100dvh)] max-md:overflow-y-auto"
+        >
           <ServerConnections />
-        </main>
+        </div>
       );
     return (
       <main className="flex h-screen items-center justify-center bg-background text-foreground">
@@ -283,7 +295,7 @@ function RootComponent() {
       <HeadContent />
       <ChatProvider key={serverGeneration}>
         <div
-          ref={shellRef}
+          ref={readyShellRef}
           className="grain flex h-dvh w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground max-md:fixed max-md:inset-x-0 max-md:top-[var(--orion-viewport-top,0px)] max-md:h-[var(--orion-viewport-height,100dvh)] max-md:pb-[env(safe-area-inset-bottom)] md:flex-row"
         >
           <AppSidebar

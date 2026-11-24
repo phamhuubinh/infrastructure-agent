@@ -91,6 +91,7 @@ impl ManagedBackend {
             .env_remove("ORION_UI_DIR")
             .env_remove("ORION_DATABASE_PATH")
             .env_remove("ORION_LOG_PATH")
+            .env_remove("ORION_UPDATE_COMMIT")
             .env("ORION_DATA_DIR", data_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

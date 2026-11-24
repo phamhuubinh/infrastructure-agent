@@ -36,6 +36,21 @@ pub struct Transport {
 
 impl Transport {
     #[cfg(windows)]
+    pub async fn update_health(&self, backend: &ManagedBackend) -> bool {
+        let request = Request {
+            url: format!("{}/api/health", backend.origin()),
+            method: "GET".into(), headers: vec![], body: vec![],
+        };
+        let checked = tokio::time::timeout(Duration::from_secs(5), async {
+            let response = self.send(Destination::Managed(backend), request).await.ok()?;
+            if !response.status().is_success() { return None; }
+            let body = response.bytes().await.ok()?;
+            serde_json::from_slice::<serde_json::Value>(&body).ok()
+        }).await;
+        matches!(checked, Ok(Some(value)) if value["identity"] == "orion" && value["status"] == "ok")
+    }
+
+    #[cfg(windows)]
     pub async fn prepare_update(&self, backend: &ManagedBackend) -> io::Result<bool> {
         let mut token = HeaderValue::from_str(backend.owner_token()).map_err(|_| invalid_request())?;
         token.set_sensitive(true);

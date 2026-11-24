@@ -50,7 +50,7 @@ impl StartupProbe {
                 "wall_ms": SystemTime::now().duration_since(UNIX_EPOCH)
                     .unwrap_or_default().as_millis() as u64,
             });
-            let _ = writeln!(log, "{event}");
+            let _ = log.write_all(format!("{event}\n").as_bytes());
         }
     }
 }

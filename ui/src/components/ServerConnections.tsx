@@ -446,7 +446,7 @@ export function ServerConnections() {
       </form>
       {isNativeHost() && hasActiveServer() && !isManagedServer() && (
         <form
-          className="flex flex-wrap gap-2"
+          className="flex min-w-0 flex-wrap gap-2 max-sm:flex-col [&>label]:min-w-0 [&_input]:max-w-full"
           onSubmit={(event) => {
             event.preventDefault();
             setBusy(true);

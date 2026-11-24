@@ -62,6 +62,11 @@ def sample(executable: Path, sidecar: Path) -> dict[str, object]:
     return {
         "sidecar_ms": native["backend_ready"] - native["backend_start"],
         "webview_ms": native["page_loaded"] - native["webview_start"],
+        "parallel_ms": max(
+            0,
+            min(native["backend_ready"], native["page_loaded"])
+            - max(native["backend_start"], native["webview_start"]),
+        ),
         "native_to_page_ms": native["page_loaded"],
         "launch_to_native_ms": wall["native_entry"] - started_wall,
         "launch_to_page_ms": wall["page_loaded"] - started_wall,
@@ -106,6 +111,7 @@ def main() -> None:
         for key in (
             "sidecar_ms",
             "webview_ms",
+            "parallel_ms",
             "native_to_page_ms",
             "launch_to_native_ms",
             "launch_to_page_ms",

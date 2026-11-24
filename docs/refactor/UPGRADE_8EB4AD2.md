@@ -38,10 +38,16 @@ Sau lần mở đầu, backend có thể ghi thêm trạng thái phiên hoặc d
 4. Khôi phục `desktop-host.reg` và đúng giá trị/type `OrionDesktopHost` từ `autostart.json` nếu chúng đã đổi. So sánh Serve với `tailscale-serve.json` và khôi phục mapping trong cửa sổ bảo trì nếu cần. Giữ Funnel tắt.
 5. Mở lại ứng dụng và chủ máy tự kiểm tra đăng nhập Owner, model và lịch sử. Thực thi rollback trên hệ thống đang dùng mang trạng thái `PENDING_MANUAL`. Diễn tập hiện tại đã kiểm bản sao dữ liệu và credential.
 
-## Cập nhật từ Cài đặt trên Windows Host
+## Preview và Stable
 
-Luồng cài trong ứng dụng dành cho bản phát hành ổn định. Bản Windows nguồn cần được build với `ORION_UPDATE_SIGNER_SHA256` là fingerprint SHA-256 của chứng thư Authenticode dùng để ký bộ cài. GitHub Releases cần tag `vX.Y.Z`, asset `Orion_X.Y.Z_x64-setup.exe` cùng version và digest SHA-256 do GitHub trả về. Chỉ phát hành sau khi có bộ cài đã ký qua kiểm thử nâng cấp trong môi trường cô lập.
+- Preview chạy từ push đến `codex/orion-windows-acceptance` và đăng ký tag prerelease `orion-preview-vX.Y.Z`. Stable dùng quy trình phát hành từ `main` với tag `vX.Y.Z`. Version dùng chung một thứ tự tăng giữa hai kênh. Preview lấy số tiếp theo từ các bản đã phát hành, còn Stable dùng version nguồn cao hơn tất cả bản trước. Orion chỉ chọn bản mới hơn phiên bản cài, kể cả khi đổi kênh.
+- Workflow yêu cầu backend, worker, UI, Android, iOS, Windows smoke và acceptance-extra đều thành công trên cùng SHA. Sau đó nó build NSIS, ký và xác minh Authenticode, kiểm SHA-256, rồi thử đúng bộ cài với một ca thành công và một ca khôi phục trên Windows runner dùng một lần. Mọi job này phải đạt trước khi đăng bản lên GitHub.
+- Environment `orion-desktop-signing` cần fingerprint chứng thư Authenticode `ORION_UPDATE_SIGNER_SHA256` và bí mật ký `ORION_SIGNING_PFX_B64`, `ORION_SIGNING_PFX_PASSWORD`. Thiết lập giới hạn environment cho nhánh phát hành và giữ khóa ở nơi quản lý ký. Bản Orion đang cài trước khi có dấu vân tay của nhà phát hành cần một lần cài bootstrap bằng bộ ký đã được xác minh. Phần này còn `PENDING_MANUAL`.
 
-Sau khi chủ máy bấm cập nhật, Orion tải và kiểm chữ ký, fingerprint, kích thước, SHA-256 và phiên bản NSIS. Hộp thoại Windows xác nhận bắt đầu bảo trì. Orion chỉ chuyển sang bảo trì khi Host không có request hoặc command đang chạy. Hệ thống đóng sidecar sạch, sao lưu và diễn tập khôi phục trước khi chạy NSIS. Nếu khâu chuẩn bị sau khi dừng không đạt, Orion mở lại ứng dụng hiện tại. Thư mục `OrionRecovery` giữ snapshot và thư mục `update-*` trong dữ liệu ứng dụng giữ trạng thái cài ở `outcome.txt`. Bản backup dùng cho khôi phục thủ công nếu NSIS lỗi.
+## Cập nhật ngay và khôi phục
 
-Web, Android và iOS nhận thông báo phiên bản Host qua API dùng chung sau xác thực. Việc cài đặt thực hiện trên Windows Host trong cửa sổ bảo trì. Luồng phát hành và cài bộ NSIS ký chính thức còn `PENDING_MANUAL`.
+Windows Desktop tự kiểm kênh đã chọn. Chủ máy bấm **Cập nhật ngay** trên thông báo hoặc trong Cài đặt và xác nhận hộp thoại bảo trì. Web và Mobile nhận thông báo bản Host qua API dùng chung. Updater tự cài cho bản Windows cài ở vị trí mặc định `%LOCALAPPDATA%/Orion`.
+
+Orion xác minh chữ ký, digest và phiên bản NSIS trước khi dừng. Host bận sẽ từ chối. Sau khi xác nhận và đóng sidecar sạch, updater sao lưu, kiểm lại snapshot và cài. Bản mới khởi động trong chế độ bảo trì, chỉ cho phép kiểm tra sức khỏe qua kết nối cục bộ riêng. Sau khi sidecar và WebView2 sẵn sàng, updater mở quyền truy cập. Nếu cài hoặc kiểm tra thất bại, updater khôi phục bản cài và SQLite/DPAPI từ snapshot đã kiểm chứng trước khi mở lại Orion.
+
+Nếu gặp `Manual recovery required` tại `%LOCALAPPDATA%/io.orion.desktop/update-*/outcome.txt`, dùng `snapshot.json` bên cạnh để xác định bản sao trong `OrionRecovery`. Giữ Host dừng sạch, khôi phục theo mục Rollback và giữ các thư mục `.failed-update-*` để đối chiếu. Chỉ gỡ dấu `%LOCALAPPDATA%/io.orion.desktop/update-active.txt` sau khi xác nhận dữ liệu và bản cài đã phục hồi. Updater giữ nguyên cấu hình Host/Funnel.

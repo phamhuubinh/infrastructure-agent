@@ -28,13 +28,12 @@ describe("M1 model settings", () => {
     vi.spyOn(serverProfiles, "desktopAppUpdates").mockReturnValue({ check, openRelease, install });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
     render(<SettingsPage />);
-    expect(check).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra bản cập nhật" }));
     const release = await screen.findByRole("button", { name: "Mở trang tải Orion 0.1.6" });
+    expect(check).toHaveBeenCalledWith("stable");
     expect(openRelease).not.toHaveBeenCalled();
     fireEvent.click(release);
-    expect(openRelease).toHaveBeenCalledWith("0.1.6");
-    expect(screen.queryByRole("button", { name: "Cập nhật Orion 0.1.6" })).toBeNull();
+    expect(openRelease).toHaveBeenCalledWith("0.1.6", "stable");
+    expect(screen.queryByRole("button", { name: "Cập nhật ngay" })).toBeNull();
     expect(install).not.toHaveBeenCalled();
   });
 
@@ -48,11 +47,13 @@ describe("M1 model settings", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
     render(<SettingsPage />);
-    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra bản cập nhật" }));
-    const button = await screen.findByRole("button", { name: "Cập nhật Orion 0.1.6" });
+    fireEvent.change(screen.getByRole("combobox", { name: "Kênh cập nhật" }), {
+      target: { value: "preview" },
+    });
+    const button = await screen.findByRole("button", { name: "Cập nhật ngay" });
     expect(install).not.toHaveBeenCalled();
     fireEvent.click(button);
-    expect(install).toHaveBeenCalledWith("0.1.6");
+    expect(install).toHaveBeenCalledWith("0.1.6", "preview");
     await screen.findByText("Host đang bận.");
     expect((button as HTMLButtonElement).disabled).toBe(false);
   });
