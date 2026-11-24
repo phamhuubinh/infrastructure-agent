@@ -513,6 +513,7 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             )
             check_file_picker(ui, stack, database.parent)
         ui.click("Menu")
+        ui.find("Đóng thanh bên")
         ui.click("Sign out")
         until(
             "revoked Android session",

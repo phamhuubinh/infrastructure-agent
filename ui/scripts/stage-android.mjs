@@ -17,7 +17,12 @@ try {
 }
 
 await mkdir(destination, { recursive: true });
-for (const file of ["OrionCredentialVault.java", "OrionVaultPlugin.java", "OrionQrPlugin.java"]) {
+for (const file of [
+  "MainActivity.kt",
+  "OrionCredentialVault.java",
+  "OrionVaultPlugin.java",
+  "OrionQrPlugin.java",
+]) {
   await copyFile(new URL(file, source), new URL(file, destination));
 }
 

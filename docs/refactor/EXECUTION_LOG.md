@@ -266,3 +266,9 @@
 - Run Windows 45324225290 thất bại vì crate mặc định biên dịch hai hàm HTTP bảo trì dành riêng cho Tauri. Giới hạn chúng vào feature `desktop`, giữ lớp transport mặc định và test chặn header nội bộ. Windows CI chạy cả hai cấu hình Cargo và kiểm `custom-protocol`.
 - Run Android 45324225282 đã boot thiết bị trước khi probe IME trả 255 và cleanup cũng mất ADB. Log cũ thiếu stderr và tình trạng runner nên chưa chứng minh được lý do kết nối bị ngắt. CI chuẩn bị dependencies trước khi mở emulator, dừng Gradle daemon của job, chờ boot và hai dịch vụ package/IME, đặt timeout, đồng thời lưu trạng thái tiến trình, bộ nhớ và log Android khi lỗi. Smoke chờ lại transport có giới hạn và chỉ thử lại lệnh an toàn. Assertion và lỗi lệnh thật vẫn làm job thất bại.
 - Bốn ca regression mô phỏng phục hồi kênh ADB, ngắt kéo dài, lỗi dịch vụ và cleanup giữ nguyên lỗi đầu tiên. Workflow Preview vẫn yêu cầu bảy job thành công trên đúng push SHA. Run 45324217904 thực tế đã chặn ứng viên `4b4a4fc`.
+
+### 2026-11-24 · PR #173 · Menu Android dưới thanh trạng thái
+
+- Checkpoint `ef68847` qua Windows CI trên cả push và PR. Android đã qua luồng Chat, ngắt mạng, tiếp tục stream và đính kèm, sau đó không mở được menu để đăng xuất. Cả hai runner ghi ADB ở trạng thái `device` sau lỗi. Release gate chặn phát hành đúng SHA.
+- Tái hiện lỗi với APK cũ trên emulator API 35 ở 320×640, 160 dpi như GitHub. Android đặt nút Menu tại `[8,0][44,36]`, nên tâm chạm ở y=18 nằm dưới thanh trạng thái. Ảnh khi test hết thời gian xác nhận menu còn đóng và thanh hệ thống che phần đầu ứng dụng.
+- Điểm vào Android xử lý vùng thanh trạng thái, điều hướng và cutout bằng window insets. WebView nhận phần insets của bàn phím để tiếp tục co viewport. Smoke xác minh thanh bên thực sự mở trước khi chạm Sign out, rồi kiểm revocation như trước.
