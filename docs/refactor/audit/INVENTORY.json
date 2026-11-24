@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "40db0d4e1166919eedbeaa5951fac797e22f277d",
+  "source_commit": "8081357358e2f3d78f3e6aee3382616d4b49ac9a",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -78,8 +78,8 @@
     {
       "path": ".github/workflows/release.yml",
       "kind": "text",
-      "bytes": 16439,
-      "sha256": "6344d96c799c02b3d0f33c99a98a5cd711ad165dfd18977231cb26a1b1bd099e",
+      "bytes": 16870,
+      "sha256": "d224b3f42592bf9431b42e5bea2a889ea2a52ad663e63c5d564d3b76ff3289fe",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -88,7 +88,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 387,
+      "lines": 397,
       "python_syntax": null
     },
     {
@@ -4817,7 +4817,7 @@
       "bytes": 3983,
       "sha256": "88c85725c1d23b3e39b5c341cfa59319d1bf080065fbbbf812c951ff008d9104",
       "group": "backend-tests",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -7486,8 +7486,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 60119,
-      "sha256": "e6a9c6c73ea6e6a5bc3c94b598f0e1f5fd2fe3f79349a20985645171b9d60ff4",
+      "bytes": 60478,
+      "sha256": "331e2e81666aea4a94a84803db831c45c5381a2632dd821ea8f9153211dc548f",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7630,8 +7630,8 @@
     {
       "path": "docs/refactor/UPGRADE_8EB4AD2.md",
       "kind": "text",
-      "bytes": 8094,
-      "sha256": "ff5803dc4e0aa7c6de03eaebeb1107099eef2d68dba4233466bafa7586a3fc3c",
+      "bytes": 7511,
+      "sha256": "007bb82e38ae45609f3baf46b5fd97f4e24e70a5e2fd8f34d815076344157236",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7640,7 +7640,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 53,
+      "lines": 45,
       "python_syntax": null
     },
     {
@@ -7886,8 +7886,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 18505,
-      "sha256": "fecb5abb6f7066c20db858812251cdc8cd4833c0353d67b4d359b8d66b017b1d",
+      "bytes": 18792,
+      "sha256": "cd1a4bad8bb3c07672d1c271f407f0cf708ac31c3e7a4b3a78bc1888a4de9f09",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7896,7 +7896,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 474,
+      "lines": 478,
       "python_syntax": "parsed"
     },
     {
@@ -7905,7 +7905,7 @@
       "bytes": 1872,
       "sha256": "f77dda0aa01cdb352ac57244e149d658aec2cb256c9da0f23efb4cfe2c5ff4d1",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -7937,7 +7937,7 @@
       "bytes": 3621,
       "sha256": "03d5809208e412bf21befd309e37719d9c6304e663b470adfc46606acddc6bd4",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -7985,7 +7985,7 @@
       "bytes": 2459,
       "sha256": "948b2db4798d6c7c8cc9b9fa519b7b7f532f5b44d362910b19f23d0be0418a97",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -8017,7 +8017,7 @@
       "bytes": 2489,
       "sha256": "c5129268e471e4869d1c7819e8238676e5261ca4e157b9c1ada79d3ea032a7d7",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -8481,7 +8481,7 @@
       "bytes": 2056,
       "sha256": "8523e69c7f879e11d1755e69a5d3132177703dbd2007c619e97e8711b390d7e5",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",

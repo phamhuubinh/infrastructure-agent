@@ -254,7 +254,11 @@ def check_file_picker(ui: Ui, stack: ExitStack, directory: Path) -> None:
     ui.tap(ui.find("Attach document", clickable=True))
     documents = "com.google.android.documentsui"
     ui.tap(ui.find("Show roots", package=documents))
-    ui.tap(ui.find("Downloads", package=documents))
+    # Browse the file we placed on disk directly. The Downloads provider can
+    # lag behind the filesystem while it indexes a newly pushed fixture.
+    device_name = ui.emulator.run("shell", "getprop", "ro.product.model").strip()
+    ui.tap(ui.find(device_name, package=documents))
+    ui.tap(ui.find("Download", package=documents))
     ui.tap(ui.find(name, package=documents))
     ui.find(name)
     print(
