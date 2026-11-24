@@ -41,6 +41,8 @@ desktop/release/
 # Local secrets (credentials, API tokens)
 config/secrets.local.json
 provider-credentials/
+*.pfx
+*.p12
 
 # Tool credentials stay local. The tracked tools.json contains metadata only.
 

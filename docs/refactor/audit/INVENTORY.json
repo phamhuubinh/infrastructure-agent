@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "cf93a1081d3d0369cb873daa01517d2d5f78b0d2",
+  "source_commit": "4820d18b174fed825723458a1d250bb65f1104c4",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -78,8 +78,8 @@
     {
       "path": ".github/workflows/release.yml",
       "kind": "text",
-      "bytes": 16870,
-      "sha256": "d224b3f42592bf9431b42e5bea2a889ea2a52ad663e63c5d564d3b76ff3289fe",
+      "bytes": 17174,
+      "sha256": "7a8e2dff2d2fe39f025349ebec110035ba56a02dbe849ee501a932d4b527f5d3",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -88,7 +88,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 397,
+      "lines": 401,
       "python_syntax": null
     },
     {
@@ -110,17 +110,17 @@
     {
       "path": ".gitignore",
       "kind": "text",
-      "bytes": 1272,
-      "sha256": "07bd79438efc867d14db3038e781b25074e30998624064c96c79b001f3a6e02a",
+      "bytes": 1286,
+      "sha256": "414859eb7b57d1be37ab325596fdefdc5bd82925bf37bf019982d5ce172db57f",
       "group": "root-configuration",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "rewrite",
-      "reason": "Ignore generated test SQLite caches and Cargo target products.",
-      "replacement_or_callers": "dev.py check, native Cargo workspace and local inventory.",
-      "verification": "Source remains tracked or reviewable; Git ignore and inventory checks pass.",
-      "lines": 74,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 76,
       "python_syntax": null
     },
     {
@@ -7502,8 +7502,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 63809,
-      "sha256": "06193b3ee67a9a24dbc059b99b51d8c10807774df352b48b95d43b7603ceadfb",
+      "bytes": 65026,
+      "sha256": "11da3db43a240eb4d55a5706d6a05cced9ba74ba2787f740816db7566cf4fd91",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7512,7 +7512,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 279,
+      "lines": 285,
       "python_syntax": null
     },
     {
@@ -7545,6 +7545,22 @@
       "replacement_or_callers": "R12 native owner API/RequestService/ChatRuntime/SQLite/SkillService and generated shared SDK; explicit ASGI, persistence, generator and UI callers reviewed.",
       "verification": "R12_CHECKS_2026-10-31.json and R12_SESSION_2026-10-31.md with exact source/failure limits; native auth/admission/resource/generator and SDK behavioral fixtures. No native artifact/live-provider pass inferred.",
       "lines": 47,
+      "python_syntax": null
+    },
+    {
+      "path": "docs/refactor/PREVIEW_SIGNING.md",
+      "kind": "text",
+      "bytes": 7974,
+      "sha256": "e0a44c250ce5a185d15ddd5f03e6162875daae822d028de16706a5748d41ed5c",
+      "group": "documentation",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 64,
       "python_syntax": null
     },
     {
@@ -7646,8 +7662,8 @@
     {
       "path": "docs/refactor/UPGRADE_8EB4AD2.md",
       "kind": "text",
-      "bytes": 7511,
-      "sha256": "007bb82e38ae45609f3baf46b5fd97f4e24e70a5e2fd8f34d815076344157236",
+      "bytes": 7452,
+      "sha256": "8a319e25e7208ab983417e66861a90a664eab6c0835498eccc978240af977f59",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7964,6 +7980,22 @@
       "python_syntax": null
     },
     {
+      "path": "scripts/desktop/new-preview-signer.ps1",
+      "kind": "text",
+      "bytes": 2482,
+      "sha256": "c49364be8fe936f8654d95f897a2f7951984dacbe716c5af05b8fff1a3afe608",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 44,
+      "python_syntax": null
+    },
+    {
       "path": "scripts/desktop/portable.py",
       "kind": "text",
       "bytes": 6082,
@@ -7978,6 +8010,22 @@
       "verification": "Identical hashes on two runs; exact extracted ZIP passed Windows app smoke with PATH empty.",
       "lines": 143,
       "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/desktop/preview-certificate.ps1",
+      "kind": "text",
+      "bytes": 2195,
+      "sha256": "5d17cf85149ac7ee5720af9dff01a58a3249209d132472019e32c31e973cba3a",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 41,
+      "python_syntax": null
     },
     {
       "path": "scripts/desktop/sidecar_entry.py",
@@ -8028,10 +8076,26 @@
       "python_syntax": "parsed"
     },
     {
+      "path": "scripts/desktop/test-preview-bootstrap.ps1",
+      "kind": "text",
+      "bytes": 2641,
+      "sha256": "4add9b4d7524d494cd356c90bb5d461c5078d00de2ce2993596b5cea55a774cd",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 55,
+      "python_syntax": null
+    },
+    {
       "path": "scripts/desktop/verify-signed-update.ps1",
       "kind": "text",
-      "bytes": 2489,
-      "sha256": "c5129268e471e4869d1c7819e8238676e5261ca4e157b9c1ada79d3ea032a7d7",
+      "bytes": 4438,
+      "sha256": "0f9e3e4522089d0d046e611aa5ec6dac589b2fcfc41fe6acd9069c3f7d267f8f",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8040,7 +8104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 33,
+      "lines": 71,
       "python_syntax": null
     },
     {

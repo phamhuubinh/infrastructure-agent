@@ -277,3 +277,9 @@
 - Với cấu hình emulator khác, form kết nối vẫn cần cuộn xuống sau khi nhập mã. Smoke chỉ chạm nút khi có vùng hiển thị. Khi DocumentsUI đã mở bộ nhớ nội bộ trước đó, bộ chọn dùng đúng hàng trong ngăn điều hướng thay vì tiêu đề trùng tên. Hai ca này có regression riêng cùng bốn ca ADB.
 
 - Worker CI trên `cf93a10` lộ lỗi WebSocket ngắt kết nối nhưng còn báo online. Tái hiện cục bộ với test API. Khi handler bị hủy lúc chờ heartbeat kết thúc, bước dọn phiên có thể bị bỏ qua. Đã dọn kết nối, quyền điều khiển và trạng thái pending trước khi chờ heartbeat. Ca hủy xác định cho kết quả FAIL trên mã cũ và PASS trên mã mới. Nhóm kiểm thử endpoint và Android smoke đạt cục bộ.
+
+### 2026-11-24 · PR #173 · Chứng chỉ Authenticode riêng cho Preview
+
+- Preview dùng `orion-desktop-signing`. Stable dùng environment riêng trên main. Runner xác minh public CER và PFX theo fingerprint SHA-256, ký có timestamp, xóa PFX/khóa đã import, rồi thử đúng NSIS với Authenticode, checksum và rollback. Trust của Preview chỉ được thêm tạm trên runner dùng một lần. Gate bảy job cùng SHA giữ nguyên.
+- Hướng dẫn tạo khóa, bảo vệ và sao lưu PFX, cấu hình GitHub, chạy lại release và bootstrap Windows nằm ở [quy trình ký Preview](PREVIEW_SIGNING.md). Kiểm bootstrap không chạy installer.
+- PASS cục bộ với chứng chỉ tạm: tạo và mở PFX, runner nhận đúng signer pin, từ chối fingerprint sai, PFX đưa nhầm vào luồng CER, NSIS chưa ký, sai checksum, phiên bản ngang bản đang có và trust Preview trên Stable. PowerShell, YAML và cú pháp Bash đạt. PENDING_MANUAL: cấu hình khóa thật của chủ repo, chạy Release kiểm NSIS đã ký trên runner và bootstrap trong cửa sổ bảo trì. Không chỉnh certificate store hoặc Host đang chạy trong phiên kiểm thử.

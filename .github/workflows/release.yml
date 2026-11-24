@@ -272,7 +272,7 @@ jobs:
     needs: desktop-ci-gate
     runs-on: windows-latest
     timeout-minutes: 40
-    environment: orion-desktop-signing
+    environment: ${{ github.event_name == 'push' && 'orion-desktop-signing' || 'orion-desktop-stable-signing' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
     env:
@@ -298,7 +298,10 @@ jobs:
           STABLE_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          [[ "$ORION_UPDATE_SIGNER_SHA256" =~ ^[[:xdigit:]]{64}$ ]]
+          if [[ ! "$ORION_UPDATE_SIGNER_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo '::error::Set ORION_UPDATE_SIGNER_SHA256 to the SHA-256 fingerprint in the signing environment.'
+            exit 1
+          fi
           base="$(python -c 'import ast; print(ast.literal_eval(open("backend/src/orion/_version.py").read().split("__version__ = ")[1].splitlines()[0]))')"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/orion-releases.json"
           args=()
@@ -314,6 +317,7 @@ jobs:
         shell: pwsh
         env:
           ORION_DESKTOP_VERSION: ${{ steps.version.outputs.version }}
+          ORION_PREVIEW_CERT_B64: ${{ vars.ORION_PREVIEW_CERT_B64 }}
           ORION_SIGNING_PFX_B64: ${{ secrets.ORION_SIGNING_PFX_B64 }}
           ORION_SIGNING_PFX_PASSWORD: ${{ secrets.ORION_SIGNING_PFX_PASSWORD }}
         run: ./scripts/desktop/verify-signed-update.ps1
