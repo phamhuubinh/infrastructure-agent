@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "ef6884748748de313928aa752015327fc6d99ca4",
+  "source_commit": "e856443cb433f2b593be1f98af0b7b2746a9587a",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -2958,8 +2958,8 @@
     {
       "path": "backend/tests/test_android_smoke.py",
       "kind": "text",
-      "bytes": 2868,
-      "sha256": "ba54281565aa92065a4f8f42bfdd1c46ea98b663dda83918bebfb6c42a4e8c47",
+      "bytes": 4278,
+      "sha256": "df70a7c177a59511cc77349a5cdc4c5b8fd6afcccc98602ff80aa2baa30d6397",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -2968,7 +2968,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 80,
+      "lines": 118,
       "python_syntax": "parsed"
     },
     {
@@ -7502,8 +7502,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 62743,
-      "sha256": "31dd74509c1af0afefa42a1ea678a002e63c2bcb71671d97c834fb33191c059c",
+      "bytes": 63320,
+      "sha256": "0526e957dab59ff97592cd95816c8c00e93e202bf97e68c4b25417642a3d735f",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7512,7 +7512,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 274,
+      "lines": 277,
       "python_syntax": null
     },
     {
@@ -7902,8 +7902,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 21693,
-      "sha256": "9e0dbae29eee7a3c5209b608d6f8c80cd7dbb71ca66f1d3da639f769a519dc0e",
+      "bytes": 22440,
+      "sha256": "1a45563af93063e0402dfa310cf88bda5ba5893997700fc34b271bf93967f4e8",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7912,7 +7912,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 548,
+      "lines": 574,
       "python_syntax": "parsed"
     },
     {
@@ -10385,7 +10385,7 @@
       "bytes": 1128,
       "sha256": "29125e83cdad7fae3a7024bc587e5591f4246ef04becba7d05e6a8e1dd118ab5",
       "group": "client",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
       "review_status": "unreviewed",
       "final_action": "",

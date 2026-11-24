@@ -272,3 +272,6 @@
 - Checkpoint `ef68847` qua Windows CI trên cả push và PR. Android đã qua luồng Chat, ngắt mạng, tiếp tục stream và đính kèm, sau đó không mở được menu để đăng xuất. Cả hai runner ghi ADB ở trạng thái `device` sau lỗi. Release gate chặn phát hành đúng SHA.
 - Tái hiện lỗi với APK cũ trên emulator API 35 ở 320×640, 160 dpi như GitHub. Android đặt nút Menu tại `[8,0][44,36]`, nên tâm chạm ở y=18 nằm dưới thanh trạng thái. Ảnh khi test hết thời gian xác nhận menu còn đóng và thanh hệ thống che phần đầu ứng dụng.
 - Điểm vào Android xử lý vùng thanh trạng thái, điều hướng và cutout bằng window insets. WebView nhận phần insets của bàn phím để tiếp tục co viewport. Smoke xác minh thanh bên thực sự mở trước khi chạm Sign out, rồi kiểm revocation như trước.
+
+- APK mới qua ca ABI x86_64 ở 320×640. Nút Menu mở thanh bên, Sign out thu hồi phiên fixture. GitHub Android push trên `e856443` cũng đạt toàn bộ bước, gồm file picker và đăng xuất.
+- Với cấu hình emulator khác, form kết nối vẫn cần cuộn xuống sau khi nhập mã. Smoke chỉ chạm nút khi có vùng hiển thị. Khi DocumentsUI đã mở bộ nhớ nội bộ trước đó, bộ chọn dùng đúng hàng trong ngăn điều hướng thay vì tiêu đề trùng tên. Hai ca này có regression riêng cùng bốn ca ADB.

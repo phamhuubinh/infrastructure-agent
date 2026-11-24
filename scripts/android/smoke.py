@@ -225,7 +225,12 @@ class Ui:
         return any(node.get(attr) == name for attr in ("text", "content-desc", "hint"))
 
     def find(
-        self, name: str, *, package: str = PACKAGE, clickable: bool = False
+        self,
+        name: str,
+        *,
+        package: str = PACKAGE,
+        clickable: bool = False,
+        resource_id: str | None = None,
     ) -> ET.Element:
         def probe() -> ET.Element | None:
             return next(
@@ -233,36 +238,70 @@ class Ui:
                     node
                     for node in self.nodes(package, clickable=clickable)
                     if self.label(node, name)
+                    and (resource_id is None or node.get("resource-id") == resource_id)
                 ),
                 None,
             )
 
         return until(f"accessibility node {name!r}", probe)
 
-    def tap(self, node: ET.Element) -> None:
+    @staticmethod
+    def center(node: ET.Element) -> tuple[int, int] | None:
         bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
         if not bounds:
-            raise RuntimeError("Accessibility node did not provide screen bounds")
+            return None
         left, top, right, bottom = map(int, bounds.groups())
         if right <= left or bottom <= top:
-            raise RuntimeError("Accessibility node is off-screen")
-        self.emulator.run(
-            "shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2)
-        )
+            return None
+        return (left + right) // 2, (top + bottom) // 2
 
-    def click(self, name: str) -> None:
-        self.tap(self.find(name))
+    def tap(self, node: ET.Element) -> None:
+        center = self.center(node)
+        if center is None:
+            raise RuntimeError("Accessibility node is off-screen")
+        self.emulator.run("shell", "input", "tap", *map(str, center))
+
+    def click(self, name: str, *, reveal: bool = False) -> None:
+        if not reveal:
+            self.tap(self.find(name))
+            return
+        size = self.screen_size()
+
+        def probe() -> ET.Element | None:
+            for node in self.nodes(PACKAGE, clickable=True):
+                if self.label(node, name) and self.center(node) is not None:
+                    return node
+            self.scroll_down(*size)
+            return None
+
+        self.tap(until(f"visible button {name!r}", probe))
+
+    def screen_size(self) -> tuple[int, int]:
+        dimensions = self.emulator.run("shell", "wm", "size")
+        sizes = re.findall(r"(\d+)x(\d+)", dimensions)
+        if not sizes:
+            raise RuntimeError("Android did not report its viewport")
+        width, height = map(int, sizes[-1])
+        return width, height
+
+    def scroll_down(self, width: int, height: int) -> None:
+        self.emulator.run(
+            "shell",
+            "input",
+            "swipe",
+            str(width // 2),
+            str(height * 3 // 4),
+            str(width // 2),
+            str(height // 3),
+            "350",
+        )
 
     def fill(
         self, name: str, value: str, *, index: int, check_keyboard: bool = False
     ) -> None:
         if self.keyboard_visible():
             self.emulator.run("shell", "input", "keyevent", "KEYCODE_BACK")
-        dimensions = self.emulator.run("shell", "wm", "size")
-        sizes = re.findall(r"(\d+)x(\d+)", dimensions)
-        if not sizes:
-            raise RuntimeError("Android did not report its viewport")
-        width, height = map(int, sizes[-1])
+        size = self.screen_size()
 
         def probe() -> ET.Element | None:
             edits = [
@@ -278,22 +317,9 @@ class Ui:
                 if len(edits) > index
                 else None
             )
-            if node is not None:
-                bounds = re.findall(r"\d+", node.get("bounds", ""))
-                if len(bounds) == 4:
-                    left, top, right, bottom = map(int, bounds)
-                    if right > left and bottom > top:
-                        return node
-            self.emulator.run(
-                "shell",
-                "input",
-                "swipe",
-                str(width // 2),
-                str(height * 3 // 4),
-                str(width // 2),
-                str(height // 3),
-                "350",
-            )
+            if node is not None and self.center(node) is not None:
+                return node
+            self.scroll_down(*size)
             return None
 
         self.tap(until(f"editable accessibility node {name!r}", probe))
@@ -326,7 +352,7 @@ def check_file_picker(ui: Ui, stack: ExitStack, directory: Path) -> None:
     # Browse the file we placed on disk directly. The Downloads provider can
     # lag behind the filesystem while it indexes a newly pushed fixture.
     device_name = ui.emulator.run("shell", "getprop", "ro.product.model").strip()
-    ui.tap(ui.find(device_name, package=documents))
+    ui.tap(ui.find(device_name, package=documents, resource_id="android:id/title"))
     ui.tap(ui.find("Download", package=documents))
     ui.tap(ui.find(name, package=documents))
     ui.find(name)
@@ -413,7 +439,7 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
         ui.click("Lưu server")
         ui.click("Mở Android fixture")
         ui.fill("Mã kết nối", code, index=2)
-        ui.click("Kết nối bằng mã")
+        ui.click("Kết nối bằng mã", reveal=True)
         until(
             "Android session in SQLite",
             lambda: True if native_sessions(database) == [("android", 0)] else None,
