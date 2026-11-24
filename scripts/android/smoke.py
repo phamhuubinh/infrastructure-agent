@@ -13,6 +13,7 @@ import re
 import runpy
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -42,6 +43,10 @@ FINAL_REPLY = FIRST_DELTA + "resumed."
 
 
 class StreamInterrupted(Exception):
+    pass
+
+
+class AdbConnectionError(RuntimeError):
     pass
 
 
@@ -91,8 +96,10 @@ class Emulator:
             raise ValueError("Select a disposable Android emulator by serial")
         self.command = [adb, "-s", serial]
 
-    def run(self, *args: str, timeout: int = 25) -> str:
-        result = subprocess.run(
+    def _call(
+        self, args: tuple[str, ...], timeout: int
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
             [*self.command, *args],
             check=False,
             capture_output=True,
@@ -100,10 +107,65 @@ class Emulator:
             errors="replace",
             timeout=timeout,
         )
-        if result.returncode:
-            operation = " ".join(args[:3])
-            raise RuntimeError(f"adb {operation} failed (exit {result.returncode})")
-        return result.stdout.strip()
+
+    def _wait_for_transport(self) -> bool:
+        for attempt in range(4):
+            try:
+                state = self._call(("get-state",), 3)
+            except subprocess.TimeoutExpired:
+                print("ADB state probe timed out", file=sys.stderr, flush=True)
+            else:
+                detail = (state.stderr or state.stdout).strip()
+                print(
+                    f"ADB state probe {attempt + 1}: {detail[:500]}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                if state.returncode == 0 and state.stdout.strip() == "device":
+                    return True
+            if attempt < 3:
+                time.sleep(1)
+        return False
+
+    def run(self, *args: str, timeout: int = 25, retry_safe: bool = False) -> str:
+        operation = " ".join(args[:3])
+        for attempt in range(2):
+            result = self._call(args, timeout)
+            if result.returncode == 0:
+                return result.stdout.strip()
+            detail = (result.stderr or result.stdout).strip()
+            message = f"adb {operation} failed (exit {result.returncode}): {detail[:1000] or '<no output>'}"
+            transport_error = re.search(
+                r"(?im)^(?:adb(?:\.exe)?: )?(?:error: )?(?:device (?:offline|not found)|"
+                r"device '[^']+' not found|no devices/emulators found|closed|"
+                r"connection reset|protocol fault|transport (?:error|closed)|cannot connect to daemon)",
+                detail,
+            )
+            # ADB can lose a shell channel without returning a diagnostic. Only
+            # a safe probe may recover from an otherwise unexplained exit 255.
+            if not transport_error and not (result.returncode == 255 and not detail):
+                raise RuntimeError(message)
+            if not retry_safe or attempt:
+                raise AdbConnectionError(message)
+            print(
+                f"{message}; checking emulator transport before one retry",
+                file=sys.stderr,
+                flush=True,
+            )
+            if not self._wait_for_transport():
+                raise AdbConnectionError(message)
+        raise AssertionError("unreachable ADB retry state")
+
+    def cleanup(self, stack: ExitStack, *args: str) -> None:
+        def cleanup_adb(_kind, original, _traceback) -> None:
+            try:
+                self.run(*args, timeout=8, retry_safe=True)
+            except (RuntimeError, subprocess.TimeoutExpired) as error:
+                if original is None:
+                    raise
+                print(f"ADB cleanup failed: {error}", file=sys.stderr, flush=True)
+
+        stack.push(cleanup_adb)
 
     def launch(self) -> None:
         result = self.run("shell", "am", "start", "-W", "-n", ACTIVITY)
@@ -136,12 +198,19 @@ class Ui:
 
     def nodes(self, package: str, *, clickable: bool = False) -> list[ET.Element]:
         try:
-            self.emulator.run("shell", "rm", "-f", self.dump_path)
+            self.emulator.run("shell", "rm", "-f", self.dump_path, retry_safe=True)
             self.emulator.run(
-                "shell", "uiautomator", "dump", self.dump_path, timeout=12
+                "shell",
+                "uiautomator",
+                "dump",
+                self.dump_path,
+                timeout=12,
+                retry_safe=True,
             )
-            raw = self.emulator.run("exec-out", "cat", self.dump_path)
+            raw = self.emulator.run("exec-out", "cat", self.dump_path, retry_safe=True)
             root = ET.fromstring(raw)
+        except AdbConnectionError:
+            raise
         except (RuntimeError, subprocess.TimeoutExpired, ET.ParseError):
             return []
         return [
@@ -240,7 +309,7 @@ class Ui:
 
     def keyboard_visible(self) -> bool:
         return "mInputShown=true" in self.emulator.run(
-            "shell", "dumpsys", "input_method"
+            "shell", "dumpsys", "input_method", retry_safe=True
         )
 
 
@@ -250,7 +319,7 @@ def check_file_picker(ui: Ui, stack: ExitStack, directory: Path) -> None:
     local.write_text("Orion Android document fixture.", encoding="utf-8")
     remote = f"/sdcard/Download/{name}"
     ui.emulator.run("push", str(local), remote)
-    stack.callback(ui.emulator.run, "shell", "rm", "-f", remote)
+    ui.emulator.cleanup(stack, "shell", "rm", "-f", remote)
     ui.tap(ui.find("Attach document", clickable=True))
     documents = "com.google.android.documentsui"
     ui.tap(ui.find("Show roots", package=documents))
@@ -332,11 +401,11 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
         )
         spec = f"tcp:{origin.rsplit(':', 1)[1]}"
         emulator.run("reverse", "--no-rebind", spec, spec)
-        stack.callback(emulator.run, "reverse", "--remove", spec)
+        emulator.cleanup(stack, "reverse", "--remove", spec)
         emulator.run("install", str(apk), timeout=120)
-        stack.callback(emulator.run, "uninstall", PACKAGE)
+        emulator.cleanup(stack, "uninstall", PACKAGE)
         ui = Ui(emulator)
-        stack.callback(emulator.run, "shell", "rm", "-f", ui.dump_path)
+        emulator.cleanup(stack, "shell", "rm", "-f", ui.dump_path)
         emulator.launch()
         ui.find("Kết nối server")
         ui.fill("Tên server", "Android fixture", index=0)

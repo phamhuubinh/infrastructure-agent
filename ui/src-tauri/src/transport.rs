@@ -13,6 +13,7 @@ use url::Url;
 use crate::managed::ManagedBackend;
 
 pub(crate) const OWNER_HEADER: &str = "x-orion-managed-token";
+#[cfg(any(test, all(windows, feature = "desktop")))]
 const UPDATE_HEADER: &str = "x-orion-local-maintenance";
 
 pub struct Request {
@@ -35,7 +36,7 @@ pub struct Transport {
 }
 
 impl Transport {
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "desktop"))]
     pub async fn update_health(&self, backend: &ManagedBackend) -> bool {
         let request = Request {
             url: format!("{}/api/health", backend.origin()),
@@ -50,7 +51,7 @@ impl Transport {
         matches!(checked, Ok(Some(value)) if value["identity"] == "orion" && value["status"] == "ok")
     }
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "desktop"))]
     pub async fn prepare_update(&self, backend: &ManagedBackend) -> io::Result<bool> {
         let mut token = HeaderValue::from_str(backend.owner_token()).map_err(|_| invalid_request())?;
         token.set_sensitive(true);

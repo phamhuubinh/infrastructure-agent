@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "8081357358e2f3d78f3e6aee3382616d4b49ac9a",
+  "source_commit": "4b4a4fc3dcbb7088e72084f4dea10ae2e5305195",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -62,8 +62,8 @@
     {
       "path": ".github/workflows/ci.yml",
       "kind": "text",
-      "bytes": 10665,
-      "sha256": "2c5980fce4d4f3281d2fc97b0a85f984fb5070d177ec4c5024173612c5e01adc",
+      "bytes": 12065,
+      "sha256": "47c5176b7dcee1fa21dbff3fd292c3def2709ee2e97eb03e81ffd47e22062adb",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -72,7 +72,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 231,
+      "lines": 258,
       "python_syntax": null
     },
     {
@@ -94,8 +94,8 @@
     {
       "path": ".github/workflows/windows.yml",
       "kind": "text",
-      "bytes": 13568,
-      "sha256": "7122f6742d98550b3622fad570a3c280563308e2441fa072b11b4cc657c83778",
+      "bytes": 13697,
+      "sha256": "73ddc42c4fa6e4bc7d768c98ee32594a6a542fa01a258d24412ddc95ece53d38",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -104,7 +104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 254,
+      "lines": 256,
       "python_syntax": null
     },
     {
@@ -2953,6 +2953,22 @@
       "replacement_or_callers": "DeepSeek and Claude native fixture suites; production modules never import test code.",
       "verification": "Semantic source/callers/evidence review; R05_CLAUDE_CHECKS351pass1POSIXskip; audit13pass; lint/format/mypy13/architecture/OpenAPI0, source unchanged. No live/native-app/signing acceptance.",
       "lines": 25,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "backend/tests/test_android_smoke.py",
+      "kind": "text",
+      "bytes": 2868,
+      "sha256": "ba54281565aa92065a4f8f42bfdd1c46ea98b663dda83918bebfb6c42a4e8c47",
+      "group": "backend-tests",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 80,
       "python_syntax": "parsed"
     },
     {
@@ -7486,8 +7502,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 60478,
-      "sha256": "331e2e81666aea4a94a84803db831c45c5381a2632dd821ea8f9153211dc548f",
+      "bytes": 61747,
+      "sha256": "44397c47f8f77bf58d5577eed016643e0b602d4e0f8cdb1b54fc2e194d40a6ce",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7496,7 +7512,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 262,
+      "lines": 268,
       "python_syntax": null
     },
     {
@@ -7886,8 +7902,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 18792,
-      "sha256": "cd1a4bad8bb3c07672d1c271f407f0cf708ac31c3e7a4b3a78bc1888a4de9f09",
+      "bytes": 21655,
+      "sha256": "bd61bb6c40991520f8617bee9f0d4ed58ed59ff1a1e44db266b07d637f3de1bb",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7896,7 +7912,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 478,
+      "lines": 547,
       "python_syntax": "parsed"
     },
     {
@@ -10558,8 +10574,8 @@
     {
       "path": "ui/src-tauri/src/transport.rs",
       "kind": "text",
-      "bytes": 13352,
-      "sha256": "2a8702b76cf7b307929d51cd842315b392535576144e36f52cbcc701d23a867c",
+      "bytes": 13457,
+      "sha256": "0634a41ec6fa5f21b5a19b22d7a424463ebc2dd15fa34f6599259e33bb5761e0",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10568,7 +10584,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 357,
+      "lines": 358,
       "python_syntax": null
     },
     {
