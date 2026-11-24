@@ -190,6 +190,36 @@ def connection(manager: EndpointManager, target: str, *, reply: bool = True) -> 
     return socket
 
 
+def test_worker_disconnect_clears_online_state_even_if_handler_is_cancelled(
+    identities: EndpointStore,
+) -> None:
+    class DisconnectingSocket(FakeSocket):
+        async def accept(self) -> None:
+            pass
+
+        async def receive_text(self) -> str:
+            if not self.messages:
+                return Hello(
+                    platform="linux", worker_version="test", capabilities=["system.inspect"]
+                ).model_dump_json()
+            handler = asyncio.current_task()
+            assert handler is not None
+            handler.cancel()
+            raise WebSocketDisconnect()
+
+    async def scenario() -> None:
+        target = paired(identities)["endpoint_id"]
+        manager = EndpointManager(identities)
+        socket = DisconnectingSocket()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.create_task(manager.attach(target, socket))  # type: ignore[arg-type]
+        assert manager.command_connection(target) is None
+        assert manager.list()[0]["last_category"] == "disconnected"
+        assert not manager.list()[0]["online"]
+
+    asyncio.run(scenario())
+
+
 def test_dispatch_scope_cancellation_disconnect_uncertainty_and_shutdown(
     identities: EndpointStore,
 ) -> None:

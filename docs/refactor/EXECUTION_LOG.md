@@ -275,3 +275,5 @@
 
 - APK mới qua ca ABI x86_64 ở 320×640. Nút Menu mở thanh bên, Sign out thu hồi phiên fixture. GitHub Android push trên `e856443` cũng đạt toàn bộ bước, gồm file picker và đăng xuất.
 - Với cấu hình emulator khác, form kết nối vẫn cần cuộn xuống sau khi nhập mã. Smoke chỉ chạm nút khi có vùng hiển thị. Khi DocumentsUI đã mở bộ nhớ nội bộ trước đó, bộ chọn dùng đúng hàng trong ngăn điều hướng thay vì tiêu đề trùng tên. Hai ca này có regression riêng cùng bốn ca ADB.
+
+- Worker CI trên `cf93a10` lộ lỗi WebSocket ngắt kết nối nhưng còn báo online. Tái hiện cục bộ với test API. Khi handler bị hủy lúc chờ heartbeat kết thúc, bước dọn phiên có thể bị bỏ qua. Đã dọn kết nối, quyền điều khiển và trạng thái pending trước khi chờ heartbeat. Ca hủy xác định cho kết quả FAIL trên mã cũ và PASS trên mã mới. Nhóm kiểm thử endpoint và Android smoke đạt cục bộ.
