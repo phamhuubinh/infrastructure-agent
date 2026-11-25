@@ -5,27 +5,34 @@ on:
     branches: [main, 'codex/orion-r16-r18', 'codex/orion-windows-acceptance']
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/windows.yml'
-      - '.github/workflows/release.yml'
-      - 'install.ps1'
-      - 'backend/**'
-      - 'worker/**'
-      - 'scripts/worker/**'
-      - 'ui/**'
-      - 'scripts/windows/**'
-      - 'scripts/desktop/**'
-      - 'scripts/release/**'
-      - 'scripts/refactor/**'
-      - '.python-version'
-      - '.node-version'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 46
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      windows-smoke: ${{ steps.select.outputs['windows-smoke'] }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select jobs from verified push evidence
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/ci_evidence.py windows.yml
+
   windows-smoke:
+    needs: plan
+    if: needs.plan.outputs['windows-smoke'] == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:

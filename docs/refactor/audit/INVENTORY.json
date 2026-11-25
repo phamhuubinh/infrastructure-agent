@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "1a49f0fa748f64a239123bcdcfe0bd183f8d80f5",
+  "source_commit": "864eda64a3c446383084a363118653df0e628485",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -62,8 +62,8 @@
     {
       "path": ".github/workflows/ci.yml",
       "kind": "text",
-      "bytes": 12444,
-      "sha256": "2958b46ca6bee67549c771e9b28965e58b7b749d73f21a8caa4c7c7b30b8b430",
+      "bytes": 13595,
+      "sha256": "13103550b806d38c9ed4707c63f6a4849e8b99574fd213f438ac8b1dc2f01570",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -72,14 +72,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 264,
+      "lines": 299,
       "python_syntax": null
     },
     {
       "path": ".github/workflows/release.yml",
       "kind": "text",
-      "bytes": 17174,
-      "sha256": "7a8e2dff2d2fe39f025349ebec110035ba56a02dbe849ee501a932d4b527f5d3",
+      "bytes": 17209,
+      "sha256": "f4b5c41801db1b4b691acad91dcb206efe36950de1754777addb72ec2bab053b",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -88,14 +88,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 401,
+      "lines": 418,
       "python_syntax": null
     },
     {
       "path": ".github/workflows/windows.yml",
       "kind": "text",
-      "bytes": 13697,
-      "sha256": "73ddc42c4fa6e4bc7d768c98ee32594a6a542fa01a258d24412ddc95ece53d38",
+      "bytes": 13916,
+      "sha256": "2adbad3bb3204ff9a958491a33cc11f96acbcce18552a7e5b45ea2dfe3de9569",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -104,7 +104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 256,
+      "lines": 263,
       "python_syntax": null
     },
     {
@@ -3084,6 +3084,22 @@
       "python_syntax": "parsed"
     },
     {
+      "path": "backend/tests/test_ci_evidence.py",
+      "kind": "text",
+      "bytes": 4373,
+      "sha256": "374732ba1228f21735e77b38d92077f911765e4de3a60c54a9ef80deb3374fc6",
+      "group": "backend-tests",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 122,
+      "python_syntax": "parsed"
+    },
+    {
       "path": "backend/tests/test_citation_aliases.py",
       "kind": "text",
       "bytes": 5249,
@@ -4830,8 +4846,8 @@
     {
       "path": "backend/tests/test_update_rollback.py",
       "kind": "text",
-      "bytes": 3983,
-      "sha256": "88c85725c1d23b3e39b5c341cfa59319d1bf080065fbbbf812c951ff008d9104",
+      "bytes": 5424,
+      "sha256": "9969c7a10bd2eb9888b4e785aabd89beffbe4e29a40e1a7c4d3719635e50bcec",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -4840,7 +4856,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 94,
+      "lines": 129,
       "python_syntax": "parsed"
     },
     {
@@ -6009,6 +6025,22 @@
       "replacement_or_callers": "Developer workflow and STATE; no scheduler automation created.",
       "verification": "Read full file and identified callers/contract impact in R01 session; see docs/refactor/evidence/R01_SESSION_2026-10-29.md. Tests only where specified in R01_CHECKS_2026-10-29.json; future rewrite/removal is not claimed complete.",
       "lines": 58,
+      "python_syntax": null
+    },
+    {
+      "path": "docs/refactor/CI_EVIDENCE.md",
+      "kind": "text",
+      "bytes": 2406,
+      "sha256": "9556a5ec7fc348081cd19a35be47df3d1d955868b6b9920b733343145c387cf3",
+      "group": "documentation",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 18,
       "python_syntax": null
     },
     {
@@ -7502,8 +7534,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 67675,
-      "sha256": "8952e61eae1c3912231af9ce42f3f51da619fdcf9af46c2bc47ed5b578b44485",
+      "bytes": 69315,
+      "sha256": "0885a139b3dbd699604b9b4cd4f6d0738ae7e381ce268517a193d8b0cedec47d",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7512,7 +7544,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 297,
+      "lines": 304,
       "python_syntax": null
     },
     {
@@ -8046,8 +8078,8 @@
     {
       "path": "scripts/desktop/signed_update_fixture.py",
       "kind": "text",
-      "bytes": 2459,
-      "sha256": "948b2db4798d6c7c8cc9b9fa519b7b7f532f5b44d362910b19f23d0be0418a97",
+      "bytes": 4913,
+      "sha256": "45e736f985e7929808448b00079523bcafbd3297afc0aaa9ba3bcb9d06713421",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8056,7 +8088,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 63,
+      "lines": 131,
       "python_syntax": "parsed"
     },
     {
@@ -8553,6 +8585,22 @@
       "replacement_or_callers": "Refactor tooling unittest suite.",
       "verification": "Windows refactor tool tests passed.",
       "lines": 268,
+      "python_syntax": "parsed"
+    },
+    {
+      "path": "scripts/release/ci_evidence.py",
+      "kind": "text",
+      "bytes": 9642,
+      "sha256": "efca2ba5bcf4e242b033b7f5beb5c874b90aa0f8fa6c977d6858e6fa5dc8450b",
+      "group": "tooling-qa",
+      "git_state": "local",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 271,
       "python_syntax": "parsed"
     },
     {

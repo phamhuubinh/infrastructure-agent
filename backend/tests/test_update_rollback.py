@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import runpy
 import secrets
 import sys
@@ -11,14 +12,48 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from orion.access.owner import OwnerAuth, totp_code
-from orion.cli.upgrade_snapshot import check_database, copy_checked, restore_folders
+from orion.api.app import create_app
+from orion.cli.upgrade_snapshot import check_database, copy_checked, inventory, restore_folders
 from orion.models.credential_store import ProtectedFileCredentialStore
 from orion.persistence.sqlite import SQLiteStore
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows DPAPI release fixture")
+@pytest.mark.parametrize("rollback", [False, True], ids=["startup", "rollback"])
+def test_release_fixture_survives_managed_startup_and_rollback(tmp_path, rollback):
+    fixture = runpy.run_path(str(ROOT / "scripts/desktop/signed_update_fixture.py"))
+    live = tmp_path / "managed"
+    fixture["seed_fixture"](live)
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    copy_checked(live, snapshot / "managed")
+    (snapshot / "manifest.json").write_text(
+        json.dumps(
+            {"database_tables": check_database(live / "orion.db"), "files": inventory(snapshot)}
+        ),
+        encoding="utf-8",
+    )
+    if rollback:
+        (live / "orion.db").write_bytes(b"injected failure")
+        restore_folders(((snapshot / "managed", live),))
+    with TestClient(
+        create_app(live / "orion.db", managed_desktop=True, update_pending=True)
+    ) as client:
+        assert client.get("/api/health").status_code == 200
+    fixture["verify_fixture"](live, snapshot)
+    store = SQLiteStore(live / "orion.db")
+    try:
+        store.create_project("Unexpected project mutation")
+    finally:
+        store.close()
+    with pytest.raises(RuntimeError, match=r"changed=\['projects'\]"):
+        fixture["verify_fixture"](live, snapshot)
 
 
 def test_versions_are_increasing_across_stable_and_preview():

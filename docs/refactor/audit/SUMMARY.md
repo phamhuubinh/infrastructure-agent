@@ -1,8 +1,8 @@
 # Repository inventory
 
-Source commit: 1a49f0fa748f64a239123bcdcfe0bd183f8d80f5
+Source commit: 864eda64a3c446383084a363118653df0e628485
 
-Project files enumerated: **677**. Read errors: **0**.
+Project files enumerated: **680**. Read errors: **0**.
 All ordinary file bytes were hashed; UTF-8 text was decoded and Python text parsed as AST.
 Private data is metadata-only; symlinks are listed but not followed.
 Git internals and the three derived audit ledgers are excluded explicitly.
@@ -18,22 +18,22 @@ Preserved removed/moved file records: 23; undocumented removals: 0.
 | Group | Files |
 | --- | --- |
 | backend | 122 |
-| backend-tests | 124 |
+| backend-tests | 125 |
 | backend-tooling | 11 |
 | ci-release | 4 |
 | client | 115 |
-| documentation | 183 |
+| documentation | 184 |
 | providers | 18 |
 | root-configuration | 21 |
 | skills | 6 |
-| tooling-qa | 59 |
+| tooling-qa | 60 |
 | worker | 12 |
 | worker-packaging | 2 |
 
 ## Inspection kinds
 
 - binary_hashed: 7
-- text: 670
+- text: 673
 
 Refresh after edits with --write; --check detects uncovered/stale files.
 Refreshing preserves reviewed decisions only while the file hash is unchanged.
