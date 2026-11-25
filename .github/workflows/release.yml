@@ -1,9 +1,6 @@
 name: Release bundles
 
 on:
-  push:
-    branches: ['codex/orion-r16-r18', 'codex/orion-r26-systemd']
-    paths: ['.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
       version:
@@ -71,7 +68,7 @@ jobs:
         run: |
           version="$(python -c 'import ast; print(ast.literal_eval(open("backend/src/orion/_version.py").read().split("__version__ = ")[1].splitlines()[0]))')"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([a-z][0-9]+)?$ ]] || exit 1
-          [[ "$GITHUB_EVENT_NAME" == push || "$version" == "$REQUESTED_VERSION" ]] || {
+          [[ "$version" == "$REQUESTED_VERSION" ]] || {
             echo 'Requested release version differs from the authoritative version source.' >&2
             exit 1
           }
