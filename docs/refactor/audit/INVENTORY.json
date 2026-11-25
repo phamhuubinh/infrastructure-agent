@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "864eda64a3c446383084a363118653df0e628485",
+  "source_commit": "d478573116deaea9f834718c65eb2ae46a546156",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -62,8 +62,8 @@
     {
       "path": ".github/workflows/ci.yml",
       "kind": "text",
-      "bytes": 13595,
-      "sha256": "13103550b806d38c9ed4707c63f6a4849e8b99574fd213f438ac8b1dc2f01570",
+      "bytes": 12313,
+      "sha256": "d194ebf614f44eed12589a2e24ebbe49c06fc0053481915b0dc0fc61be147824",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -72,14 +72,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 299,
+      "lines": 260,
       "python_syntax": null
     },
     {
       "path": ".github/workflows/release.yml",
       "kind": "text",
-      "bytes": 17209,
-      "sha256": "f4b5c41801db1b4b691acad91dcb206efe36950de1754777addb72ec2bab053b",
+      "bytes": 13953,
+      "sha256": "b36d1233a29bfffc52b624b5f2339718a8b3d44d72baf01c602b74f1a95b4d89",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -88,14 +88,14 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 418,
+      "lines": 345,
       "python_syntax": null
     },
     {
       "path": ".github/workflows/windows.yml",
       "kind": "text",
-      "bytes": 13916,
-      "sha256": "2adbad3bb3204ff9a958491a33cc11f96acbcce18552a7e5b45ea2dfe3de9569",
+      "bytes": 13191,
+      "sha256": "ae485bc565a73c23795a4a799289b561e301ae8f29334d0fee28d7867c8357b6",
       "group": "ci-release",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -104,7 +104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 263,
+      "lines": 238,
       "python_syntax": null
     },
     {
@@ -3086,17 +3086,17 @@
     {
       "path": "backend/tests/test_ci_evidence.py",
       "kind": "text",
-      "bytes": 4373,
-      "sha256": "374732ba1228f21735e77b38d92077f911765e4de3a60c54a9ef80deb3374fc6",
+      "bytes": 1200,
+      "sha256": "b66341e2d3ee854991c7f37aa8f62b69dbfe3a2e0e397a39369dd311d8093ce8",
       "group": "backend-tests",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 122,
+      "lines": 35,
       "python_syntax": "parsed"
     },
     {
@@ -6030,17 +6030,17 @@
     {
       "path": "docs/refactor/CI_EVIDENCE.md",
       "kind": "text",
-      "bytes": 2406,
-      "sha256": "9556a5ec7fc348081cd19a35be47df3d1d955868b6b9920b733343145c387cf3",
+      "bytes": 1366,
+      "sha256": "ad9871a4136fae9e4066dfb633281c4d956ffea471e0c14a1aba57f54c3b154b",
       "group": "documentation",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 18,
+      "lines": 13,
       "python_syntax": null
     },
     {
@@ -7582,8 +7582,8 @@
     {
       "path": "docs/refactor/PREVIEW_SIGNING.md",
       "kind": "text",
-      "bytes": 7974,
-      "sha256": "e0a44c250ce5a185d15ddd5f03e6162875daae822d028de16706a5748d41ed5c",
+      "bytes": 5396,
+      "sha256": "dd31dedce7cdd728c4dbaad8fb734781518f5a41e497c1af180b13ef3f816433",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7592,7 +7592,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 64,
+      "lines": 54,
       "python_syntax": null
     },
     {
@@ -7694,8 +7694,8 @@
     {
       "path": "docs/refactor/UPGRADE_8EB4AD2.md",
       "kind": "text",
-      "bytes": 7452,
-      "sha256": "8a319e25e7208ab983417e66861a90a664eab6c0835498eccc978240af977f59",
+      "bytes": 6597,
+      "sha256": "cd28be5c9a8720e5360119cc6f8bcf2e5de966532bb28a9a610762385aa42280",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7704,23 +7704,23 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 45,
+      "lines": 44,
       "python_syntax": null
     },
     {
       "path": "docs/refactor/WORK_PLAN.md",
       "kind": "text",
-      "bytes": 10032,
-      "sha256": "6cca657451ae0a2c0dbab6621cbe8d93e75b53f3221e752febe3b16bab77a1b7",
+      "bytes": 10185,
+      "sha256": "93d103ce7b00d9fa4d729f0d5e16da3d6c77168c493e3010f87faa987580ac06",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "reviewed",
-      "final_action": "keep",
-      "reason": "Task separation preserves source/fixture versus native/live/signing evidence.",
-      "replacement_or_callers": "STATE graph and plan.py; R01 remains partial.",
-      "verification": "Read full file and identified callers/contract impact in R01 session; see docs/refactor/evidence/R01_SESSION_2026-10-29.md. Tests only where specified in R01_CHECKS_2026-10-29.json; future rewrite/removal is not claimed complete.",
-      "lines": 191,
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 193,
       "python_syntax": null
     },
     {
@@ -7918,8 +7918,8 @@
     {
       "path": "README.md",
       "kind": "text",
-      "bytes": 6130,
-      "sha256": "ec83a06276ae99bcaa987b70088ce123e2805993641b6a774e99322328e1183b",
+      "bytes": 6296,
+      "sha256": "983c04888725f6b9726169e3082321fe502c7dc8ce97151af17542e5bd2173d5",
       "group": "root-configuration",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7928,7 +7928,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 123,
+      "lines": 125,
       "python_syntax": null
     },
     {
@@ -7966,8 +7966,8 @@
     {
       "path": "scripts/desktop/build-update.ps1",
       "kind": "text",
-      "bytes": 1872,
-      "sha256": "f77dda0aa01cdb352ac57244e149d658aec2cb256c9da0f23efb4cfe2c5ff4d1",
+      "bytes": 3272,
+      "sha256": "2e59bde3877018d9064ebe47e445ae3c06238e3946b1d5211ba92a7097124958",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7976,7 +7976,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 29,
+      "lines": 61,
       "python_syntax": null
     },
     {
@@ -7998,8 +7998,8 @@
     {
       "path": "scripts/desktop/exercise-signed-update.ps1",
       "kind": "text",
-      "bytes": 3621,
-      "sha256": "03d5809208e412bf21befd309e37719d9c6304e663b470adfc46606acddc6bd4",
+      "bytes": 5640,
+      "sha256": "7ff0939f499b72ee62aaab0a27ce021f6d6ce43e513205608dd2c79ff9365950",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8008,7 +8008,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 59,
+      "lines": 101,
       "python_syntax": null
     },
     {
@@ -8060,6 +8060,22 @@
       "python_syntax": null
     },
     {
+      "path": "scripts/desktop/publish-preview.ps1",
+      "kind": "text",
+      "bytes": 3747,
+      "sha256": "26d96c77f03180f8f0c85448d3e46b7ead2764e8dffe7e9104d11dfaf3b484e4",
+      "group": "tooling-qa",
+      "git_state": "tracked",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 65,
+      "python_syntax": null
+    },
+    {
       "path": "scripts/desktop/sidecar_entry.py",
       "kind": "text",
       "bytes": 566,
@@ -8076,10 +8092,10 @@
       "python_syntax": "parsed"
     },
     {
-      "path": "scripts/desktop/signed_update_fixture.py",
+      "path": "scripts/desktop/sign-preview.ps1",
       "kind": "text",
-      "bytes": 4913,
-      "sha256": "45e736f985e7929808448b00079523bcafbd3297afc0aaa9ba3bcb9d06713421",
+      "bytes": 2465,
+      "sha256": "5a3cf644cf862502844344dded18bd42946c0dfc7803982b5f1826cb1a8b078a",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8088,7 +8104,23 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 131,
+      "lines": 47,
+      "python_syntax": null
+    },
+    {
+      "path": "scripts/desktop/signed_update_fixture.py",
+      "kind": "text",
+      "bytes": 5252,
+      "sha256": "e9a044b1bd2dc801937d7577edaeb5cf7e20a3733dcf0c21cea612f895d165f8",
+      "group": "tooling-qa",
+      "git_state": "tracked",
+      "candidate": "review_against_clean_slate_design",
+      "review_status": "unreviewed",
+      "final_action": "",
+      "reason": "",
+      "replacement_or_callers": "",
+      "verification": "",
+      "lines": 139,
       "python_syntax": "parsed"
     },
     {
@@ -8590,17 +8622,17 @@
     {
       "path": "scripts/release/ci_evidence.py",
       "kind": "text",
-      "bytes": 9642,
-      "sha256": "efca2ba5bcf4e242b033b7f5beb5c874b90aa0f8fa6c977d6858e6fa5dc8450b",
+      "bytes": 2178,
+      "sha256": "bf352335816a16c99c6b4f9dbaf1359f0d625b4f75c936aad80edc414ebd787a",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 271,
+      "lines": 65,
       "python_syntax": "parsed"
     },
     {

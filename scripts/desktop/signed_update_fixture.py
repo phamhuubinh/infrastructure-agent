@@ -126,6 +126,11 @@ def main() -> None:
         snapshot = Path(receipt["snapshot"])
         verify_fixture(root, snapshot)
         verify_host_settings(snapshot)
+        installation = Path(os.environ["LOCALAPPDATA"]) / "Orion"
+        if inventory(installation) != inventory(snapshot / "installed"):
+            raise RuntimeError(
+                "The fixture installation files differ from the snapshot"
+            )
     else:
         seed_fixture(root)
 

@@ -113,6 +113,8 @@ network; a browser alone cannot grant Orion access to that browser's host OS.
 See [Quickstart](docs/QUICKSTART.md), [Testing](docs/development/TESTING.md) and
 [Remote Access](docs/operations/REMOTE_ACCESS.md).
 
+Publish personal Windows Preview builds using the [local release runbook](docs/refactor/PREVIEW_SIGNING.md) and [focused test matrix](docs/refactor/CI_EVIDENCE.md).
+
 ## Documentation authority
 
 Current user instructions take precedence. ADR 0016 and the consolidated baseline

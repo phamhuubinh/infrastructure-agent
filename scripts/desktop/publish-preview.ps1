@@ -43,6 +43,23 @@ foreach ($tag in $tags) {
     }
 }
 if ($candidate -le $floor) { throw "Preview must exceed the current release version floor $floor." }
-gh release create "orion-preview-v$($build.version)" $installer $checksums --repo $Repository --target $build.source `
+$tag = "orion-preview-v$($build.version)"
+$ref = "refs/tags/$tag"
+$refs = gh api "repos/$Repository/git/matching-refs/tags/$tag" | ConvertFrom-Json
+$existing = $refs | Where-Object ref -CEQ $ref
+if (!$existing) {
+    $null = gh api --method POST "repos/$Repository/git/refs" -f "ref=$ref" -f "sha=$($build.source)"
+} elseif ($existing.object.type -ne 'commit' -or $existing.object.sha -cne $build.source) {
+    throw 'The existing Preview tag points to a different source.'
+}
+gh release create $tag $installer $checksums --repo $Repository --verify-tag `
     --prerelease --latest=false --title "Orion Preview $($build.version)" `
     --notes "Windows x64 NSIS built and signed locally from $($build.source). Isolated install and rollback verified. SHA-256 $($result.sha256)."
+
+$release = gh api "repos/$Repository/releases/tags/$tag" | ConvertFrom-Json
+$remoteInstaller = $release.assets | Where-Object name -CEQ $name
+if ($release.draft -or !$release.prerelease -or $release.assets.Count -ne 2 -or
+    !($release.assets | Where-Object name -CEQ 'DESKTOP-SHA256SUMS') -or
+    $remoteInstaller.digest -cne "sha256:$($result.sha256)") {
+    throw 'GitHub did not report the expected Preview assets and SHA-256.'
+}
