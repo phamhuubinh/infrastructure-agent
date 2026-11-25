@@ -115,7 +115,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify-receipt", type=Path)
     args = parser.parse_args()
-    if os.getenv("RUNNER_ENVIRONMENT") != "github-hosted":
+    if (
+        os.getenv("RUNNER_ENVIRONMENT") != "github-hosted"
+        and os.getenv("ORION_DISPOSABLE_UPDATE_FIXTURE") != "1"
+    ):
         raise SystemExit("Synthetic release fixture requires a disposable runner.")
     root = Path(os.environ["LOCALAPPDATA"]) / "io.orion.desktop/managed"
     if args.verify_receipt:

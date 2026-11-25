@@ -1,8 +1,6 @@
 name: Release bundles
 
 on:
-  push:
-    branches: ['codex/orion-windows-acceptance']
   workflow_dispatch:
     inputs:
       version:
@@ -76,7 +74,7 @@ jobs:
         run: |
           version="$(python -c 'import ast; print(ast.literal_eval(open("backend/src/orion/_version.py").read().split("__version__ = ")[1].splitlines()[0]))')"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([a-z][0-9]+)?$ ]] || exit 1
-          [[ "$GITHUB_EVENT_NAME" == push || "$version" == "$REQUESTED_VERSION" ]] || {
+          [[ "$version" == "$REQUESTED_VERSION" ]] || {
             echo 'Requested release version differs from the authoritative version source.' >&2
             exit 1
           }
@@ -223,45 +221,8 @@ jobs:
           python "$env:GITHUB_WORKSPACE/scripts/release/smoke.py" (Join-Path $env:RUNNER_TEMP $name) windows-x64
           if ($LASTEXITCODE -ne 0) { throw 'Release Windows smoke failed' }
 
-  windows-preview-gate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/orion-windows-acceptance'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 46
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      package: ${{ steps.evidence.outputs.package }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify required platform evidence
-        id: evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/release/ci_evidence.py preview-windows
-
-  mobile-preview-gate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/orion-windows-acceptance'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 46
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify required platform evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/release/ci_evidence.py preview-mobile
-
   stable-ci-gate:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 46
     permissions:
@@ -270,31 +231,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - name: Verify required platform evidence
+      - name: Check manually dispatched CI for this Stable commit
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/release/ci_evidence.py stable
+        run: python3 scripts/release/ci_evidence.py
 
   windows-updater:
-    needs: [windows-preview-gate, mobile-preview-gate, stable-ci-gate]
-    if: >-
-      always() && !cancelled() &&
-      ((github.event_name == 'push' &&
-        needs.windows-preview-gate.result == 'success' &&
-        needs.windows-preview-gate.outputs.package == 'true' &&
-        needs.mobile-preview-gate.result == 'success') ||
-       (github.event_name == 'workflow_dispatch' &&
-        needs.stable-ci-gate.result == 'success'))
+    needs: stable-ci-gate
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 40
-    environment: ${{ github.event_name == 'push' && 'orion-desktop-signing' || 'orion-desktop-stable-signing' }}
+    environment: orion-desktop-stable-signing
     outputs:
       version: ${{ steps.version.outputs.version }}
     env:
       ORION_UPDATE_SIGNER_SHA256: ${{ vars.ORION_UPDATE_SIGNER_SHA256 }}
-      ORION_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'preview' || 'stable' }}
+      ORION_RELEASE_CHANNEL: stable
     steps:
       - uses: actions/checkout@v4
         with:
@@ -321,9 +274,7 @@ jobs:
           fi
           base="$(python -c 'import ast; print(ast.literal_eval(open("backend/src/orion/_version.py").read().split("__version__ = ")[1].splitlines()[0]))')"
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/orion-releases.json"
-          args=()
-          if [[ "$ORION_RELEASE_CHANNEL" == stable ]]; then args=(--stable "$STABLE_VERSION"); fi
-          version="$(python scripts/release/desktop_version.py "$base" "$RUNNER_TEMP/orion-releases.json" "${args[@]}")"
+          version="$(python scripts/release/desktop_version.py "$base" "$RUNNER_TEMP/orion-releases.json" --stable "$STABLE_VERSION")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Build exact Windows NSIS and bundled Worker
         shell: pwsh
@@ -334,7 +285,6 @@ jobs:
         shell: pwsh
         env:
           ORION_DESKTOP_VERSION: ${{ steps.version.outputs.version }}
-          ORION_PREVIEW_CERT_B64: ${{ vars.ORION_PREVIEW_CERT_B64 }}
           ORION_SIGNING_PFX_B64: ${{ secrets.ORION_SIGNING_PFX_B64 }}
           ORION_SIGNING_PFX_PASSWORD: ${{ secrets.ORION_SIGNING_PFX_PASSWORD }}
         run: ./scripts/desktop/verify-signed-update.ps1
@@ -343,29 +293,6 @@ jobs:
           name: signed-windows-update
           path: release-work/desktop-update/*
           if-no-files-found: error
-
-  publish-preview:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/orion-windows-acceptance'
-    needs: windows-updater
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: signed-windows-update
-          path: release
-      - name: Publish verified Preview from the development branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.windows-updater.outputs.version }}
-        run: |
-          set -euo pipefail
-          (cd release && sha256sum -c DESKTOP-SHA256SUMS)
-          tag="orion-preview-v$VERSION"
-          gh release create "$tag" release/* --target "$GITHUB_SHA" --prerelease \
-            --latest=false --title "Orion Preview $VERSION" --notes "Verified Windows update from $GITHUB_SHA."
 
   publish:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

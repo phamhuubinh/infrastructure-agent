@@ -1,64 +1,54 @@
-# Ký và cài bootstrap Orion Preview
+# Phát hành Orion Preview trên Windows
 
-Dùng chứng chỉ Authenticode tự ký dành riêng cho Orion Preview khi cập nhật các máy Windows của mình. Chứng chỉ chỉ có quyền ký mã, hết hạn sau hai năm và không cấp chứng chỉ khác. Mỗi máy xác minh SHA-256 của chứng chỉ từ bản gốc do chủ khóa giữ rồi tin cậy bản `.cer` cho đúng tài khoản Windows dùng Orion. Windows xác minh Authenticode và Orion kiểm tra thêm fingerprint đã đóng vào ứng dụng, SHA-256 của NSIS và phiên bản. SmartScreen có thể vẫn báo ứng dụng mới. Nếu chính sách máy chặn bộ cài, dừng và kiểm tra chính sách với người quản trị máy. [Microsoft SignTool](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
+Preview được build, ký và nghiệm thu trên máy local. GitHub Release lưu đúng bộ NSIS đã qua nghiệm thu cùng tệp SHA-256. Bản Preview dùng tag `orion-preview-vX.Y.Z`, được đánh dấu prerelease và dùng chung thứ tự phiên bản tăng dần với Stable. Phiên bản của bộ cài mới phải cao hơn phiên bản nguồn và mọi bản Windows đã phát hành. Bootstrap cho nguồn `0.1.5` là Orion Preview `0.1.6`.
 
-## Tạo và cất khóa một lần
+## Build từ commit sạch
 
-Tại thư mục repo đã đối chiếu với PR #173, chạy bằng PowerShell 7 dưới tài khoản Windows của người giữ khóa. Dùng mật khẩu mới do trình quản lý mật khẩu tạo, ít nhất 24 ký tự. Lưu lại đường dẫn `$keys` từ buổi thiết lập.
+Cần Windows x64, PowerShell 7, Python và Node theo các pin trong repo, Rust theo `ui/src-tauri/rust-toolchain.toml`, bộ công cụ Windows cho target x64, Windows SDK SignTool và GitHub CLI đã xác thực. Dùng checkout mới cho mỗi ứng viên để build không lấy nhầm wheel, sidecar hoặc NSIS cũ. Chạy các bài kiểm theo [phạm vi thay đổi](CI_EVIDENCE.md).
 
-```powershell
-$keys = & ./scripts/desktop/new-preview-signer.ps1
-Get-Content -LiteralPath (Join-Path $keys 'ORION_UPDATE_SIGNER_SHA256.txt')
-```
-
-Script tạo RSA 3072 và lưu trong thư mục riêng dưới `%LOCALAPPDATA%\OrionSigning`. Bản `OrionPreview.cer` và fingerprint là công khai. Giữ `OrionPreview.pfx` trong bản sao lưu mã hóa ngoại tuyến và lưu mật khẩu riêng trong trình quản lý mật khẩu. Giữ ít nhất một bản sao có thể phục hồi. Thử mở bản sao bằng mật khẩu trên Windows cô lập và xác nhận fingerprint trước khi xóa bản làm việc. Khóa riêng, PFX, Base64 của PFX và mật khẩu chỉ đi vào kho bí mật được chỉ định, không đưa vào Git, PR, artifact, log hay ChatGPT.
-
-## Chủ repo cấu hình GitHub
-
-Vào **Settings → Environments → New environment**, tạo `orion-desktop-signing`. Trong **Deployment branches and tags**, chọn **Selected branches and tags**, rồi thêm quy tắc loại **Branch** chính xác `codex/orion-windows-acceptance`. Giới hạn người có thể đẩy vào nhánh ký. Nếu có người duyệt độc lập, dùng **Required reviewers** để khóa chưa được cấp vào job trước khi duyệt. Với repo dùng một mình, giữ quyền ghi nhánh cho đúng tài khoản quản trị repo. [GitHub Environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
-
-| Mục trong environment | Tên | Giá trị |
-| --- | --- | --- |
-| Environment variable | `ORION_UPDATE_SIGNER_SHA256` | 64 ký tự hex từ `ORION_UPDATE_SIGNER_SHA256.txt`. |
-| Environment variable | `ORION_PREVIEW_CERT_B64` | Base64 một dòng của `OrionPreview.cer` công khai. |
-| Environment secret | `ORION_SIGNING_PFX_B64` | Base64 một dòng của `OrionPreview.pfx`. |
-| Environment secret | `ORION_SIGNING_PFX_PASSWORD` | Mật khẩu đã dùng khi tạo PFX. |
-
-In riêng Base64 của **chứng chỉ công khai** để dán vào ô variable. Nếu có GitHub CLI đã đăng nhập bằng tài khoản chủ repo, hai lệnh sau gửi secrets qua stdin và nhập ẩn. Dùng PowerShell 7 trên máy giữ khóa, không bật transcript hoặc ghi lại clipboard. Có thể nhập secrets trực tiếp vào **Environment secrets** trên GitHub nếu dùng trình quản lý bí mật để cung cấp giá trị. [GitHub CLI](https://cli.github.com/manual/gh_secret_set)
+Trên máy build, dùng bản CER và SHA-256 đã lưu từ buổi thiết lập chứng chỉ Orion Preview. Nếu cần mở lại PFX gốc, dùng trình nhập chứng chỉ Windows dưới tài khoản người ký và chọn **Current User → Personal**. Giữ PFX và mật khẩu trong kho riêng. Chỉ chuyển CER công khai sang guest.
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $keys 'OrionPreview.cer')))
-[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $keys 'OrionPreview.pfx'))) |
-    gh secret set ORION_SIGNING_PFX_B64 --env orion-desktop-signing --repo phamhuubinh/infrastructure-agent
-gh secret set ORION_SIGNING_PFX_PASSWORD --env orion-desktop-signing --repo phamhuubinh/infrastructure-agent
+$version = '0.1.6'
+$pin = (Get-Content -LiteralPath $fingerprintFile -Raw).Trim()
+$commit = (git rev-parse HEAD).Trim()
+& ./scripts/desktop/build-update.ps1 -Source $commit -Version $version -Channel preview -SignerSha256 $pin
+$out = (Resolve-Path ./release-work/desktop-update).Path
+& ./scripts/desktop/sign-preview.ps1 -Directory $out -Certificate $publicCer -SignTool $signTool
 ```
 
-Stable dùng `orion-desktop-stable-signing`, giới hạn `main`, với publisher riêng đã được Windows tin cậy và ba trường fingerprint/PFX/mật khẩu tương ứng. Chứng chỉ tự ký cá nhân ở trên chỉ dành cho Preview. Tránh đặt khóa ký ở Repository secrets để job dùng khóa luôn chịu giới hạn của environment.
+Ký bằng khóa đã mở trong `Cert:\CurrentUser\My`. SignTool dùng SHA-256 và timestamp RFC 3161. Build ghi `build.json` để ràng buộc nguồn, phiên bản, signer pin và digest trước khi ký. Script ký tạo `DESKTOP-SHA256SUMS` từ bộ cài sau khi ký.
 
-## Chạy Release và kiểm đúng NSIS
+## Nghiệm thu đúng bộ cài đã ký
 
-Trong **Actions → Release bundles**, mở lượt push của commit đã có thay đổi hỗ trợ chứng chỉ Preview. Sau khi lưu environment, nếu lượt đó thất bại do thiếu signing, chọn **Re-run failed jobs** trên chính lượt đó. Nếu lượt còn chạy, để job dùng environment đã cấu hình hoặc chạy lại phần thất bại sau khi lượt kết thúc. Dùng SHA có đủ bảy job push CI thành công. Runner Windows dùng một lần ký, gắn timestamp, xác minh đúng publisher, xóa bản PFX và khóa đã import, rồi chạy thử cài và rollback với đúng NSIS. Job chỉ xuất bản khi toàn bộ quy trình đạt. Tải `Orion_<version>_x64-setup.exe` và `DESKTOP-SHA256SUMS` từ cùng bản Preview đã qua workflow. [GitHub Actions](https://github.com/phamhuubinh/infrastructure-agent/actions/workflows/release.yml)
+Dùng Windows Sandbox hoặc VM Windows x64 dùng một lần, có desktop tương tác, WebView2, Git, PowerShell 7 và Python với dependencies backend đã khóa. Có thể cài dependencies bằng `python -m pip install --require-hashes -r scripts/refactor/locks/core.txt`. Checkout sạch cùng commit trong guest. Đưa vào guest bộ cài, checksum, `build.json` và CER công khai. Để thư mục dữ liệu, registry và tài khoản Host thật ngoài môi trường này. Ưu tiên thư mục chia sẻ chỉ đọc cho đầu vào và thư mục trống riêng để xuất kết quả.
+
+```powershell
+& ./scripts/desktop/exercise-signed-update.ps1 -DisposableGuest `
+    -Installer $installer -Certificate $publicCer -Evidence $evidence
+```
+
+Bài nghiệm thu kiểm Authenticode, timestamp, signer pin, SHA-256 và phiên bản trước khi cài. Sau khi cài bootstrap, nó chạy handoff thật với cùng NSIS trong ca cài thành công và ca giả lập lỗi để khôi phục. Cả hai ca yêu cầu SQLite, DPAPI, Owner MFA, cài đặt Host và autostart được bảo toàn. Giữ tệp bằng chứng JSON sinh sau khi hai ca đạt, rồi hủy guest. [Windows Sandbox](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/windows-sandbox-overview)
+
+## Phát hành
+
+Đẩy commit nguồn lên GitHub rồi chạy từ chính checkout build. Script đối chiếu bộ cài với bằng chứng guest, kiểm phiên bản và phát hành hai tệp `Orion_<version>_x64-setup.exe` và `DESKTOP-SHA256SUMS`. Xác nhận trang Release có đủ hai tệp và digest NSIS trên GitHub API khớp kết quả local.
+
+```powershell
+& ./scripts/desktop/publish-preview.ps1 -Directory $out -Evidence $evidence
+```
 
 ## Bootstrap một lần trên Windows Host
 
-1. Chuyển bản `.cer` gốc và fingerprint đã lưu từ máy giữ khóa sang tài khoản Windows đang chạy Orion. Dùng giá trị SHA-256 của đúng tên NSIS trong `DESKTOP-SHA256SUMS` của bản Preview đã được CI nghiệm thu. Chạy lệnh kiểm dưới đây với đường dẫn thật. Lệnh kiểm checksum trước khi thêm trust và chỉ tin cậy chứng chỉ này trong `CurrentUser`. Nếu thêm trust rồi xác minh thất bại, script cố gỡ chứng chỉ vừa thêm. Lệnh không khởi chạy NSIS.
+1. Dùng đúng CER và fingerprint gốc. Lấy SHA-256 của tên NSIS tương ứng từ `DESKTOP-SHA256SUMS` trên Release. Script sau kiểm phiên bản đang cài và Authenticode, rồi chỉ thêm trust cho đúng chứng chỉ vào tài khoản Windows chạy Orion. Nếu xác minh sau khi thêm trust thất bại, script gỡ trust vừa thêm.
 
    ```powershell
    & ./scripts/desktop/test-preview-bootstrap.ps1 `
-       -Installer $installer -Certificate $publicCer -SignerSha256 $fingerprint `
+       -Installer $installer -Certificate $publicCer -SignerSha256 $pin `
        -InstallerSha256 $installerSha256 -TrustPreviewCertificate
    ```
 
-2. Chọn cửa sổ bảo trì. Xác minh phiên bản Preview mới hơn bản đang chạy và Orion dùng đường dẫn mặc định `%LOCALAPPDATA%\Orion`. Chờ lượt đang chạy hoàn tất, sao lưu mới theo [quy trình backup và rollback](UPGRADE_8EB4AD2.md), kiểm bản backup rồi tự dừng Host sạch. Dùng `--online-only` khi chụp snapshot để ghi trạng thái Serve/Funnel đang có. Giữ nguyên cấu hình mạng đang sử dụng. Mở đúng NSIS đã kiểm và cài vào cùng thư mục, dưới cùng tài khoản Windows. Mở lại Orion, xác nhận Host và Chat/Projects, rồi tự kiểm Owner MFA cần thiết.
+2. Trong cửa sổ bảo trì do chủ máy chọn, xác minh [backup và rollback](UPGRADE_8EB4AD2.md). `upgrade_readiness.py --snapshot <thư-mục-backup> --online-only` ghi nhận cả cấu hình Serve/Funnel đang dùng. Chạy `upgrade_readiness.py --verify <snapshot>` trước khi chủ máy dừng Host sạch và cài đúng NSIS vào vị trí mặc định `%LOCALAPPDATA%\Orion` dưới cùng tài khoản. Mở lại Orion và xác minh Chat, Projects và Owner MFA.
+3. Chọn **Preview** trong **Cài đặt → Cập nhật Orion** nếu ứng dụng đang ở kênh khác. Những lần sau, bấm **Cập nhật ngay → Đồng ý**. Orion tự tải, xác minh, sao lưu, cài và rollback từ giao diện.
 
-   Dùng Python đã cài dependencies backend của Orion. Lệnh đầu in đường dẫn snapshot sau khi diễn tập khôi phục đạt. Dùng đúng đường dẫn đó ở lệnh kiểm lại.
-
-   ```powershell
-   $env:PYTHONPATH = (Resolve-Path './backend/src').Path
-   python scripts/windows/upgrade_readiness.py --snapshot (Join-Path $env:LOCALAPPDATA 'OrionRecovery') --online-only
-   python scripts/windows/upgrade_readiness.py --verify '<đường dẫn snapshot ở dòng PASS>'
-   ```
-
-3. Chọn **Preview** trong **Cài đặt → Cập nhật Orion** nếu ứng dụng từng lưu kênh khác. Những lần sau, bấm **Cập nhật ngay → Đồng ý**. Orion thực hiện tải, xác minh, sao lưu, cài và rollback từ giao diện.
-
-Nếu khóa bị lộ, tắt môi trường ký, xóa secrets Preview bị ảnh hưởng và bỏ trust của đúng chứng chỉ cũ trong `certmgr.msc` dưới tài khoản chạy Orion. Tạo khóa mới rồi làm lại bootstrap với fingerprint mới. Lên lịch đổi khóa trước khi chứng chỉ hết hạn vì bản đang cài cố định fingerprint cũ.
+Nếu nghi khóa bị lộ, dừng phát hành Preview và bỏ trust của đúng chứng chỉ cũ trên các máy đã bootstrap. Ứng dụng ghim fingerprint của chứng chỉ khi build, nên việc đổi chứng chỉ cần bootstrap mới.

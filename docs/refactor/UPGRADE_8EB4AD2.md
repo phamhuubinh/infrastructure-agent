@@ -32,9 +32,8 @@ Sau lần mở đầu, backend có thể ghi thêm trạng thái phiên hoặc d
 
 ## Preview và Stable
 
-- Preview chạy từ push đến `codex/orion-windows-acceptance` và đăng ký tag prerelease `orion-preview-vX.Y.Z`. Stable dùng quy trình phát hành từ `main` với tag `vX.Y.Z`. Version dùng chung một thứ tự tăng giữa hai kênh. Preview lấy số tiếp theo từ các bản đã phát hành, còn Stable dùng version nguồn cao hơn tất cả bản trước. Orion chỉ chọn bản mới hơn phiên bản cài, kể cả khi đổi kênh.
-- Workflow yêu cầu backend, worker, UI, Android, iOS, Windows smoke và acceptance-extra đều thành công trên cùng SHA. Sau đó nó build NSIS, ký và xác minh Authenticode, kiểm SHA-256, rồi thử đúng bộ cài với một ca thành công và một ca khôi phục trên Windows runner dùng một lần. Mọi job này phải đạt trước khi đăng bản lên GitHub.
-- Environment `orion-desktop-signing` dành cho Preview. Stable dùng `orion-desktop-stable-signing`. Cách tạo khóa riêng cho Preview, giới hạn nhánh ký, xác minh chứng chỉ và cài lần đầu nằm ở [quy trình ký và bootstrap](PREVIEW_SIGNING.md). Chủ repo cấu hình environment và chủ máy thực hiện bootstrap trong cửa sổ bảo trì. Hai việc này còn `PENDING_MANUAL`.
+- Preview dùng [quy trình phát hành local](PREVIEW_SIGNING.md) và tag `orion-preview-vX.Y.Z`. Stable dùng workflow thủ công từ `main` và tag `vX.Y.Z`. Hai kênh dùng chung thứ tự tăng phiên bản.
+- Preview phải qua Authenticode, SHA-256, phiên bản và cả hai ca cài/khôi phục trong Windows cô lập trước khi đăng Release. Chứng chỉ Preview là chứng chỉ đã thiết lập. Stable vẫn dùng môi trường ký riêng.
 
 ## Cập nhật ngay và khôi phục
 

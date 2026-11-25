@@ -1,39 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main, 'codex/orion-r16-r18', 'codex/orion-windows-acceptance']
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  plan:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 46
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      backend: ${{ steps.select.outputs['backend'] }}
-      ui: ${{ steps.select.outputs['ui'] }}
-      acceptance-extra: ${{ steps.select.outputs['acceptance-extra'] }}
-      worker: ${{ steps.select.outputs['worker'] }}
-      android: ${{ steps.select.outputs['android'] }}
-      ios: ${{ steps.select.outputs['ios'] }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Select jobs from verified push evidence
-        id: select
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/release/ci_evidence.py ci.yml
-
   backend:
-    needs: plan
-    if: needs.plan.outputs['backend'] == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -54,8 +25,6 @@ jobs:
           python scripts/linux/headless_smoke.py "$RUNNER_TEMP/orion-headless/bin/orion"
 
   ui:
-    needs: plan
-    if: needs.plan.outputs['ui'] == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,8 +45,6 @@ jobs:
         working-directory: ui
 
   acceptance-extra:
-    needs: plan
-    if: needs.plan.outputs['acceptance-extra'] == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -101,8 +68,6 @@ jobs:
         run: python backend/scripts/operations_check.py
 
   worker:
-    needs: plan
-    if: needs.plan.outputs['worker'] == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -130,8 +95,6 @@ jobs:
           ORION_PORTABLE_BROWSER_TESTS=1 python scripts/worker/portable_smoke.py release-work/extracted/OrionRemote-*-linux-x86_64
 
   android:
-    needs: plan
-    if: needs.plan.outputs['android'] == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:
@@ -257,8 +220,6 @@ jobs:
           if-no-files-found: ignore
 
   ios:
-    needs: plan
-    if: needs.plan.outputs['ios'] == 'true'
     runs-on: macos-15
     timeout-minutes: 40
     defaults:

@@ -1,20 +1,51 @@
-param([Parameter(Mandatory = $true)][string]$Installer)
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string]$Installer,
+    [switch]$DisposableGuest,
+    [string]$Certificate,
+    [string]$Evidence
+)
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
-if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Use a disposable GitHub-hosted runner.' }
+$hosted = $env:RUNNER_ENVIRONMENT -eq 'github-hosted'
+if (!$hosted -and (!$DisposableGuest -or !$Certificate -or !$Evidence)) {
+    throw 'Run in a disposable Windows guest with the public Preview CER and an evidence path.'
+}
 $installation = Join-Path $env:LOCALAPPDATA 'Orion'
 $applicationData = Join-Path $env:LOCALAPPDATA 'io.orion.desktop'
 if ((Test-Path -LiteralPath $installation) -or (Test-Path -LiteralPath $applicationData) -or
-    (Get-Process Orion,OrionBackend -ErrorAction SilentlyContinue)) {
-    throw 'The release exercise requires a fresh runner profile.'
+    (Test-Path -LiteralPath 'HKCU:/Software/Orion/DesktopHost') -or
+    (Get-Process Orion,OrionBackend,tailscale,tailscaled -ErrorAction SilentlyContinue)) {
+    throw 'The release exercise requires a fresh profile without Orion or Tailscale.'
 }
+$repo = (Resolve-Path -LiteralPath "$PSScriptRoot/../..").Path
+$Installer = (Get-Item -LiteralPath $Installer).FullName
+if (!$hosted) {
+    $out = Split-Path -Parent $Installer
+    $build = Get-Content -LiteralPath (Join-Path $out 'build.json') -Raw | ConvertFrom-Json
+    if ($build.source -cne (git -C $repo rev-parse HEAD).Trim() -or (git -C $repo status --porcelain) -or
+        (Split-Path -Leaf $Installer) -cne "Orion_$($build.version)_x64-setup.exe" -or
+        (Test-Path -LiteralPath $Evidence)) {
+        throw 'Use the exact clean release commit, its signed installer, and a new evidence path.'
+    }
+    $checksum = Get-Content -LiteralPath (Join-Path $out 'DESKTOP-SHA256SUMS') -Raw
+    if ($checksum.TrimEnd("`r", "`n") -cnotmatch '^([a-f0-9]{64})  (Orion_\d+\.\d+\.\d+_x64-setup\.exe)$' -or
+        $Matches[2] -cne (Split-Path -Leaf $Installer)) { throw 'Invalid installer checksum file.' }
+    $approvedHash = $Matches[1]
+    & "$PSScriptRoot/test-preview-bootstrap.ps1" -Installer $Installer -Certificate $Certificate `
+        -SignerSha256 $build.signer -InstallerSha256 $approvedHash -TrustPreviewCertificate
+    $env:ORION_DESKTOP_VERSION = $build.version
+    $env:ORION_UPDATE_SIGNER_SHA256 = $build.signer
+    $env:ORION_DISPOSABLE_UPDATE_FIXTURE = '1'
+}
+
 $initial = Start-Process -FilePath $Installer -ArgumentList '/S' -Wait -PassThru -WindowStyle Hidden
 if ($initial.ExitCode -ne 0) { throw 'Initial fixture install failed.' }
-$env:PYTHONPATH = (Resolve-Path -LiteralPath 'backend/src').Path
-python scripts/desktop/signed_update_fixture.py
+$env:PYTHONPATH = (Join-Path $repo 'backend/src')
+python "$PSScriptRoot/signed_update_fixture.py"
 $exe = Join-Path $installation 'Orion.exe'
 $sidecar = Join-Path $installation 'backend/OrionBackend.exe'
-$source = Get-Content -LiteralPath 'ui/src-tauri/src/updates.rs' -Raw
+$source = Get-Content -LiteralPath (Join-Path $repo 'ui/src-tauri/src/updates.rs') -Raw
 $verify = [regex]::Match($source, '(?s)const CHECK_SIGNATURE: &str = r#"(.*?)"#;').Groups[1].Value
 $handoff = [regex]::Match($source, '(?s)const HANDOFF: &str = r#"(.*?)"#;').Groups[1].Value
 if (!$verify -or !$handoff) { throw 'Missing production update handoff scripts.' }
@@ -55,5 +86,16 @@ foreach ($scenario in @('Installed', 'Rolled back')) {
     $actual = (Get-Content -LiteralPath (Join-Path $directory 'outcome.txt') -Raw).Trim()
     if ($actual -ne $scenario) { throw "Update outcome was '$actual'. Expected '$scenario'." }
     Stop-Fixture
-    python scripts/desktop/signed_update_fixture.py --verify-receipt $receipt
+    python "$PSScriptRoot/signed_update_fixture.py" --verify-receipt $receipt
+}
+
+if (!$hosted) {
+    if ((Get-FileHash -LiteralPath $Installer).Hash -ne $approvedHash) { throw 'The accepted installer changed.' }
+    [ordered]@{
+        source = $build.source
+        version = $build.version
+        signer = $build.signer
+        sha256 = $approvedHash
+        outcomes = @('Installed', 'Rolled back')
+    } | ConvertTo-Json | Set-Content -LiteralPath $Evidence -Encoding utf8NoBOM
 }
