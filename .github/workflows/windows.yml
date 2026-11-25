@@ -1,38 +1,6 @@
 name: Windows CI
 
 on:
-  push:
-    branches: [main, 'codex/orion-r16-r18']
-    paths:
-      - '.github/workflows/windows.yml'
-      - '.github/workflows/release.yml'
-      - 'install.ps1'
-      - 'backend/**'
-      - 'worker/**'
-      - 'scripts/worker/**'
-      - 'ui/**'
-      - 'scripts/windows/**'
-      - 'scripts/desktop/**'
-      - 'scripts/release/**'
-      - 'scripts/refactor/**'
-      - '.python-version'
-      - '.node-version'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/windows.yml'
-      - '.github/workflows/release.yml'
-      - 'install.ps1'
-      - 'backend/**'
-      - 'worker/**'
-      - 'scripts/worker/**'
-      - 'ui/**'
-      - 'scripts/windows/**'
-      - 'scripts/desktop/**'
-      - 'scripts/release/**'
-      - 'scripts/refactor/**'
-      - '.python-version'
-      - '.node-version'
   workflow_dispatch:
 
 permissions:
