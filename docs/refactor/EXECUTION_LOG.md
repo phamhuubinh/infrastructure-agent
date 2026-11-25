@@ -283,3 +283,9 @@
 - Preview dùng `orion-desktop-signing`. Stable dùng environment riêng trên main. Runner xác minh public CER và PFX theo fingerprint SHA-256, ký có timestamp, xóa PFX/khóa đã import, rồi thử đúng NSIS với Authenticode, checksum và rollback. Trust của Preview chỉ được thêm tạm trên runner dùng một lần. Gate bảy job cùng SHA giữ nguyên.
 - Hướng dẫn tạo khóa, bảo vệ và sao lưu PFX, cấu hình GitHub, chạy lại release và bootstrap Windows nằm ở [quy trình ký Preview](PREVIEW_SIGNING.md). Kiểm bootstrap không chạy installer.
 - PASS cục bộ với chứng chỉ tạm: tạo và mở PFX, runner nhận đúng signer pin, từ chối fingerprint sai, PFX đưa nhầm vào luồng CER, NSIS chưa ký, sai checksum, phiên bản ngang bản đang có và trust Preview trên Stable. PowerShell, YAML và cú pháp Bash đạt. PENDING_MANUAL: cấu hình khóa thật của chủ repo, chạy Release kiểm NSIS đã ký trên runner và bootstrap trong cửa sổ bảo trì. Không chỉnh certificate store hoặc Host đang chạy trong phiên kiểm thử.
+
+### 2026-11-25 · PR #173 · Timestamp ký Preview và phục hồi IME trên Android
+
+- Run 45384516105 vào được bước ký với cấu hình hiện có. SignTool từ chối URL HTTPS của DigiCert. Đổi sang endpoint HTTP RFC 3161 DigiCert công bố, giữ SHA-256 và bắt buộc chứng thực timestamp, Authenticode, signer pin, checksum, cài thử và rollback.
+- Android run 45384530164 có lúc ADB ngắt sau khi `dumpsys input_method` đã ghi một phần stdout. Hệ thống cũ coi có stdout là lỗi ứng dụng và bỏ qua thử lại. Smoke bỏ phần stdout của lần exit 255 không có stderr, kiểm lại transport và chỉ thử lại một lần với thao tác được đánh dấu an toàn. Lần thử lại vẫn thất bại thì bài test thất bại.
+- PASS cục bộ: 11 ca Android smoke/rollback, Ruff, PowerShell AST và kiểm tra các chốt phát hành. DigiCert trả trạng thái RFC 3161 Granted cho digest SHA-256 thử nghiệm. Chữ ký và nghiệm thu đúng NSIS còn phụ thuộc lượt Release trên GitHub. Cấu hình chứng chỉ hiện có và Host đang dùng không bị chỉnh.

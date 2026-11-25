@@ -32,7 +32,8 @@ try {
     $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
     $signTool = Get-ChildItem -Path "$kits/*/x64/signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
     if (!$signTool) { throw 'Windows SDK SignTool is unavailable.' }
-    & $signTool.FullName sign /fd SHA256 /td SHA256 /tr https://timestamp.digicert.com /sha1 $cert[0].Thumbprint $installer
+    # DigiCert's RFC 3161 endpoint uses HTTP. SignTool verifies the signed timestamp token.
+    & $signTool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /sha1 $cert[0].Thumbprint $installer
     Remove-Item -LiteralPath $pfx
     Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert[0].Thumbprint)" -DeleteKey
     $cert = $null

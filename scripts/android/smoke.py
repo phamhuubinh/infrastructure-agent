@@ -133,7 +133,18 @@ class Emulator:
             result = self._call(args, timeout)
             if result.returncode == 0:
                 return result.stdout.strip()
-            detail = (result.stderr or result.stdout).strip()
+            stderr = result.stderr.strip()
+            # A disconnected shell can return 255 after writing partial stdout.
+            shell_disconnected = (
+                result.returncode == 255
+                and args[0] in {"shell", "exec-out"}
+                and not stderr
+            )
+            detail = (
+                "<no stderr; stdout discarded>"
+                if shell_disconnected
+                else stderr or result.stdout.strip()
+            )
             message = f"adb {operation} failed (exit {result.returncode}): {detail[:1000] or '<no output>'}"
             transport_error = re.search(
                 r"(?im)^(?:adb(?:\.exe)?: )?(?:error: )?(?:device (?:offline|not found)|"
@@ -141,9 +152,7 @@ class Emulator:
                 r"connection reset|protocol fault|transport (?:error|closed)|cannot connect to daemon)",
                 detail,
             )
-            # ADB can lose a shell channel without returning a diagnostic. Only
-            # a safe probe may recover from an otherwise unexplained exit 255.
-            if not transport_error and not (result.returncode == 255 and not detail):
+            if not transport_error and not shell_disconnected:
                 raise RuntimeError(message)
             if not retry_safe or attempt:
                 raise AdbConnectionError(message)

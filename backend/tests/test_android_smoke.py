@@ -37,13 +37,16 @@ def fake_adb(monkeypatch, emulator, responses):
     return calls
 
 
-def test_ime_probe_retries_after_transport_recovers(smoke, monkeypatch):
+@pytest.mark.parametrize(
+    "interrupted_stdout", ["", "Current Input Method Manager state:\nmInputShown=false\n"]
+)
+def test_ime_probe_retries_after_transport_recovers(smoke, monkeypatch, interrupted_stdout):
     emulator = smoke.Emulator("adb", "emulator-5554")
     calls = fake_adb(
         monkeypatch,
         emulator,
         [
-            (255, "", ""),
+            (255, interrupted_stdout, ""),
             (1, "", "adb: device offline"),
             (0, "device\n", ""),
             (0, "mInputShown=true", ""),
@@ -51,6 +54,15 @@ def test_ime_probe_retries_after_transport_recovers(smoke, monkeypatch):
     )
     assert smoke.Ui(emulator).keyboard_visible()
     assert calls == [calls[0], ("get-state",), ("get-state",), calls[0]]
+
+
+def test_ime_probe_fails_if_retry_also_returns_partial_stdout(smoke, monkeypatch):
+    emulator = smoke.Emulator("adb", "emulator-5554")
+    partial = (255, "Current Input Method Manager state:\nmInputShown=true\n", "")
+    calls = fake_adb(monkeypatch, emulator, [partial, (0, "device\n", ""), partial])
+    with pytest.raises(smoke.AdbConnectionError, match="exit 255"):
+        smoke.Ui(emulator).keyboard_visible()
+    assert calls == [calls[0], ("get-state",), calls[0]]
 
 
 def test_disconnected_emulator_fails_after_bounded_polls(smoke, monkeypatch):

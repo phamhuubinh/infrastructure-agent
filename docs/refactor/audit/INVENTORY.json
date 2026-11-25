@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "4820d18b174fed825723458a1d250bb65f1104c4",
+  "source_commit": "a7ea20f489fac93a4a10dd2f54760c822ae3cff6",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -2958,8 +2958,8 @@
     {
       "path": "backend/tests/test_android_smoke.py",
       "kind": "text",
-      "bytes": 4278,
-      "sha256": "df70a7c177a59511cc77349a5cdc4c5b8fd6afcccc98602ff80aa2baa30d6397",
+      "bytes": 4911,
+      "sha256": "18ce9e4fc4e2f58c0698cab1184885fc0cac13551c27d78239b6f1cc204364b8",
       "group": "backend-tests",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -2968,7 +2968,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 118,
+      "lines": 130,
       "python_syntax": "parsed"
     },
     {
@@ -7502,8 +7502,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 65026,
-      "sha256": "11da3db43a240eb4d55a5706d6a05cced9ba74ba2787f740816db7566cf4fd91",
+      "bytes": 66192,
+      "sha256": "a4fab44dbdaffce80ca5c2d30dab0d6b47320849bee88db4d88dbf915fbcac60",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7512,7 +7512,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 285,
+      "lines": 291,
       "python_syntax": null
     },
     {
@@ -7553,7 +7553,7 @@
       "bytes": 7974,
       "sha256": "e0a44c250ce5a185d15ddd5f03e6162875daae822d028de16706a5748d41ed5c",
       "group": "documentation",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -7918,8 +7918,8 @@
     {
       "path": "scripts/android/smoke.py",
       "kind": "text",
-      "bytes": 22440,
-      "sha256": "1a45563af93063e0402dfa310cf88bda5ba5893997700fc34b271bf93967f4e8",
+      "bytes": 22678,
+      "sha256": "b6a9c869e80555af5210c49391cfc3b355404f7311f055737047a4bd1b6ea4d1",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7928,7 +7928,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 574,
+      "lines": 583,
       "python_syntax": "parsed"
     },
     {
@@ -7985,7 +7985,7 @@
       "bytes": 2482,
       "sha256": "c49364be8fe936f8654d95f897a2f7951984dacbe716c5af05b8fff1a3afe608",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -8017,7 +8017,7 @@
       "bytes": 2195,
       "sha256": "5d17cf85149ac7ee5720af9dff01a58a3249209d132472019e32c31e973cba3a",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -8081,7 +8081,7 @@
       "bytes": 2641,
       "sha256": "4add9b4d7524d494cd356c90bb5d461c5078d00de2ce2993596b5cea55a774cd",
       "group": "tooling-qa",
-      "git_state": "local",
+      "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
       "review_status": "unreviewed",
       "final_action": "",
@@ -8094,8 +8094,8 @@
     {
       "path": "scripts/desktop/verify-signed-update.ps1",
       "kind": "text",
-      "bytes": 4438,
-      "sha256": "0f9e3e4522089d0d046e611aa5ec6dac589b2fcfc41fe6acd9069c3f7d267f8f",
+      "bytes": 4529,
+      "sha256": "2aacf2e8104cfc8fd19305196b06fe01773889c1f9107c42463e2ebf86ec3e0c",
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -8104,7 +8104,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 71,
+      "lines": 72,
       "python_syntax": null
     },
     {
