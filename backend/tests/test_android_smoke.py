@@ -74,6 +74,70 @@ def test_disconnected_emulator_fails_after_bounded_polls(smoke, monkeypatch):
     assert calls[1:] == [("get-state",)] * 4
 
 
+def test_reverse_restores_exact_fixture_mapping_after_reconnect(smoke, monkeypatch):
+    emulator = smoke.Emulator("adb", "emulator-5554")
+    spec = "tcp:39833"
+    listing = (0, f"(reverse) {spec} {spec}\n", "")
+    calls = fake_adb(monkeypatch, emulator, [(0, "", ""), (0, "", ""), listing, listing])
+    assert emulator.restore_reverse(spec)
+    assert not emulator.restore_reverse(spec)
+    assert calls == [
+        ("reverse", "--list"),
+        ("reverse", "--no-rebind", spec, spec),
+        ("reverse", "--list"),
+        ("reverse", "--list"),
+    ]
+
+
+def test_reverse_refuses_to_replace_a_different_destination(smoke, monkeypatch):
+    emulator = smoke.Emulator("adb", "emulator-5554")
+    calls = fake_adb(monkeypatch, emulator, [(0, "(reverse) tcp:39833 tcp:8000", "")])
+    with pytest.raises(RuntimeError, match="unexpected destination"):
+        emulator.restore_reverse("tcp:39833")
+    assert calls == [("reverse", "--list")]
+
+
+def test_reverse_reconnect_checks_listener_before_repeating_bind(smoke, monkeypatch):
+    emulator = smoke.Emulator("adb", "emulator-5554")
+    spec = "tcp:39833"
+    listing = (0, f"(reverse) {spec} {spec}", "")
+    calls = fake_adb(
+        monkeypatch,
+        emulator,
+        [(0, "", ""), (1, "", "adb: device offline"), (0, "device", ""), listing, listing],
+    )
+    assert emulator.restore_reverse(spec)
+    assert calls.count(("reverse", "--no-rebind", spec, spec)) == 1
+
+
+def test_enrollment_does_not_retry_if_request_reached_fixture(smoke, monkeypatch, tmp_path):
+    probe = smoke.ResumeProbe()
+    clicks = []
+    mapping_results = iter([False, True])
+
+    def click(name, **_):
+        clicks.append(name)
+        probe.enrollment_received.set()
+
+    def poll_once(description, check):
+        assert check() is None
+        raise RuntimeError(f"Timed out waiting for {description}")
+
+    ui = SimpleNamespace(
+        emulator=SimpleNamespace(restore_reverse=lambda spec: next(mapping_results)),
+        fill=lambda *args, **kwargs: None,
+        click=click,
+    )
+    scope = smoke.enroll_android.__globals__
+    monkeypatch.setitem(scope, "native_sessions", lambda database: [])
+    monkeypatch.setitem(scope, "until", poll_once)
+    with pytest.raises(RuntimeError, match="Timed out waiting for Android session"):
+        smoke.enroll_android(
+            ui, tmp_path / "fixture.db", "unused", "tcp:39833", probe, reconnect=False
+        )
+    assert clicks == ["Kết nối bằng mã"]
+
+
 def test_application_error_and_mutating_input_are_not_replayed(smoke, monkeypatch):
     emulator = smoke.Emulator("adb", "emulator-5554")
     calls = fake_adb(

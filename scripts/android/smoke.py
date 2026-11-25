@@ -40,6 +40,7 @@ ACTIVITY = f"{PACKAGE}/.MainActivity"
 RESUME_PROMPT = "Resume the active fixture stream."
 FIRST_DELTA = "Android cursor "
 FINAL_REPLY = FIRST_DELTA + "resumed."
+ENROLLMENT_FAILED = "Mã kết nối không hợp lệ hoặc đã hết hạn."
 
 
 class StreamInterrupted(Exception):
@@ -52,6 +53,7 @@ class AdbConnectionError(RuntimeError):
 
 class ResumeProbe:
     def __init__(self) -> None:
+        self.enrollment_received = threading.Event()
         self.interrupted: tuple[str, str] | None = None
         self.resumed = threading.Event()
         self.release = threading.Event()
@@ -61,6 +63,8 @@ class ResumeProbe:
             scope: Scope, receive: ASGIReceiveCallable, send: ASGISendCallable
         ) -> None:
             path = scope.get("path", "")
+            if scope["type"] == "http" and path == "/api/auth/native/enroll":
+                self.enrollment_received.set()
             if not re.fullmatch(r"/api/requests/[^/]+/stream", path):
                 await app(scope, receive, send)
                 return
@@ -168,6 +172,10 @@ class Emulator:
     def cleanup(self, stack: ExitStack, *args: str) -> None:
         def cleanup_adb(_kind, original, _traceback) -> None:
             try:
+                if args[:2] == ("reverse", "--remove") and not self.has_reverse(
+                    args[2]
+                ):
+                    return
                 self.run(*args, timeout=8, retry_safe=True)
             except (RuntimeError, subprocess.TimeoutExpired) as error:
                 if original is None:
@@ -175,6 +183,34 @@ class Emulator:
                 print(f"ADB cleanup failed: {error}", file=sys.stderr, flush=True)
 
         stack.push(cleanup_adb)
+
+    def has_reverse(self, spec: str) -> bool:
+        for line in self.run(
+            "reverse", "--list", timeout=5, retry_safe=True
+        ).splitlines():
+            ports = line.split()[-2:]
+            if ports and ports[0] == spec:
+                if ports != [spec, spec]:
+                    raise RuntimeError(
+                        "Fixture port is mapped to an unexpected destination"
+                    )
+                return True
+        return False
+
+    def restore_reverse(self, spec: str) -> bool:
+        if self.has_reverse(spec):
+            return False
+        try:
+            self.run("reverse", "--no-rebind", spec, spec, timeout=5)
+        except AdbConnectionError:
+            if not self._wait_for_transport():
+                raise
+            if not self.has_reverse(spec):
+                self.run("reverse", "--no-rebind", spec, spec, timeout=5)
+        if not self.has_reverse(spec):
+            raise RuntimeError("ADB did not restore the fixture reverse listener")
+        print(f"Fixture reverse listener verified: {spec}", flush=True)
+        return True
 
     def launch(self) -> None:
         result = self.run("shell", "am", "start", "-W", "-n", ACTIVITY)
@@ -378,7 +414,94 @@ def native_sessions(database: Path) -> list[tuple[str, int]]:
         ).fetchall()
 
 
-def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
+def enroll_android(
+    ui: Ui, database: Path, code: str, spec: str, probe: ResumeProbe, *, reconnect: bool
+) -> None:
+    emulator = ui.emulator
+    expected = [("android", 0)]
+    ui.fill("Mã kết nối", code, index=2)
+    emulator.restore_reverse(spec)
+    if reconnect:
+        boot = ("shell", "cat", "/proc/sys/kernel/random/boot_id")
+        boot_id = emulator.run(*boot, retry_safe=True)
+        emulator.run("reconnect", "device", timeout=8)
+        if not emulator._wait_for_transport():
+            raise AdbConnectionError("Emulator did not reconnect during enrollment")
+        until(
+            "ADB reconnect to drop the enrollment listener",
+            lambda: True if not emulator.has_reverse(spec) else None,
+            timeout=10,
+        )
+        if emulator.run(*boot, retry_safe=True) != boot_id:
+            raise AssertionError(
+                "The emulator rebooted during the ADB reconnect fixture"
+            )
+        print(
+            "ADB reconnected without reboot; the enrollment listener was lost.",
+            flush=True,
+        )
+
+    tap_interrupted = False
+    try:
+        ui.click("Kết nối bằng mã", reveal=True)
+    except AdbConnectionError:
+        tap_interrupted = True
+        if reconnect:
+            raise
+    if reconnect:
+        ui.find(ENROLLMENT_FAILED)
+        if probe.enrollment_received.is_set() or native_sessions(database):
+            raise AssertionError(
+                "Disconnected enrollment unexpectedly reached the fixture"
+            )
+
+    repaired = False
+
+    def enrollment_result() -> str | None:
+        nonlocal repaired
+        repaired |= emulator.restore_reverse(spec)
+        if native_sessions(database) == expected:
+            return "enrolled"
+        if (
+            repaired
+            and not probe.enrollment_received.is_set()
+            and (
+                tap_interrupted
+                or any(ui.label(node, ENROLLMENT_FAILED) for node in ui.nodes(PACKAGE))
+            )
+        ):
+            return "retry"
+        return None
+
+    outcome = until(
+        "Android session or a confirmed pre-request disconnect", enrollment_result
+    )
+    if reconnect and outcome != "retry":
+        raise AssertionError("Injected enrollment disconnect did not exercise recovery")
+    if outcome == "retry":
+        # The fixture never received the first submission. Reopen the saved
+        # profile and enter the same unused code without duplicating enrollment.
+        if probe.enrollment_received.is_set() or native_sessions(database):
+            raise AssertionError(
+                "Refusing to repeat an enrollment received by the fixture"
+            )
+        emulator.run("shell", "am", "force-stop", PACKAGE)
+        emulator.launch()
+        ui.click("Mở Android fixture")
+        ui.fill("Mã kết nối", code, index=2)
+        emulator.restore_reverse(spec)
+        ui.click("Kết nối bằng mã", reveal=True)
+        until(
+            "one Android session after reconnect",
+            lambda: True if native_sessions(database) == expected else None,
+        )
+        print("Android enrolled once through the recovered fixture route.", flush=True)
+    ui.find("Menu")
+
+
+def smoke(
+    emulator: Emulator, apk: Path, *, extended: bool, reconnect_enrollment: bool = False
+) -> None:
     if emulator.run("shell", "getprop", "sys.boot_completed") != "1":
         raise RuntimeError("Android emulator has not completed boot")
     if emulator.run("shell", "pm", "list", "packages", PACKAGE):
@@ -431,11 +554,12 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             )
             / "orion.db"
         )
-        origin, code = remote_fixture(
-            stack, database, wrap=probe.wrap if extended else None
-        )
+        origin, code = remote_fixture(stack, database, wrap=probe.wrap)
         spec = f"tcp:{origin.rsplit(':', 1)[1]}"
-        emulator.run("reverse", "--no-rebind", spec, spec)
+        if not emulator.restore_reverse(spec):
+            raise RuntimeError(
+                "Expected an unused fixture port on the disposable emulator"
+            )
         emulator.cleanup(stack, "reverse", "--remove", spec)
         emulator.run("install", str(apk), timeout=120)
         emulator.cleanup(stack, "uninstall", PACKAGE)
@@ -446,19 +570,15 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
         ui.fill("Tên server", "Android fixture", index=0)
         ui.fill("Địa chỉ server", origin, index=1)
         ui.click("Lưu server")
+        emulator.restore_reverse(spec)
         ui.click("Mở Android fixture")
-        ui.fill("Mã kết nối", code, index=2)
-        ui.click("Kết nối bằng mã", reveal=True)
-        until(
-            "Android session in SQLite",
-            lambda: True if native_sessions(database) == [("android", 0)] else None,
-        )
-        ui.find("Menu")
+        enroll_android(ui, database, code, spec, probe, reconnect=reconnect_enrollment)
         print(
             "Android native enrollment recorded one active server session.", flush=True
         )
         emulator.run("shell", "am", "force-stop", PACKAGE)
         emulator.launch()
+        emulator.restore_reverse(spec)
         ui.click("Mở Android fixture")
         ui.find("Menu")
         if native_sessions(database) != [("android", 0)]:
@@ -469,6 +589,7 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
         ui.fill(
             "Chat input", "Send the fixture response.", index=0, check_keyboard=extended
         )
+        emulator.restore_reverse(spec)
         ui.click("Send message")
         until(
             "one completed chat",
@@ -500,11 +621,11 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             # system-wide Wi-Fi or relying on an external endpoint.
             emulator.run("reverse", "--remove", spec)
             try:
-                if spec in emulator.run("reverse", "--list").split():
+                if emulator.has_reverse(spec):
                     raise AssertionError("Fixture route is still available")
                 emulator.launch()
             finally:
-                emulator.run("reverse", "--no-rebind", spec, spec)
+                emulator.restore_reverse(spec)
             ui.click("Stop generating")
             until(
                 "one completed and one cancelled chat",
@@ -549,6 +670,7 @@ def smoke(emulator: Emulator, apk: Path, *, extended: bool) -> None:
             check_file_picker(ui, stack, database.parent)
         ui.click("Menu")
         ui.find("Đóng thanh bên")
+        emulator.restore_reverse(spec)
         ui.click("Sign out")
         until(
             "revoked Android session",
@@ -567,6 +689,11 @@ def main() -> None:
     parser.add_argument("--adb", default="adb")
     parser.add_argument("--serial", required=True)
     parser.add_argument(
+        "--reconnect-enrollment",
+        action="store_true",
+        help="Drop ADB during the enrollment fixture",
+    )
+    parser.add_argument(
         "--extended",
         action="store_true",
         help="Check IME, network recovery, active stream resume and the system file picker",
@@ -576,6 +703,7 @@ def main() -> None:
         Emulator(args.adb, args.serial),
         args.apk.resolve(strict=True),
         extended=args.extended,
+        reconnect_enrollment=args.reconnect_enrollment,
     )
 
 
