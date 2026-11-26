@@ -45,6 +45,12 @@ try {
     $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'ui/src-tauri/target' }
     $binary = Join-Path $target "release/bundle/nsis/$name"
     if (!(Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'NSIS output name does not match the release.' }
+    # Vite rewrites this generated file as LF even in a CRLF checkout. Accept identical committed bytes only.
+    $routeTree = 'ui/src/routeTree.gen.ts'
+    if ((git status --porcelain -- $routeTree) -ceq " M $routeTree" -and
+        (git hash-object --no-filters -- $routeTree).Trim() -ceq (git rev-parse "HEAD:$routeTree").Trim()) {
+        git restore --worktree -- $routeTree
+    }
     if (git status --porcelain) { throw 'Build modified tracked source or generated untracked files.' }
     $out = New-Item -ItemType Directory -Path (Join-Path $work 'desktop-update')
     Copy-Item -LiteralPath $binary -Destination $out.FullName

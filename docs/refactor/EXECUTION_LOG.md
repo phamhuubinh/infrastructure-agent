@@ -302,3 +302,11 @@
 - Fixture nay khởi tạo đủ schema và liên kết cấu hình model với credential DPAPI. So sánh toàn bộ bảng vẫn bắt buộc, báo tên bảng thêm/xóa/đổi mà không ghi nội dung. Nghiệm thu kiểm thêm blobs, registry cấu hình Host và autostart. Regression vẫn phát hiện thay đổi Projects chủ ý.
 - PASS Windows cô lập: backend đóng gói khởi động trong ca commit và sau ca làm hỏng rồi khôi phục SQLite. Xác minh lại Chat, Projects, Owner MFA, DPAPI và model. 23 ca backend chọn lọc, Ruff, YAML và Bash đạt. Nghiệm thu end-to-end đúng bộ NSIS đã ký trên Windows hosted còn chờ Release.
 - CI ghi SHA và job ID được dùng lại, giảm trùng push/PR khi Git tree giống nhau. Preview có gate Windows và mobile riêng. Stable đòi đủ job mới trên chính SHA. Cấu hình ký, checksum, quy trình sao lưu và rollback vẫn bắt buộc. Xem [phạm vi và bằng chứng](CI_EVIDENCE.md).
+
+
+### 2026-11-26 · Local-first Development và bootstrap Preview 0.1.6
+
+- CI và Windows CI chỉ chạy thủ công. Preview build, ký và phát hành từ máy Windows local. Stable giữ workflow thủ công. Hai commit cấu hình trên `main` và nhánh tích hợp cũ là `051ba5c` và `dd74d2f`. GitHub ghi 0 lượt Actions cho các push đã kiểm.
+- Nguồn ứng viên `f41c4035f1bf159fa1fb3fe3263fae98ca6c3205`. Build release bằng Python 3.12.10, Node 22.23.2 và Rust 1.99.1 Windows GNU. Vite sinh lại route tree byte-for-byte theo Git. Đã khôi phục trạng thái checkout sạch sau khi đối chiếu hash, và thêm kiểm tra cho lần build tiếp theo.
+- NSIS chưa ký, 91.369.422 byte, tại `F:/Orion-toolchains/orion-preview-016-final/release-work/desktop-update/Orion_0.1.6_x64-setup.exe`. SHA-256 `bbf3dfa8f1e0cc991329c23064e8498548a7e2883daaef708370c4d664c4e68e`. Đã kiểm archive, version resource 0.1.6, signer pin nhúng và hash 844 tệp backend/Worker và 72 tệp UI. 31 ca backend, 17 ca UI, smoke backend đóng gói và smoke Worker portable đều đạt. Một build đối chứng bằng Python 3.12.14 đi kèm Codex thất bại ở chat đóng gói. Ứng viên dùng Python 3.12.10 theo pin của repo.
+- `PENDING_MANUAL`: CER gốc đúng fingerprint, khóa riêng tương ứng chưa khả dụng trong kho ký Windows. Windows Sandbox trên máy này đang tắt. Cần mở khóa gốc và kiểm đúng NSIS đã ký trong Windows cô lập trước khi tạo tag và GitHub Release. Các tiến trình Host tiếp tục chạy. Funnel và dữ liệu Host được giữ nguyên.
