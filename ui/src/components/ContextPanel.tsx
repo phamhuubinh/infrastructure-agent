@@ -67,7 +67,7 @@ export function ContextPanel({
   return (
     <aside
       aria-label="Hoạt động runtime"
-      className="absolute inset-0 z-30 flex min-h-0 flex-col overflow-y-auto border-l border-border bg-surface sm:hidden lg:static lg:z-auto lg:flex lg:w-[400px] lg:shrink-0"
+      className="absolute inset-0 z-30 flex min-h-0 min-w-0 flex-col overflow-y-auto border-l border-border bg-surface [overflow-wrap:anywhere] sm:hidden lg:static lg:z-auto lg:flex lg:w-[400px] lg:shrink-0"
     >
       <div className="flex items-center justify-between border-b border-border bg-background/40 p-3">
         <div>

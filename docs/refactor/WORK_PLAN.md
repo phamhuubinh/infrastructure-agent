@@ -130,7 +130,9 @@ chưa hoàn tất; không dùng web build thay native nghiệm thu.
 
 Bootstrap/doctor/check/build entrypoints Windows/Linux, repo-local pinned toolchain,
 generate SDK/schema, native matrix, mock providers/MCP thay live paid API trong CI,
-version/source SHA/checksum, install/update/uninstall. Signing qua CI secrets.
+version/source SHA/checksum, install/update/uninstall. Preview cá nhân build, ký
+và nghiệm thu NSIS local theo [quy trình Preview](PREVIEW_SIGNING.md). Stable giữ
+môi trường ký riêng, chạy thủ công trên GitHub.
 Quickstart/config/troubleshooting dựa artifact thật, không mô tả flow chưa có.
 
 ## R19 — Cleanup và audit cuối

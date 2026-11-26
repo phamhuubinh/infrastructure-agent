@@ -1,6 +1,6 @@
 import { useHostRefresh } from "@/lib/host-refresh";
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BrainCircuit, Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
@@ -17,6 +17,9 @@ import {
   isManagedServer,
   isNativeHost,
   serverRequest,
+  savedUpdateChannel,
+  UPDATE_CHANNEL_CHANGED,
+  type UpdateChannel,
 } from "@/lib/server-profiles";
 import { newUuid } from "@/lib/uuid";
 import type { Schemas } from "@/lib/sdk/generated";
@@ -36,43 +39,108 @@ type Provider = Schemas["ModelProfile"]["provider_id"];
 
 function AppUpdates() {
   const updates = desktopAppUpdates();
-  const [result, setResult] = useState<{ current: string; available: string | null }>();
+  const [channel, setChannel] = useState<UpdateChannel>(() =>
+    savedUpdateChannel(updates?.defaultChannel),
+  );
+  const [checkNumber, setCheckNumber] = useState(0);
+  const [result, setResult] = useState<{
+    current: string;
+    available: string | null;
+    can_install: boolean;
+  }>();
   const [busy, setBusy] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const [error, setError] = useState("");
-  if (!updates) return null;
-
-  async function check() {
+  useEffect(() => {
     if (!updates) return;
+    let current = true;
     setBusy(true);
     setError("");
     setResult(undefined);
+    void updates
+      .check(channel)
+      .then((update) => {
+        if (current) setResult(update);
+      })
+      .catch(() => {
+        if (current) setError("Không kiểm tra được bản cập nhật Orion. Hãy thử lại.");
+      })
+      .finally(() => {
+        if (current) setBusy(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [channel, checkNumber, updates]);
+  if (!updates) return null;
+
+  async function install(version: string) {
+    if (!updates) return;
+    setError("");
+    setInstalling(true);
     try {
-      setResult(await updates.check());
-    } catch {
-      setError("Không kiểm tra được bản cập nhật Orion. Hãy thử lại.");
-    } finally {
-      setBusy(false);
+      await updates.install(version, channel);
+    } catch (reason) {
+      setError(typeof reason === "string" ? reason : "Không hoàn tất cập nhật Orion.");
+      setInstalling(false);
     }
   }
 
   return (
     <Card className="space-y-3 p-5">
       <h2 className="text-sm font-semibold">Cập nhật Orion</h2>
+      <label className="flex items-center gap-2 text-sm">
+        Kênh cập nhật
+        <select
+          className="rounded border bg-background px-2 py-1"
+          value={channel}
+          disabled={installing}
+          onChange={(event) => {
+            const value = event.target.value === "preview" ? "preview" : "stable";
+            setResult(undefined);
+            try {
+              localStorage.setItem("orion-update-channel", value);
+            } catch {
+              // Apply the selection in this view even if storage is restricted.
+            }
+            setChannel(value);
+            window.dispatchEvent(new Event(UPDATE_CHANNEL_CHANGED));
+          }}
+        >
+          <option value="stable">Stable</option>
+          <option value="preview">Preview</option>
+        </select>
+      </label>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={busy} onClick={() => void check()}>
-          {busy ? "Đang kiểm tra…" : "Kiểm tra bản cập nhật"}
+        <Button
+          variant="outline"
+          disabled={busy || installing}
+          onClick={() => setCheckNumber((number) => number + 1)}
+        >
+          {busy ? "Đang kiểm tra…" : "Kiểm tra lại"}
         </Button>
-        {result?.available && (
+        {result?.available && !result.can_install && (
           <Button
             variant="outline"
+            disabled={installing}
             onClick={() => {
               if (result.available)
-                void updates.openRelease(result.available).catch(() => {
+                void updates.openRelease(result.available, channel).catch(() => {
                   setError("Không mở được trang phát hành Orion.");
                 });
             }}
           >
             Mở trang tải Orion {result.available}
+          </Button>
+        )}
+        {result?.available && result.can_install && (
+          <Button
+            disabled={installing}
+            onClick={() => {
+              if (result.available) void install(result.available);
+            }}
+          >
+            {installing ? "Đang xác minh bộ cài…" : "Cập nhật ngay"}
           </Button>
         )}
       </div>

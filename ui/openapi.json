@@ -1562,6 +1562,33 @@
         "title": "ToolAuthorizationDecision",
         "type": "object"
       },
+      "UpdateNotice": {
+        "properties": {
+          "available_host_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Host Version"
+          },
+          "check_available": {
+            "default": false,
+            "title": "Check Available",
+            "type": "boolean"
+          },
+          "host_version": {
+            "default": "0.1.5",
+            "title": "Host Version",
+            "type": "string"
+          }
+        },
+        "title": "UpdateNotice",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -6852,6 +6879,34 @@
           }
         ],
         "summary": "Targets",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/updates": {
+      "get": {
+        "operationId": "update_notice_api_updates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateNotice"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Update Notice",
         "x-orion-auth": "owner",
         "x-orion-local-loopback-owner": true
       }

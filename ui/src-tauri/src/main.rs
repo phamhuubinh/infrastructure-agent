@@ -16,6 +16,9 @@ mod tailscale;
 mod updates;
 
 #[cfg(windows)]
+mod startup;
+
+#[cfg(windows)]
 fn main() {
     app::run();
 }

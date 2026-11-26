@@ -1,6 +1,6 @@
 import { newUuid } from "./uuid";
 import { invoke } from "@tauri-apps/api/core";
-import { installNativeHost, type HostSettingsOptions } from "./server-profiles";
+import { installNativeHost, type HostSettingsOptions, type UpdateChannel } from "./server-profiles";
 import type { SecureTokenStore } from "./sdk/client";
 
 type HostInfo = {
@@ -9,6 +9,8 @@ type HostInfo = {
   hostMode?: boolean;
   hostOrigin?: string | null;
   managedError?: string | null;
+  startupProbe?: boolean;
+  releaseChannel?: UpdateChannel;
 };
 type ResponseHead = { status: number; headers: [string, string][] };
 
@@ -19,6 +21,8 @@ export async function installTauriHost() {
     managedError,
     hostMode,
     hostOrigin,
+    startupProbe,
+    releaseChannel,
   } = await invoke<HostInfo>("orion_host");
   if (!["windows", "android", "ios"].includes(platform)) throw new Error("Invalid Orion host");
   const tokens: SecureTokenStore = {
@@ -30,11 +34,26 @@ export async function installTauriHost() {
     appUpdates:
       platform === "windows"
         ? {
-            check: () => invoke("orion_check_update"),
-            openRelease: (version) => invoke("orion_open_update_release", { version }),
+            defaultChannel: releaseChannel,
+            check: async (channel) => {
+              const update = await invoke<{
+                current: string;
+                available: string | null;
+                can_install: boolean;
+              }>("orion_check_update", { channel });
+              return { ...update, can_install: update.can_install && Boolean(managedOrigin) };
+            },
+            openRelease: (version, channel) =>
+              invoke("orion_open_update_release", { version, channel }),
+            install: (version, channel) => invoke("orion_install_update", { version, channel }),
           }
         : undefined,
     platform,
+    startupReady: startupProbe
+      ? () => {
+          void invoke("orion_startup_probe_ready");
+        }
+      : undefined,
     tokens,
     scanConnectionQr: platform === "android" ? () => invoke("orion_scan_qr") : undefined,
     fetch: nativeFetch(false, platform !== "windows"),

@@ -3,10 +3,12 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "orion_host",
+            "orion_startup_probe_ready",
             "orion_stop_host",
             "orion_host_settings",
             "orion_check_update",
             "orion_open_update_release",
+            "orion_install_update",
             "orion_tailscale_status",
             "orion_tailscale_set_enabled",
             "orion_internet_set_enabled",

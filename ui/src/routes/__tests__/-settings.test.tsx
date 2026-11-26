@@ -18,17 +18,44 @@ describe("M1 model settings", () => {
   });
 
   it("checks for a Windows release and opens its page only on request", async () => {
-    const check = vi.fn().mockResolvedValue({ current: "0.1.5", available: "0.1.6" });
+    const check = vi.fn().mockResolvedValue({
+      current: "0.1.5",
+      available: "0.1.6",
+      can_install: false,
+    });
     const openRelease = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(serverProfiles, "desktopAppUpdates").mockReturnValue({ check, openRelease });
+    const install = vi.fn();
+    vi.spyOn(serverProfiles, "desktopAppUpdates").mockReturnValue({ check, openRelease, install });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
     render(<SettingsPage />);
-    expect(check).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra bản cập nhật" }));
     const release = await screen.findByRole("button", { name: "Mở trang tải Orion 0.1.6" });
+    expect(check).toHaveBeenCalledWith("stable");
     expect(openRelease).not.toHaveBeenCalled();
     fireEvent.click(release);
-    expect(openRelease).toHaveBeenCalledWith("0.1.6");
+    expect(openRelease).toHaveBeenCalledWith("0.1.6", "stable");
+    expect(screen.queryByRole("button", { name: "Cập nhật ngay" })).toBeNull();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("hands installation to the local Host for the version checked by the user", async () => {
+    const install = vi.fn().mockRejectedValue("Host đang bận.");
+    vi.spyOn(serverProfiles, "isManagedServer").mockReturnValue(true);
+    vi.spyOn(serverProfiles, "desktopAppUpdates").mockReturnValue({
+      check: vi.fn().mockResolvedValue({ current: "0.1.5", available: "0.1.6", can_install: true }),
+      openRelease: vi.fn(),
+      install,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Kênh cập nhật" }), {
+      target: { value: "preview" },
+    });
+    const button = await screen.findByRole("button", { name: "Cập nhật ngay" });
+    expect(install).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(install).toHaveBeenCalledWith("0.1.6", "preview");
+    await screen.findByText("Host đang bận.");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("loads the active M1 model and posts only the current configuration contract", async () => {

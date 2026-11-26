@@ -24,10 +24,10 @@ Browser and Connection**. Device Chat has separate history and a server-owned
 endpoint binding. It inherits no ordinary Chat attachments or Project knowledge.
 
 The user states the task without a tool picker. Chat, Project and Device Chat
-receive all registered model-callable tool schemas on the first model turn from
-the canonical registry. The model decides whether and which tools to call;
-schema visibility does not grant execution permission. There is no semantic
-pre-router or separate Project/device agent.
+let the model call `tools.enable` to load capability schemas from the canonical registry
+for the current request. A simple turn can answer directly. The runtime validates scope
+and execution permission independently. There is no semantic pre-router or separate
+Project/device agent.
 
 ```text
 Web UI → authenticated API → ChatRuntime → configured ModelBackend
@@ -112,6 +112,8 @@ network; a browser alone cannot grant Orion access to that browser's host OS.
 
 See [Quickstart](docs/QUICKSTART.md), [Testing](docs/development/TESTING.md) and
 [Remote Access](docs/operations/REMOTE_ACCESS.md).
+
+Publish personal Windows Preview builds using the [local release runbook](docs/refactor/PREVIEW_SIGNING.md) and [focused test matrix](docs/refactor/CI_EVIDENCE.md).
 
 ## Documentation authority
 

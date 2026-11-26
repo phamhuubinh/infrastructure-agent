@@ -259,7 +259,9 @@ def stage_desktop(output: Path, sidecar: Path, version: str, source_sha: str) ->
         or sidecar.resolve() != sidecar
         or not (sidecar / "OrionBackend.exe").is_file()
     ):
-        raise ValueError("Expected an existing desktop sidecar and exact build identity")
+        raise ValueError(
+            "Expected an existing desktop sidecar and exact build identity"
+        )
     sidecar_manifest_path = sidecar / "sidecar-manifest.json"
     sidecar_manifest = json.loads(sidecar_manifest_path.read_text(encoding="utf-8"))
     if (
@@ -269,7 +271,9 @@ def stage_desktop(output: Path, sidecar: Path, version: str, source_sha: str) ->
     ):
         raise ValueError("Desktop sidecar build identity mismatch")
     platform = "windows-x64"
-    record = json.loads((output / f"portable-{platform}.json").read_text(encoding="utf-8"))
+    record = json.loads(
+        (output / f"portable-{platform}.json").read_text(encoding="utf-8")
+    )
     filename = f"OrionRemote-{version}-{platform}.zip"
     artifact = record["artifact"]
     digest = artifact.get("sha256", "")
@@ -284,7 +288,12 @@ def stage_desktop(output: Path, sidecar: Path, version: str, source_sha: str) ->
         raise ValueError("Portable archive build identity mismatch")
     directory = sidecar / "worker-artifacts"
     metadata = sidecar / "orion-build.json"
-    if directory.exists() or directory.is_symlink() or metadata.exists() or metadata.is_symlink():
+    if (
+        directory.exists()
+        or directory.is_symlink()
+        or metadata.exists()
+        or metadata.is_symlink()
+    ):
         raise ValueError("Use a freshly built desktop sidecar")
     build = {"version": version, "source_sha": source_sha}
     with tempfile.TemporaryDirectory(prefix=".orion-worker-", dir=sidecar) as temporary:
@@ -313,7 +322,8 @@ def stage_desktop(output: Path, sidecar: Path, version: str, source_sha: str) ->
         )
         staged_manifest = Path(temporary) / sidecar_manifest_path.name
         staged_manifest.write_text(
-            json.dumps(sidecar_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(sidecar_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         staged.rename(directory)
         staged_build.rename(metadata)
@@ -336,6 +346,8 @@ if __name__ == "__main__":
     elif args.stage_desktop:
         if not args.version or not args.source_sha:
             parser.error("--stage-desktop requires --version and --source-sha")
-        stage_desktop(args.output, args.stage_desktop.absolute(), args.version, args.source_sha)
+        stage_desktop(
+            args.output, args.stage_desktop.absolute(), args.version, args.source_sha
+        )
     else:
         print(build(args.repository, args.output, args.allow_dirty))

@@ -13,6 +13,8 @@ use url::Url;
 use crate::managed::ManagedBackend;
 
 pub(crate) const OWNER_HEADER: &str = "x-orion-managed-token";
+#[cfg(any(test, all(windows, feature = "desktop")))]
+const UPDATE_HEADER: &str = "x-orion-local-maintenance";
 
 pub struct Request {
     pub url: String,
@@ -34,6 +36,35 @@ pub struct Transport {
 }
 
 impl Transport {
+    #[cfg(all(windows, feature = "desktop"))]
+    pub async fn update_health(&self, backend: &ManagedBackend) -> bool {
+        let request = Request {
+            url: format!("{}/api/health", backend.origin()),
+            method: "GET".into(), headers: vec![], body: vec![],
+        };
+        let checked = tokio::time::timeout(Duration::from_secs(5), async {
+            let response = self.send(Destination::Managed(backend), request).await.ok()?;
+            if !response.status().is_success() { return None; }
+            let body = response.bytes().await.ok()?;
+            serde_json::from_slice::<serde_json::Value>(&body).ok()
+        }).await;
+        matches!(checked, Ok(Some(value)) if value["identity"] == "orion" && value["status"] == "ok")
+    }
+
+    #[cfg(all(windows, feature = "desktop"))]
+    pub async fn prepare_update(&self, backend: &ManagedBackend) -> io::Result<bool> {
+        let mut token = HeaderValue::from_str(backend.owner_token()).map_err(|_| invalid_request())?;
+        token.set_sensitive(true);
+        let status = self.client
+            .post(format!("{}/api/internal/prepare-update", backend.origin()))
+            .header(OWNER_HEADER, token)
+            .header(UPDATE_HEADER, "1")
+            .timeout(Duration::from_secs(5))
+            .send().await.map_err(|_| io::Error::other("Update preparation failed"))?
+            .status();
+        Ok(status == reqwest::StatusCode::NO_CONTENT)
+    }
+
     pub fn new() -> io::Result<Self> {
         let builder = Client::builder();
         #[cfg(target_os = "android")]
@@ -184,6 +215,7 @@ mod tests {
         }
         for name in [
             OWNER_HEADER,
+            UPDATE_HEADER,
             "Cookie",
             "Origin",
             "Host",

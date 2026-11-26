@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Use `tools.enable` to load request-scoped schemas from the canonical registry under ADR 0019.
+
 ## 0.1.4
 
 - Start Windows Desktop without opening a console and log managed backend startup failures.

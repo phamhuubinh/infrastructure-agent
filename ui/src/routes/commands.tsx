@@ -156,11 +156,19 @@ export function CommandsPage() {
             {selected.omitted_output_bytes ?? 0}.
           </p>
           <h3>stdout</h3>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded border p-3">
+          <pre
+            tabIndex={0}
+            aria-label="stdout"
+            className="max-h-80 max-w-full overflow-auto whitespace-pre rounded border p-3"
+          >
             {output.stdout}
           </pre>
           <h3>stderr</h3>
-          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded border p-3">
+          <pre
+            tabIndex={0}
+            aria-label="stderr"
+            className="max-h-80 max-w-full overflow-auto whitespace-pre rounded border p-3"
+          >
             {output.stderr}
           </pre>
         </section>

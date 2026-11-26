@@ -46,6 +46,7 @@ from orion.api.scheduler import install_scheduler_routes
 from orion.api.schema import annotate_access, request_body_schema
 from orion.api.skills import SKILL_OWNER_ROUTES, install_skill_routes
 from orion.api.system import SYSTEM_OWNER_ROUTES, SYSTEM_PUBLIC_ROUTES, install_system_routes
+from orion.api.updates import ReleaseNotices, UpdateNotice
 from orion.bootstrap import (
     OrionApplication,
     application_context,
@@ -111,6 +112,7 @@ PROTECTED_API_ROUTES = (
     | SKILL_OWNER_ROUTES
     | SYSTEM_OWNER_ROUTES
     | {
+        ("GET", "/api/updates"),
         ("POST", "/api/scheduler/tasks"),
         ("GET", "/api/scheduler/tasks"),
         ("GET", "/api/scheduler/tasks/{task_id}"),
@@ -344,6 +346,7 @@ def create_app(
     remote_config: RemoteAccessConfig | None = None,
     *,
     managed_desktop: bool = False,
+    update_pending: bool = False,
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     remote = remote_config or RemoteAccessConfig.from_environment()
@@ -379,6 +382,8 @@ def create_app(
         ) as running:
             if assembled is None:
                 install(app, running)
+            if update_pending:
+                running.scheduler_engine.pause_for_update(True)
             running.scheduler_engine.start()
             try:
                 yield
@@ -526,6 +531,16 @@ def _install_application_routes(
             is_active=bool(config["is_active"]),
             profile=profile,
         )
+
+    release_notices = ReleaseNotices()
+
+    @app.get("/api/updates", response_model=UpdateNotice)
+    async def update_notice(response: Response) -> UpdateNotice:
+        response.headers["Cache-Control"] = "no-store"
+        if owner is None:
+            # The installer feed is available only for a managed Windows app.
+            return UpdateNotice()
+        return await release_notices.get()
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:

@@ -8,7 +8,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, BinaryIO, Literal
+from typing import Any, Literal, Protocol
 
 import httpx
 from pydantic import Field
@@ -35,6 +35,13 @@ class Metadata(Strict):
     version: str = Field(max_length=32)
     source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     artifacts: list[Artifact] = Field(min_length=1, max_length=2)
+
+
+class ArtifactSnapshot(Protocol):
+    def read(self, size: int = -1, /) -> bytes: ...
+    def write(self, value: bytes, /) -> int: ...
+    def seek(self, offset: int, /) -> int: ...
+    def close(self) -> None: ...
 
 
 def read_small_json(path: Path) -> bytes:
@@ -80,7 +87,7 @@ def local_metadata() -> tuple[Path, Metadata] | None:
         return None
 
 
-def open_local_artifact(filename: str) -> tuple[BinaryIO, int] | None:
+def open_local_artifact(filename: str) -> tuple[ArtifactSnapshot, int] | None:
     local = local_metadata()
     if local is None:
         return None
@@ -89,7 +96,7 @@ def open_local_artifact(filename: str) -> tuple[BinaryIO, int] | None:
     if artifact is None:
         return None
     path = directory / artifact.filename
-    snapshot: BinaryIO | None = None
+    snapshot: ArtifactSnapshot | None = None
     try:
         if path.resolve() != path or not path.is_file():
             raise ValueError("artifact_path")

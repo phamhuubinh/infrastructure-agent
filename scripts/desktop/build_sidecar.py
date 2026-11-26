@@ -42,7 +42,9 @@ def build(wheel: Path, output: Path) -> None:
     ).strip()
     source_dirty = bool(
         subprocess.check_output(
-            ["git", "status", "--porcelain", "--untracked-files=all"], cwd=ROOT, text=True
+            ["git", "status", "--porcelain", "--untracked-files=all"],
+            cwd=ROOT,
+            text=True,
         ).strip()
     )
     output.parent.mkdir(parents=True, exist_ok=True)

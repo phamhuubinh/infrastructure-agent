@@ -5,7 +5,7 @@ on:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,8 +45,7 @@ jobs:
         working-directory: ui
 
   acceptance-extra:
-    needs: [backend, ui]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -69,7 +68,7 @@ jobs:
         run: python backend/scripts/operations_check.py
 
   worker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -141,6 +140,10 @@ jobs:
           export NDK_HOME="$ANDROID_HOME/ndk/29.0.14206865"
           (cd src-tauri && rustup target add x86_64-linux-android)
           npm exec -- tauri android build --ci --debug --apk --target x86_64 --features desktop
+      - name: Prepare Android smoke dependencies
+        run: |
+          python ../scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
+          (cd src-tauri/gen/android && bash ./gradlew --stop)
       - name: Install, launch and resume Orion on Android
         run: |
           image="system-images;android-35;google_apis;x86_64"
@@ -153,22 +156,44 @@ jobs:
           export ANDROID_AVD_HOME="$RUNNER_TEMP/orion-avd"
           mkdir -p "$ANDROID_AVD_HOME"
           df -h "$ANDROID_AVD_HOME"
+          free -m
           printf 'no\n' | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n orion-ci -k "$image"
-          "$ANDROID_HOME/emulator/emulator" -avd orion-ci -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -feature -Vulkan -cores 2 -memory 2048 > "$RUNNER_TEMP/orion-emulator.log" 2>&1 &
-          emulator_pid=$!
-          trap 'status=$?; kill "$emulator_pid" 2>/dev/null || true; if [ "$status" -ne 0 ]; then cat "$RUNNER_TEMP/orion-emulator.log"; fi; exit "$status"' EXIT
           adb="$ANDROID_HOME/platform-tools/adb"
-          for attempt in {1..120}; do
-            kill -0 "$emulator_pid"
-            if "$adb" get-state 2>/dev/null | grep -Fxq device; then break; fi
+          serial=emulator-5554
+          "$adb" version
+          "$adb" start-server
+          "$ANDROID_HOME/emulator/emulator" -avd orion-ci -port 5554 -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader -feature -Vulkan -cores 2 -memory 2048 > "$RUNNER_TEMP/orion-emulator.log" 2>&1 &
+          emulator_pid=$!
+          diagnostics() {
+            free -m
+            df -h "$ANDROID_AVD_HOME"
+            cat /sys/fs/cgroup/memory.events 2>/dev/null || true
+            ps -p "$emulator_pid" -o pid,stat,%cpu,%mem,rss,etime,comm || true
+            timeout 5 "$adb" devices -l || true
+            target_adb shell cat /proc/sys/kernel/random/boot_id || true
+            target_adb shell pidof adbd || true
+            timeout 10 "$adb" -s "$serial" logcat -b system -b crash -d -t 500 > "$RUNNER_TEMP/orion-android-logcat.log" 2>&1 || true
+            tail -n 60 "$RUNNER_TEMP/orion-emulator.log"
+          }
+          trap 'status=$?; if [ "$status" -ne 0 ]; then diagnostics || true; fi; kill "$emulator_pid" 2>/dev/null || true; exit "$status"' EXIT
+          target_adb() { timeout 10 "$adb" -s "$serial" "$@"; }
+          ready=false
+          deadline=$((SECONDS + 240))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if ! kill -0 "$emulator_pid"; then wait "$emulator_pid"; break; fi
+            if target_adb get-state | grep -Fxq device &&
+               target_adb shell getprop sys.boot_completed | tr -d '\r' | grep -Fxq 1 &&
+               target_adb shell service check package | tr -d '\r' | grep -Fxq 'Service package: found' &&
+               target_adb shell service check input_method | tr -d '\r' | grep -Fxq 'Service input_method: found'; then
+              ready=true
+              break
+            fi
             sleep 2
           done
-          "$adb" get-state | grep -Fxq device
-          for attempt in {1..90}; do
-            if [ "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; then break; fi
-            sleep 2
-          done
-          test "$("$adb" shell getprop sys.boot_completed | tr -d '\r')" = 1
+          if [ "$ready" != true ]; then echo 'Android emulator did not become ready'; exit 1; fi
+          "$adb" devices -l
+          target_adb shell cat /proc/sys/kernel/random/boot_id || true
+          target_adb shell pidof adbd || true
           apk=""
           while IFS= read -r candidate; do
             if unzip -Z1 "$candidate" | awk '/^lib\/x86_64\/[^/]+\.so$/ { found=1 } END { exit !found }'; then
@@ -177,15 +202,22 @@ jobs:
             fi
           done < <(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk')
           test -n "$apk"
-          "$adb" install "$apk"
-          "$adb" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
-          "$adb" shell input keyevent KEYCODE_HOME
-          "$adb" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
-          "$adb" shell pidof io.orion.desktop
-          "$adb" uninstall io.orion.desktop
-          python ../scripts/refactor/dev.py bootstrap --backend-only --python "$(command -v python)"
-          serial="$("$adb" get-serialno)"
+          timeout 120 "$adb" -s "$serial" install "$apk"
+          timeout 45 "$adb" -s "$serial" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
+          target_adb shell input keyevent KEYCODE_HOME
+          timeout 45 "$adb" -s "$serial" shell am start -W -n io.orion.desktop/.MainActivity | grep -Fx 'Status: ok'
+          target_adb shell pidof io.orion.desktop
+          target_adb uninstall io.orion.desktop
           python ../scripts/android/smoke.py "$apk" --adb "$adb" --serial "$serial" --extended
+          python ../scripts/android/smoke.py "$apk" --adb "$adb" --serial "$serial" --reconnect-enrollment
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: orion-android-emulator-diagnostics
+          path: |
+            ${{ runner.temp }}/orion-emulator.log
+            ${{ runner.temp }}/orion-android-logcat.log
+          if-no-files-found: ignore
 
   ios:
     runs-on: macos-15

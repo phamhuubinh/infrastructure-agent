@@ -11,8 +11,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: orion-desktop-release
+  cancel-in-progress: false
+
 jobs:
   portable:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     strategy:
       matrix:
         os: [ubuntu-22.04, windows-latest]
@@ -46,7 +51,8 @@ jobs:
           if-no-files-found: error
 
   build:
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -88,7 +94,8 @@ jobs:
           if-no-files-found: error
 
   validate:
-    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -104,7 +111,7 @@ jobs:
 
   smoke-linux:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -214,10 +221,83 @@ jobs:
           python "$env:GITHUB_WORKSPACE/scripts/release/smoke.py" (Join-Path $env:RUNNER_TEMP $name) windows-x64
           if ($LASTEXITCODE -ne 0) { throw 'Release Windows smoke failed' }
 
+  stable-ci-gate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 46
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check manually dispatched CI for this Stable commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release/ci_evidence.py
+
+  windows-updater:
+    needs: stable-ci-gate
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    environment: orion-desktop-stable-signing
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      ORION_UPDATE_SIGNER_SHA256: ${{ vars.ORION_UPDATE_SIGNER_SHA256 }}
+      ORION_RELEASE_CHANNEL: stable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Allocate Windows release version
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STABLE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ORION_UPDATE_SIGNER_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo '::error::Set ORION_UPDATE_SIGNER_SHA256 to the SHA-256 fingerprint in the signing environment.'
+            exit 1
+          fi
+          base="$(python -c 'import ast; print(ast.literal_eval(open("backend/src/orion/_version.py").read().split("__version__ = ")[1].splitlines()[0]))')"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/orion-releases.json"
+          version="$(python scripts/release/desktop_version.py "$base" "$RUNNER_TEMP/orion-releases.json" --stable "$STABLE_VERSION")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build exact Windows NSIS and bundled Worker
+        shell: pwsh
+        env:
+          ORION_DESKTOP_VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/desktop/build-update.ps1
+      - name: Sign, verify and exercise the exact installer
+        shell: pwsh
+        env:
+          ORION_DESKTOP_VERSION: ${{ steps.version.outputs.version }}
+          ORION_SIGNING_PFX_B64: ${{ secrets.ORION_SIGNING_PFX_B64 }}
+          ORION_SIGNING_PFX_PASSWORD: ${{ secrets.ORION_SIGNING_PFX_PASSWORD }}
+        run: ./scripts/desktop/verify-signed-update.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-update
+          path: release-work/desktop-update/*
+          if-no-files-found: error
+
   publish:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    needs: [build, validate, smoke-linux, smoke-windows, portable]
-    runs-on: ubuntu-latest
+    needs: [build, validate, smoke-linux, smoke-windows, portable, windows-updater]
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -227,6 +307,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: orion-release-candidate
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-update
           path: release
       - uses: actions/download-artifact@v4
         with:
@@ -240,6 +324,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          set -euo pipefail
+          (cd release && sha256sum -c DESKTOP-SHA256SUMS)
           tag="v${{ needs.build.outputs.version }}"
           git fetch --tags --force origin
           if git show-ref --verify --quiet "refs/tags/$tag"; then
@@ -248,20 +334,12 @@ jobs:
               exit 1
             }
           fi
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" \
-              release/*.zip \
-              release/*.tar.gz \
-              release/SHA256SUMS \
-              release/worker-artifacts.json \
-              --clobber
-          else
-            gh release create "$tag" \
-              release/*.zip \
-              release/*.tar.gz \
-              release/SHA256SUMS \
-              release/worker-artifacts.json \
-              --target "${{ github.sha }}" \
-              --title "Orion $tag" \
-              --generate-notes
-          fi
+          gh release create "$tag" \
+            release/*.zip \
+            release/*.tar.gz \
+            release/SHA256SUMS \
+            release/*-setup.exe release/DESKTOP-SHA256SUMS \
+            release/worker-artifacts.json \
+            --target "$GITHUB_SHA" \
+            --title "Orion $tag" \
+            --generate-notes

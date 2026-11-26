@@ -25,17 +25,25 @@ const WINDOW: &str = "main";
 
 struct Host {
     #[cfg(windows)]
-    backend: Option<ManagedBackend>,
+    startup: Arc<BackendStartup>,
     #[cfg(windows)]
-    backend_error: Option<&'static str>,
-    #[cfg(windows)]
-    keep_host_running: bool,
+    configured_host: bool,
     #[cfg(windows)]
     host_origin: Option<String>,
     #[cfg(windows)]
     serve: tokio::sync::Mutex<Option<&'static str>>,
+    #[cfg(windows)]
+    updating: tokio::sync::Mutex<()>,
+    #[cfg(windows)]
+    updates_allowed: bool,
     transport: Transport,
     pending: Mutex<HashMap<String, Arc<Pending>>>,
+}
+
+#[cfg(windows)]
+struct BackendStartup {
+    result: std::sync::OnceLock<(Option<ManagedBackend>, Option<&'static str>)>,
+    ready: tokio::sync::watch::Receiver<bool>,
 }
 
 struct Pending {
@@ -64,6 +72,10 @@ struct HostInfo {
     host_mode: bool,
     #[cfg(windows)]
     host_origin: Option<String>,
+    #[cfg(windows)]
+    startup_probe: bool,
+    #[cfg(windows)]
+    release_channel: &'static str,
 }
 
 #[derive(Serialize)]
@@ -73,6 +85,16 @@ struct ResponseHead {
 }
 
 impl Host {
+    #[cfg(windows)]
+    fn backend(&self) -> Option<&ManagedBackend> {
+        self.startup.result.get().and_then(|(backend, _)| backend.as_ref())
+    }
+
+    #[cfg(windows)]
+    fn keep_host_running(&self) -> bool {
+        self.configured_host && self.backend().is_some()
+    }
+
     fn entry(&self, id: &str) -> Result<Arc<Pending>, &'static str> {
         self.pending
             .lock()
@@ -100,8 +122,13 @@ impl Host {
 }
 
 #[tauri::command]
-fn orion_host(_state: State<'_, Host>) -> HostInfo {
-    HostInfo {
+async fn orion_host(_app: tauri::AppHandle, _state: State<'_, Host>) -> Result<HostInfo, &'static str> {
+    #[cfg(windows)]
+    {
+        let mut ready = _state.startup.ready.clone();
+        ready.wait_for(|ready| *ready).await.map_err(|_| "Orion backend startup was interrupted")?;
+    }
+    Ok(HostInfo {
         #[cfg(windows)]
         platform: "windows",
         #[cfg(target_os = "android")]
@@ -109,18 +136,31 @@ fn orion_host(_state: State<'_, Host>) -> HostInfo {
         #[cfg(target_os = "ios")]
         platform: "ios",
         #[cfg(windows)]
-        managed_origin: _state
-            .backend
-            .as_ref()
-            .map(|backend| backend.origin().to_owned()),
+        managed_origin: _state.backend().map(|backend| backend.origin().to_owned()),
         #[cfg(any(target_os = "android", target_os = "ios"))]
         managed_origin: None,
         #[cfg(windows)]
-        managed_error: _state.backend_error,
+        managed_error: _state.startup.result.get().and_then(|(_, error)| *error),
         #[cfg(windows)]
-        host_mode: _state.keep_host_running,
+        host_mode: _state.keep_host_running(),
         #[cfg(windows)]
         host_origin: _state.host_origin.clone(),
+        #[cfg(windows)]
+        startup_probe: _app.try_state::<crate::startup::StartupProbe>().is_some(),
+        #[cfg(windows)]
+        release_channel: option_env!("ORION_RELEASE_CHANNEL").unwrap_or("stable"),
+    })
+}
+
+#[cfg(windows)]
+#[tauri::command]
+fn orion_startup_probe_ready(app: tauri::AppHandle) {
+    if let Some(probe) = app.try_state::<crate::startup::StartupProbe>() {
+        probe.mark("ui_ready");
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            app.exit(0);
+        });
     }
 }
 
@@ -195,7 +235,7 @@ async fn start(state: &Host, id: &str, body: Vec<u8>) -> Result<ResponseHead, &'
         .ok_or(INVALID)?;
     #[cfg(windows)]
     let destination = if prepared.managed {
-        let Some(backend) = &state.backend else {
+        let Some(backend) = state.backend() else {
             state.close(id);
             return Err("Managed Orion backend is unavailable");
         };
@@ -383,7 +423,7 @@ fn allow_navigation(url: &url::Url) -> bool {
 #[cfg(windows)]
 #[tauri::command]
 async fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result<(), &'static str> {
-    if !host.keep_host_running {
+    if !host.keep_host_running() {
         return Err("Host Mode is not active");
     }
     let _operation = host.serve.lock().await;
@@ -393,10 +433,72 @@ async fn orion_stop_host(app: tauri::AppHandle, host: State<'_, Host>) -> Result
 
 #[cfg(windows)]
 #[tauri::command]
+async fn orion_install_update(
+    app: tauri::AppHandle,
+    host: State<'_, Host>,
+    version: String,
+    channel: crate::updates::Channel,
+) -> Result<(), &'static str> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    const FAILED: &str = "Không hoàn tất cập nhật. Orion sẽ mở lại trước khi thử lại.";
+
+    if !host.updates_allowed {
+        return Err("Phiên Orion này không hỗ trợ cài bản cập nhật.");
+    }
+    let _update = host.updating.try_lock().map_err(|_| "Orion đang chuẩn bị bản cập nhật.")?;
+    let backend = host.backend().ok_or("Backend cục bộ chưa sẵn sàng.")?;
+    let executable = std::env::current_exe().map_err(|_| FAILED)?;
+    let install_directory = executable.parent().ok_or(FAILED)?.to_path_buf();
+    let default_install = std::env::var_os("LOCALAPPDATA").ok_or(FAILED)
+        .map(std::path::PathBuf::from)?.join("Orion").canonicalize().map_err(|_| FAILED)?;
+    let sidecar = app.path().resource_dir().map_err(|_| FAILED)?.join("backend/OrionBackend.exe");
+    if install_directory.canonicalize().ok().as_ref() != Some(&default_install)
+        || !sidecar.is_file()
+        || executable.file_name().and_then(|name| name.to_str()) != Some("Orion.exe") {
+        return Err("Chỉ có thể cập nhật cài đặt Orion Windows hiện tại.");
+    }
+    let staged = crate::updates::stage(&app, &version, channel).await?;
+    if !tauri::async_runtime::spawn_blocking(crate::updates::confirm_maintenance)
+        .await.map_err(|_| FAILED)?
+    {
+        return Err("Đã hủy cập nhật Orion.");
+    }
+    let _serve = host.serve.lock().await;
+    if !host.transport.prepare_update(backend).await.unwrap_or(false) {
+        return Err("Host đang bận hoặc chưa thể vào bảo trì. Hãy thử lại sau.");
+    }
+
+    let handle = app.clone();
+    let mode = if host.keep_host_running() { "host" } else { "client" };
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<Host>();
+        state.backend().ok_or(FAILED)?.shutdown().map_err(|_| FAILED)?;
+        let mut command = Command::new(sidecar);
+        command.arg("--snapshot-for-update").arg(install_directory).arg(staged.receipt()).arg(mode)
+            .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        let status = crate::updates::wait_for_status(&mut command, std::time::Duration::from_secs(300))
+            .map_err(|_| FAILED)?;
+        if !status.success() {
+            return Err("Sao lưu chưa được xác minh. Orion sẽ mở lại.");
+        }
+        staged.hand_off(&executable)
+    }).await.unwrap_or(Err(FAILED));
+    if let Err(error) = prepared {
+        app.request_restart();
+        return Err(error);
+    }
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(windows)]
+#[tauri::command]
 async fn orion_tailscale_status(host: State<'_, Host>) -> Result<crate::tailscale::Status, &'static str> {
     let operation = host.serve.lock().await;
     let settings = remote_settings()?;
-    let backend = host.backend.as_ref().map(|backend| backend.origin().to_owned());
+    let backend = host.backend().map(|backend| backend.origin().to_owned());
     Ok(crate::tailscale::inspect(backend, host.host_origin.clone()).await
         .with_settings(settings.remote_access,
             settings.serve_owned, *operation))
@@ -424,7 +526,7 @@ async fn orion_tailscale_set_enabled(app: tauri::AppHandle, host: State<'_, Host
         app.request_restart();
         return Ok(crate::tailscale::inspect(None, None).await);
     }
-    let backend = host.backend.as_ref().ok_or("Backend cục bộ chưa sẵn sàng.")?;
+    let backend = host.backend().ok_or("Backend cục bộ chưa sẵn sàng.")?;
     if !crate::tailscale::owner_ready(backend, &host.transport).await {
         return Err("Thiết lập và xác minh tài khoản Owner trước khi bật Serve.");
     }
@@ -463,7 +565,7 @@ async fn orion_internet_set_enabled(host: State<'_, Host>, enabled: bool, confir
     -> Result<crate::tailscale::Status, &'static str> {
     let _operation = host.serve.lock().await;
     let mut settings = remote_settings()?;
-    let backend = host.backend.as_ref().ok_or("Backend cục bộ chưa sẵn sàng.")?;
+    let backend = host.backend().ok_or("Backend cục bộ chưa sẵn sàng.")?;
     if !settings.enabled || !settings.remote_access
         || backend.origin() != crate::tailscale::HOST_BACKEND
         || host.host_origin.as_deref() != Some(settings.origin.as_str()) {
@@ -512,7 +614,7 @@ async fn configure_remote_serve(host: &Host, requested: bool) -> Result<(), &'st
         store_remote_settings(settings)?;
         settings = remote_settings()?;
     }
-    let backend = host.backend.as_ref().ok_or("Backend Host Mode chưa sẵn sàng.")?;
+    let backend = host.backend().ok_or("Backend Host Mode chưa sẵn sàng.")?;
     if backend.origin() != crate::tailscale::HOST_BACKEND
         || host.host_origin.as_deref() != Some(settings.origin.as_str())
         || !crate::tailscale::owner_ready(backend, &host.transport).await
@@ -549,81 +651,148 @@ fn orion_save_host_settings(app: tauri::AppHandle, mut settings: crate::host_set
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(windows)]
-    let builder = builder
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+    let probe = crate::startup::StartupProbe::from_args().expect("valid startup probe arguments");
+    #[cfg(windows)]
+    let builder = if probe.is_none() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window(WINDOW) {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
         }))
-        .setup(|app| {
-            let settings = crate::host_settings::Settings::read()?;
-            let backend_path = app.path().resource_dir()?.join("backend/OrionBackend.exe");
-            let data_path = app.path().app_local_data_dir()?.join("managed");
-            let (backend, backend_error) = match ManagedBackend::start_configured(&backend_path, &data_path, |child| {
-                if let Some(settings) = &settings {
-                    settings.configure(child);
-                }
-            }) {
-                Ok(backend) => (Some(backend), None),
-                Err(error) => {
-                    let reason = match error.kind() {
-                        std::io::ErrorKind::NotFound => "Không tìm thấy tệp backend cục bộ.",
-                        std::io::ErrorKind::PermissionDenied => {
-                            "Orion không có quyền mở backend hoặc thư mục dữ liệu."
-                        }
-                        std::io::ErrorKind::TimedOut => {
-                            "Backend cục bộ khởi động quá thời gian chờ."
-                        }
-                        _ => "Backend cục bộ không khởi động được.",
-                    };
-                    (None, Some(reason))
-                }
+    } else {
+        builder
+    };
+    #[cfg(windows)]
+    let builder = builder
+        .setup(move |app| {
+            let settings = if probe.is_none() { crate::host_settings::Settings::read()? } else { None };
+            let post_update = if probe.is_none() { crate::updates::boot_directory(app.handle())? } else { None };
+            let (backend_path, data_path) = if let Some(probe) = &probe {
+                (probe.backend.clone(), probe.directory.join("managed"))
+            } else {
+                (app.path().resource_dir()?.join("backend/OrionBackend.exe"),
+                 app.path().app_local_data_dir()?.join("managed"))
             };
-            let configured_host = settings.as_ref().map(|settings| settings.enabled)
+            let configured_host = probe.is_none() && settings.as_ref().map(|settings| settings.enabled)
                 .unwrap_or_else(|| std::env::var("ORION_DESKTOP_HOST_MODE").as_deref() == Ok("1"));
-            let keep_host_running = backend.is_some() && configured_host;
-            let host_origin = if keep_host_running {
+            let host_origin = if configured_host {
                 settings.as_ref().map(|settings| settings.origin.clone())
                     .or_else(|| std::env::var("ORION_PUBLIC_ORIGIN").ok())
             } else { None };
+            let transport = Transport::new()?;
+            let (publish, ready) = tokio::sync::watch::channel(false);
+            let startup = Arc::new(BackendStartup { ready, result: std::sync::OnceLock::new() });
             app.manage(Host {
-                backend,
-                keep_host_running,
+                startup: startup.clone(),
+                configured_host,
                 host_origin,
                 serve: Default::default(),
-                backend_error,
-                transport: Transport::new()?,
+                updating: Default::default(),
+                updates_allowed: probe.is_none(),
+                transport,
                 pending: Mutex::new(HashMap::new()),
             });
-            WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("_shell.html".into()))
+            // Initialize WebView2 and the managed process at the same time.
+            // Native IPC still waits for the complete, validated backend readiness.
+            let handle = app.handle().clone();
+            let worker_probe = probe.clone();
+            let product_version = app.package_info().version.to_string();
+            let (window_built, window_ready) = std::sync::mpsc::sync_channel(1);
+            std::thread::Builder::new().name("orion-backend-startup".into()).spawn(move || {
+                if let Some(probe) = &worker_probe { probe.mark("backend_start"); }
+                let result = ManagedBackend::start_configured(&backend_path, &data_path, |child| {
+                    if worker_probe.is_some() {
+                        for (key, _) in std::env::vars_os() {
+                            if key.to_string_lossy().to_ascii_uppercase().starts_with("ORION_") {
+                                child.env_remove(key);
+                            }
+                        }
+                        child.env("ORION_DATA_DIR", &data_path);
+                        child.env("ORION_STARTUP_PROBE", "1");
+                    } else if let Some(settings) = &settings {
+                        settings.configure(child);
+                    }
+                    child.env("ORION_DESKTOP_RELEASE_VERSION", &product_version);
+                    child.env("ORION_DESKTOP_RELEASE_CHANNEL", option_env!("ORION_RELEASE_CHANNEL").unwrap_or("stable"));
+                    if let Some(directory) = &post_update {
+                        child.env("ORION_UPDATE_COMMIT", directory.join("committed.txt"));
+                    }
+                });
+                if let Some(probe) = &worker_probe {
+                    probe.mark(if result.is_ok() { "backend_ready" } else { "backend_failed" });
+                }
+                if let Some(directory) = &post_update {
+                    let host = handle.state::<Host>();
+                    let healthy = result.as_ref().is_ok_and(|backend| {
+                        tauri::async_runtime::block_on(host.transport.update_health(backend))
+                    });
+                    if !healthy || window_ready.recv_timeout(std::time::Duration::from_secs(15)).is_err()
+                        || crate::updates::report_healthy(directory).is_err()
+                    {
+                        // Drop the backend's owned job before the updater resumes rollback.
+                        drop(result);
+                        handle.exit(1);
+                        return;
+                    }
+                }
+                let result = match result {
+                    Ok(backend) => (Some(backend), None),
+                    Err(error) => {
+                        let message = match error.kind() {
+                            std::io::ErrorKind::NotFound => "Không tìm thấy tệp backend cục bộ.",
+                            std::io::ErrorKind::PermissionDenied => "Orion không có quyền mở backend hoặc thư mục dữ liệu.",
+                            std::io::ErrorKind::TimedOut => "Backend cục bộ khởi động quá thời gian chờ.",
+                            _ => "Backend cục bộ không khởi động được.",
+                        };
+                        (None, Some(message))
+                    }
+                };
+                let _ = startup.result.set(result);
+                let _ = publish.send(true);
+                if post_update.is_none() && worker_probe.is_none() {
+                    tauri::async_runtime::spawn(async move {
+                        let host = handle.state::<Host>();
+                        let mut operation = host.serve.lock().await;
+                        *operation = configure_remote_serve(&host, false).await.err();
+                    });
+                }
+            })?;
+            let page_probe = probe.clone();
+            let window = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("_shell.html".into()))
                 .title("Orion")
                 .inner_size(1200.0, 780.0)
                 .min_inner_size(480.0, 480.0)
                 .devtools(false)
                 .on_navigation(allow_navigation)
                 .on_new_window(|_, _| NewWindowResponse::Deny)
-                .on_page_load(|window, payload| {
+                .on_page_load(move |window, payload| {
                     if payload.event() == tauri::webview::PageLoadEvent::Started {
                         window.state::<Host>().cancel_all();
+                    } else if let Some(probe) = &page_probe {
+                        probe.mark("page_loaded");
                     }
-                })
-                .build()?;
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let host = handle.state::<Host>();
-                let mut operation = host.serve.lock().await;
-                *operation = configure_remote_serve(&host, false).await.err();
-            });
+                });
+            if let Some(probe) = &probe {
+                app.manage(probe.clone());
+                probe.mark("webview_start");
+                window.data_directory(probe.directory.join("webview")).build()?;
+                probe.mark("webview_created");
+            } else {
+                window.build()?;
+            }
+            let _ = window_built.send(());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             orion_host,
+            orion_startup_probe_ready,
             orion_stop_host,
             orion_host_settings,
             crate::updates::orion_check_update,
             crate::updates::orion_open_update_release,
+            orion_install_update,
             orion_tailscale_status,
             orion_tailscale_set_enabled,
             orion_internet_set_enabled,
@@ -695,7 +864,11 @@ pub fn run() {
                 ..
             } = &event
             {
-                if label == WINDOW && app.state::<Host>().keep_host_running {
+                let state = app.state::<Host>();
+                if label == WINDOW
+                    && (state.keep_host_running()
+                        || (state.configured_host && state.startup.result.get().is_none()))
+                {
                     if let Some(window) = app.get_webview_window(WINDOW) {
                         if window.hide().is_ok() {
                             api.prevent_close();
@@ -707,7 +880,7 @@ pub fn run() {
                 let state = app.state::<Host>();
                 state.cancel_all();
                 #[cfg(windows)]
-                if let Some(backend) = &state.backend {
+                if let Some(backend) = state.backend() {
                     let _ = backend.shutdown();
                 }
             }

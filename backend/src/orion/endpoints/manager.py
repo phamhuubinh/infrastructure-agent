@@ -147,9 +147,12 @@ class EndpointManager:
         finally:
             if ping_task:
                 ping_task.cancel()
-                await asyncio.gather(ping_task, return_exceptions=True)
+            # Forget the session before awaiting the heartbeat. The socket
+            # handler can be cancelled while joining that task.
             if connection is not None:
                 await self.detach(endpoint_id, connection)
+            if ping_task:
+                await asyncio.gather(ping_task, return_exceptions=True)
             with contextlib.suppress(Exception):
                 await socket.close()
 
