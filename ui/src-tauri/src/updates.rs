@@ -535,7 +535,7 @@ $ErrorActionPreference = 'Stop'
 $null = Get-AuthenticodeSignature -LiteralPath (Join-Path $PSHOME 'powershell.exe')
 $module = Get-Module Microsoft.PowerShell.Security
 if ($PSVersionTable.PSEdition -ne 'Desktop' -or
-    $module.ModuleBase -notlike (Join-Path $PSHOME 'Modules\*')) {
+    $module.Path -ne (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1')) {
     throw 'Signature verification used the wrong PowerShell module.'
 }
 "#).unwrap();
