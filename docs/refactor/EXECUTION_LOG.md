@@ -310,3 +310,9 @@
 - Nguồn ứng viên `f41c4035f1bf159fa1fb3fe3263fae98ca6c3205`. Build release bằng Python 3.12.10, Node 22.23.2 và Rust 1.99.1 Windows GNU. Vite sinh lại route tree byte-for-byte theo Git. Đã khôi phục trạng thái checkout sạch sau khi đối chiếu hash, và thêm kiểm tra cho lần build tiếp theo.
 - NSIS chưa ký, 91.369.422 byte, tại `F:/Orion-toolchains/orion-preview-016-final/release-work/desktop-update/Orion_0.1.6_x64-setup.exe`. SHA-256 `bbf3dfa8f1e0cc991329c23064e8498548a7e2883daaef708370c4d664c4e68e`. Đã kiểm archive, version resource 0.1.6, signer pin nhúng và hash 844 tệp backend/Worker và 72 tệp UI. 31 ca backend, 17 ca UI, smoke backend đóng gói và smoke Worker portable đều đạt. Một build đối chứng bằng Python 3.12.14 đi kèm Codex thất bại ở chat đóng gói. Ứng viên dùng Python 3.12.10 theo pin của repo.
 - `PENDING_MANUAL`: CER gốc đúng fingerprint, khóa riêng tương ứng chưa khả dụng trong kho ký Windows. Windows Sandbox trên máy này đang tắt. Cần mở khóa gốc và kiểm đúng NSIS đã ký trong Windows cô lập trước khi tạo tag và GitHub Release. Các tiến trình Host tiếp tục chạy. Funnel và dữ liệu Host được giữ nguyên.
+
+
+### 2026-11-27 · Cập nhật Orion Preview và môi trường PowerShell
+
+- Host thực tế đã cập nhật từ 0.1.6 lên 0.1.7 qua giao diện sau khi chủ máy mở lại Orion. Biên bản handoff ghi `Installed`. SHA-256 của tệp tải khớp Release. Bản sao lưu tự động, SQLite, Owner/MFA, tệp DPAPI, autostart và cấu hình Host/Serve đã được đối chiếu. Health nội bộ và Funnel trả `ok`. API Projects qua Funnel trả 401 nếu thiếu phiên Owner.
+- Tái hiện lỗi xác minh trên tệp đã ký khi tiến trình Orion kế thừa `PSModulePath` của PowerShell 7. Windows PowerShell 5.1 tìm thấy mô-đun Security nhưng không nạp được. Loại biến kế thừa này riêng cho tiến trình con dùng để xác minh chữ ký và bàn giao. Ca hồi quy kiểm lệnh xác minh sử dụng mô-đun Security dưới `PSHOME` của Windows PowerShell.

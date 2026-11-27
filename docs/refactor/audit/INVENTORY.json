@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "source_commit": "f41c4035f1bf159fa1fb3fe3263fae98ca6c3205",
+  "source_commit": "38644458d207d863408c7679d9aa41af22868e81",
   "scope": "Every project file, tracked/untracked/ignored, except Git metadata, local Graphify/cache/build outputs and the three derived audit files. Prior reviewed removed-file records remain.",
   "excluded_derived_outputs": [
     "docs/refactor/audit/FILE_REVIEW.csv",
@@ -7534,8 +7534,8 @@
     {
       "path": "docs/refactor/EXECUTION_LOG.md",
       "kind": "text",
-      "bytes": 70960,
-      "sha256": "2bd427cc14d272ef642e43c1f3ab02255527a74938a7d62d032c95a6fe10076e",
+      "bytes": 71882,
+      "sha256": "a026dc326795dc0f6083832aea0f3d3c78c0bd7c95f96409c23abcf3f68882c8",
       "group": "documentation",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
@@ -7544,7 +7544,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 312,
+      "lines": 318,
       "python_syntax": null
     },
     {
@@ -7971,11 +7971,11 @@
       "group": "tooling-qa",
       "git_state": "tracked",
       "candidate": "review_against_clean_slate_design",
-      "review_status": "unreviewed",
-      "final_action": "",
-      "reason": "",
-      "replacement_or_callers": "",
-      "verification": "",
+      "review_status": "reviewed",
+      "final_action": "keep",
+      "reason": "Build exact committed source and handle Git checkout EOL for the generated route tree.",
+      "replacement_or_callers": "Preview runbook and manual Stable release.",
+      "verification": "Local NSIS build plus guard tests for identical bytes and substantive edits.",
       "lines": 67,
       "python_syntax": null
     },
@@ -10750,8 +10750,8 @@
     {
       "path": "ui/src-tauri/src/updates.rs",
       "kind": "text",
-      "bytes": 21561,
-      "sha256": "d55a5ded1cda9570a0af5e3c1490da8f5adefa810b7715db226f31f99d968a18",
+      "bytes": 22775,
+      "sha256": "22941f3a804f95ee3ecf1eb9a8904b0160c1febe0556c562654fd9380e11c75a",
       "group": "client",
       "git_state": "tracked",
       "candidate": "rewrite_or_reuse_after_contract_review",
@@ -10760,7 +10760,7 @@
       "reason": "",
       "replacement_or_callers": "",
       "verification": "",
-      "lines": 536,
+      "lines": 564,
       "python_syntax": null
     },
     {
