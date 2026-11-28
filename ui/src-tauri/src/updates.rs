@@ -278,6 +278,8 @@ impl StagedUpdate {
             .join("System32/WindowsPowerShell/v1.0/powershell.exe"));
         command
             .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script])
+            // A PowerShell 7 launcher can put incompatible modules ahead of the 5.1 modules.
+            .env_remove("PSModulePath")
             .env("ORION_UPDATE_FILE", self.installer())
             .env("ORION_UPDATE_VERSION", &self.version)
             .env("ORION_UPDATE_HASH", &self.hash)
@@ -518,6 +520,32 @@ mod tests {
         assert!(available_release([0, 1, 5], Channel::Stable, preview()).is_none());
         assert!(available_release([0, 1, 10], Channel::Preview, preview()).is_none());
     }
+
+    #[test]
+    fn windows_update_uses_windows_powershell_security_module() {
+        let update = StagedUpdate {
+            directory: PathBuf::new(),
+            version: "0.1.6".into(),
+            hash: "0".repeat(64),
+            signer: "1111111111111111111111111111111111111111111111111111111111111111",
+            handed_off: true,
+        };
+        let mut command = update.powershell(r#"
+$ErrorActionPreference = 'Stop'
+$null = Get-AuthenticodeSignature -LiteralPath (Join-Path $PSHOME 'powershell.exe')
+$module = Get-Module Microsoft.PowerShell.Security
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or
+    $module.Path -ne (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1')) {
+    throw 'Signature verification used the wrong PowerShell module.'
+}
+"#).unwrap();
+        assert!(command.get_envs().any(|(key, value)| {
+            key == std::ffi::OsStr::new("PSModulePath") && value.is_none()
+        }));
+        let output = command.stderr(Stdio::piped()).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
 
     #[test]
     #[ignore = "requires a local unsigned installer fixture"]
