@@ -319,3 +319,10 @@
 - Chạy từ PowerShell 7, bốn bài kiểm thử updater đạt, gồm ca hồi quy dùng `Get-AuthenticodeSignature` thật. Bài kiểm riêng với NSIS không ký cũng đạt.
 - Build 0.1.8 từ `ec009e3` trên máy local và ký bằng chứng chỉ Preview hiện tại. SHA-256 của NSIS `6c7a86efcbb136779f89cb0a2e24a2bf8b20f19c856def179805966205405b57` khớp bộ cài nghiệm thu và tài sản GitHub Release `orion-preview-v0.1.8`. Trong Windows Sandbox, mô phỏng cập nhật thất bại đã khôi phục 0.1.7, sau đó cập nhật thành công lên 0.1.8. Cả hai lần đều kiểm phiên bản, khả năng mở Orion và bảo toàn dữ liệu fixture.
 - Cửa sổ Cài đặt của tiến trình 0.1.7 đang chạy nhận được 0.1.8 trên kênh Preview. Đã ghi PID và thời điểm khởi chạy để đối chiếu khi chủ máy xác nhận cập nhật.
+
+### 2026-11-28 · Hoàn tất nghiệm thu cập nhật một chạm trên Host
+
+- Chủ máy xác nhận cập nhật ngay trong Orion 0.1.7 đang chạy. Orion tự mở lại ở 0.1.8 và Windows cũng ghi phiên bản cài đặt 0.1.8. Nhật ký updater ghi `Installed` lúc 20:07:37 (giờ Việt Nam), cùng dấu xác nhận khởi động khỏe và hoàn tất. Authenticode hợp lệ, có dấu thời gian và đúng fingerprint Preview. SHA-256 của bộ NSIS đã tải khớp GitHub Release và mẫu đã nghiệm thu trong Windows Sandbox.
+- Cả 30 bảng SQLite khớp bản sao lưu tự động trước khi cập nhật và qua kiểm tra toàn vẹn. Khóa API giải mã được qua DPAPI và khớp giá trị trước cập nhật. Cấu hình Owner MFA, Host, Serve và autostart được xác minh. Health nội bộ và Funnel đều trả `ok`. API Projects yêu cầu đăng nhập Owner và trả 401 khi thiếu phiên.
+- Phiên web đã đăng nhập Owner qua Funnel tải được 4 hội thoại, đọc được lịch sử có sẵn và trang Projects hiển thị trạng thái trống. Hai số lượng khớp dữ liệu trên Host 0.1.8. Sáu tài nguyên JS/CSS đầu vào qua Funnel khớp byte với Web đi kèm bộ cài. Mục Cập nhật Orion và số phiên bản cài đặt thuộc ứng dụng desktop.
+- Kết luận nghiệm thu đạt cho cập nhật một chạm 0.1.7 → 0.1.8 trên Host thật và kết nối client web qua Funnel. Rollback đã được kiểm thử trên đúng bộ cài ký trong Windows Sandbox. Lần chốt này chỉ lưu biên bản và không tạo bản phát hành hoặc chạy GitHub Actions.
